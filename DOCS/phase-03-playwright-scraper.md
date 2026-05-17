@@ -9,6 +9,14 @@ Implement headless Firefox scraping via Playwright to discover and extract all p
 - Page scraping: content extraction (trafilatura-style), asset download
 - Clean HTML generation with rewritten URLs
 - Full-space crawl orchestration
+- Structured logging throughout scraper lifecycle
+
+## Logging Strategy
+- Use `logging.Sugar` injected via constructors in all scraper packages
+- Log at INFO for page start/end, WARN for retries, ERROR for failures
+- Include `space_key`, `page_id`, `page_title` in all page-related log entries
+- Include `remote_addr` in HTTP requests during asset download
+- Log browser lifecycle events (launch, navigate, close)
 
 ## Tasks
 
@@ -18,6 +26,7 @@ Implement headless Firefox scraping via Playwright to discover and extract all p
   - Launch Firefox headless: `browser.NewContext()` with persistent context for cookies
   - Configure viewport, user agent (match Firefox on desktop)
   - Handle browser binary location (system install or bundled)
+  - **Log browser launch/close events**, log viewport config
 
 ### 3.2 — Space Page Discovery
 - `internal/scraper/page.go`:
@@ -27,6 +36,7 @@ Implement headless Firefox scraping via Playwright to discover and extract all p
   - Build a page tree: `{ pageId, title, url, parentId, level }`
   - Handle Confluence's dynamic sidebar (wait for JS rendering)
   - Deduplicate pages by confluence_id
+  - **Log space root navigation, page discovery count, duplicates skipped**
 
 ### 3.3 — Page Content Extraction (Trafilatura-style)
 - `internal/scraper/page.go`:
@@ -42,6 +52,7 @@ Implement headless Firefox scraping via Playwright to discover and extract all p
     - Keep: code blocks (`<pre>`, `<code>`), tables, images
   - Extract text for embedding (plain text from cleaned HTML)
   - Preserve: headings (h1-h6), lists, links, code blocks, tables, images
+  - **Log content extraction progress, stripped elements count, text length for embedding**
 
 ### 3.4 — Clean HTML Generation
 - `internal/storage/writer.go`:
@@ -52,6 +63,7 @@ Implement headless Firefox scraping via Playwright to discover and extract all p
     - Attachment URLs → local `assets/attachments/`
   - Preserve: CSS classes that affect readability (strip layout classes)
   - Inline critical CSS for offline viewing (optional, can be separate file)
+  - **Log HTML generation with byte size, URL rewrites count**
 
 ### 3.5 — Asset Download
 - `internal/storage/asset.go`:
@@ -60,6 +72,7 @@ Implement headless Firefox scraping via Playwright to discover and extract all p
   - Track downloaded assets in metadata.json
   - Rate limiting: respect Confluence server, add delays between requests
   - Retry logic with exponential backoff
+  - **Log each asset download (URL, bytes, status), rate limit wait times, retry attempts**
 
 ### 3.6 — Crawl Orchestration
 - `internal/scraper/scraper.go`:
@@ -76,6 +89,7 @@ Implement headless Firefox scraping via Playwright to discover and extract all p
     5. Close browser context
   - Progress reporting: emit events/callbacks for crawl status
   - Error handling: skip failed pages, log errors, continue with next
+  - **Log crawl start/end with duration, per-page progress, asset totals, per-page errors, summary stats**
 
 ### 3.7 — CLI Integration
 - `cmd/cli/main.go`:
@@ -83,6 +97,7 @@ Implement headless Firefox scraping via Playwright to discover and extract all p
   - Loads config, validates session, runs full crawl
   - Progress output: "Crawling page 15/142: Page Title..."
   - Summary: "Crawl complete: 142 pages, 89 images, 12 attachments"
+  - **Use structured logger instead of fmt for progress, include request_id for crawl job**
 
 ## Acceptance Criteria
 - Full Confluence space can be crawled headlessly with Firefox
@@ -91,3 +106,4 @@ Implement headless Firefox scraping via Playwright to discover and extract all p
 - Assets (images, attachments) are downloaded and linked
 - Raw HTML is preserved as fallback
 - CLI command `crawl` completes successfully on a test space
+- All scraper events are logged with structured fields (page_id, space_key, duration, bytes)

@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/vkh/spacemosquito/pkg/logging"
 )
 
 type Metadata struct {
@@ -29,41 +31,97 @@ type AssetRef struct {
 
 type Writer struct {
 	basePath string
+	log      logging.Sugar
 }
 
-func NewWriter(basePath string) *Writer {
-	return &Writer{basePath: basePath}
+func NewWriter(basePath string, log logging.Sugar) *Writer {
+	return &Writer{basePath: basePath, log: log}
 }
 
 func (w *Writer) MakePageDir(spaceKey, pageTitle string) (string, error) {
 	safeTitle := sanitizeFilename(pageTitle)
 	dir := filepath.Join(w.basePath, spaceKey, safeTitle)
 	if err := os.MkdirAll(dir, 0755); err != nil {
+		if w.log.Enabled() {
+			w.log.Errorw("make page dir failed: directory creation",
+				"space", spaceKey,
+				"title", pageTitle,
+				"path", dir,
+				"error", err)
+		}
 		return "", fmt.Errorf("create page dir: %w", err)
+	}
+	if w.log.Enabled() {
+		w.log.Infow("page directory created",
+			"space", spaceKey,
+			"title", pageTitle,
+			"path", dir)
 	}
 	return dir, nil
 }
 
 func (w *Writer) SaveHTML(dir, html string) error {
-	return os.WriteFile(filepath.Join(dir, "index.html"), []byte(html), 0644)
+	path := filepath.Join(dir, "index.html")
+	if err := os.WriteFile(path, []byte(html), 0644); err != nil {
+		if w.log.Enabled() {
+			w.log.Errorw("save HTML failed", "path", path, "error", err)
+		}
+		return fmt.Errorf("save html: %w", err)
+	}
+	if w.log.Enabled() {
+		w.log.Infow("HTML saved", "path", path, "bytes", len(html))
+	}
+	return nil
 }
 
 func (w *Writer) SaveRawHTML(dir, html string) error {
-	return os.WriteFile(filepath.Join(dir, "raw.html"), []byte(html), 0644)
+	path := filepath.Join(dir, "raw.html")
+	if err := os.WriteFile(path, []byte(html), 0644); err != nil {
+		if w.log.Enabled() {
+			w.log.Errorw("save raw HTML failed", "path", path, "error", err)
+		}
+		return fmt.Errorf("save raw html: %w", err)
+	}
+	if w.log.Enabled() {
+		w.log.Infow("raw HTML saved", "path", path, "bytes", len(html))
+	}
+	return nil
 }
 
 func (w *Writer) SaveMetadata(dir string, meta *Metadata) error {
+	path := filepath.Join(dir, "metadata.json")
 	data, err := json.MarshalIndent(meta, "", "  ")
 	if err != nil {
+		if w.log.Enabled() {
+			w.log.Errorw("save metadata failed: marshal error", "error", err)
+		}
 		return fmt.Errorf("marshal metadata: %w", err)
 	}
-	return os.WriteFile(filepath.Join(dir, "metadata.json"), data, 0644)
+	if err := os.WriteFile(path, data, 0644); err != nil {
+		if w.log.Enabled() {
+			w.log.Errorw("save metadata failed: file write", "path", path, "error", err)
+		}
+		return fmt.Errorf("write metadata file: %w", err)
+	}
+	if w.log.Enabled() {
+		w.log.Infow("metadata saved", "path", path, "title", meta.Title, "space", meta.SpaceKey)
+	}
+	return nil
 }
 
 func (w *Writer) SaveAsset(dir, url, localPath string) (string, error) {
 	destDir := filepath.Join(dir, localPath)
 	if err := os.MkdirAll(filepath.Dir(destDir), 0755); err != nil {
+		if w.log.Enabled() {
+			w.log.Errorw("save asset: directory creation failed",
+				"space", dir,
+				"url", url,
+				"error", err)
+		}
 		return "", fmt.Errorf("create asset dir: %w", err)
+	}
+	if w.log.Enabled() {
+		w.log.Infow("asset directory created", "path", filepath.Dir(destDir), "url", url)
 	}
 	return destDir, nil
 }

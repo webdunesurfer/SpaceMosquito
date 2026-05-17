@@ -11,16 +11,20 @@ import (
 	"github.com/vkh/spacemosquito/internal/config"
 	"github.com/vkh/spacemosquito/internal/db"
 	"github.com/vkh/spacemosquito/internal/session"
+	"github.com/vkh/spacemosquito/pkg/logger"
+	"github.com/vkh/spacemosquito/pkg/logging"
 	"go.uber.org/zap"
 )
 
 func main() {
-	log, err := zap.NewProduction()
+	log, err := logger.NewProduction(nil)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to create logger: %v\n", err)
 		os.Exit(1)
 	}
 	defer log.Sync()
+
+	log.Info("initializing SpaceMosquito")
 
 	cfgPath := os.Getenv("CONFIG_PATH")
 	if cfgPath == "" {
@@ -44,12 +48,12 @@ func main() {
 		migrationsPath = abs + "/migrations"
 	}
 
-	if err := db.MigrateUp(migrationsPath, database.Pool().Config().ConnString()); err != nil {
+	if err := db.MigrateUp(migrationsPath, database.Pool().Config().ConnString(), database.Log()); err != nil {
 		log.Fatal("failed to run migrations", zap.Error(err))
 	}
 
-	sessionStore := session.NewStore(cfg.Session.FilePath)
-	sessionHandler := api.New(sessionStore, cfg)
+	sessionStore := session.NewStore(cfg.Session.FilePath, logging.New("session", log))
+	sessionHandler := api.New(sessionStore, cfg, logging.New("api", log))
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
@@ -61,10 +65,12 @@ func main() {
 	mux.HandleFunc("GET /api/session/status", sessionHandler.SessionStatus)
 	mux.HandleFunc("POST /api/session/validate", sessionHandler.ValidateSession)
 
+	loggingMux := api.LoggingMiddleware(mux, logging.New("http", log))
+
 	addr := fmt.Sprintf("%s:%d", cfg.MCP.Host, cfg.MCP.Port)
 	server := &http.Server{
 		Addr:    addr,
-		Handler: mux,
+		Handler: loggingMux,
 	}
 
 	go func() {

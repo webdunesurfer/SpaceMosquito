@@ -9,6 +9,11 @@ Extend the Firefox extension with page-by-page scraping capabilities, crawl prog
 - Crawl status monitoring
 - Error handling and retry
 
+## Logging Strategy
+- Extension (TypeScript): Use `console.log` with structured JSON for debug builds, minimal output for production
+- Backend API: All crawl operations logged with structured `zap` fields (job_id, space_key, page_id)
+- Content injection scripts: Log extraction results only on error
+
 ## Tasks
 
 ### 7.1 — Crawl Initiation
@@ -17,6 +22,7 @@ Extend the Firefox extension with page-by-page scraping capabilities, crawl prog
   - Detect current space URL from `window.location`
   - Send `POST /api/crawl` with `{ space_url, depth: 'all' }`
   - Receive job ID, start polling for progress
+  - **Log crawl initiation in extension console with space_url, depth, timestamp**
 
 ### 7.2 — Scraping Orchestration
 - `background.ts`:
@@ -29,6 +35,7 @@ Extend the Firefox extension with page-by-page scraping capabilities, crawl prog
     3. Send extracted data to backend API
     4. Update progress in `chrome.storage.local`
   - Report completion to user
+  - **Log page navigation, content extraction start/end, API upload results per page**
 
 ### 7.3 — Content Extraction (Extension Side)
 - `content.ts`:
@@ -37,6 +44,7 @@ Extend the Firefox extension with page-by-page scraping capabilities, crawl prog
   - Return `{ title, html, text, images: [...], attachments: [...] }`
   - Called by background script for each crawled page
   - Extension-side extraction is a fallback; primary scraping is backend-driven via Playwright
+  - **Log extraction DOM queries, element counts, errors**
 
 ### 7.4 — Progress Tracking
 - `chrome.storage.local`:
@@ -49,6 +57,7 @@ Extend the Firefox extension with page-by-page scraping capabilities, crawl prog
   - Error count and last error message
   - Pause/Resume button
   - "View saved files" link
+  - **Log progress polling, state transitions in chrome.storage.local**
 
 ### 7.5 — Backend Crawl API
 - `internal/api/handler.go`:
@@ -61,6 +70,7 @@ Extend the Firefox extension with page-by-page scraping capabilities, crawl prog
   - `POST /api/crawl/pause/<job_id>` — pause current crawl
   - `POST /api/crawl/resume/<job_id>` — resume paused crawl
   - `DELETE /api/crawl/<job_id>` — cancel crawl
+  - **Log all job lifecycle events (start, pause, resume, cancel, complete, error) with job_id, space_key, progress**
 
 ### 7.6 — Crawl Job Management
 - `internal/scraper/scraper.go`:
@@ -70,6 +80,7 @@ Extend the Firefox extension with page-by-page scraping capabilities, crawl prog
   - Pause: close context, save progress
   - Resume: restore context from saved state
   - Completion: trigger embedding generation (Phase 4)
+  - **Log job state transitions, progress updates, error accumulation**
 
 ### 7.7 — Error Handling
 - Extension-side:
@@ -80,6 +91,7 @@ Extend the Firefox extension with page-by-page scraping capabilities, crawl prog
   - Per-page error logging with retry (3 attempts)
   - Failed pages listed in job status
   - Crawl continues with next page on error (non-fatal)
+  - **Log retry attempts, failure reasons, error categories (network, auth, extraction)**
 
 ### 7.8 — Settings
 - `popup/popup.html` — Settings panel:
@@ -87,6 +99,7 @@ Extend the Firefox extension with page-by-page scraping capabilities, crawl prog
   - Embedding model selection (nomic-embed-text, openai)
   - Auto-embed after crawl (toggle)
   - Session management (view/expire status, re-authenticate)
+  - **Log settings changes**
 
 ## Acceptance Criteria
 - User can click "Start Crawl" in extension popup
@@ -95,3 +108,4 @@ Extend the Firefox extension with page-by-page scraping capabilities, crawl prog
 - Crawl can be paused and resumed
 - Errors are reported without stopping the crawl
 - Backend API handles crawl jobs with status tracking
+- All crawl operations logged with structured fields (job_id, space_key, page_id, progress, duration)

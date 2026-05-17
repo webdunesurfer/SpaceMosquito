@@ -54,7 +54,19 @@ func (d *DB) CreateSpace(ctx context.Context, key, name, url string) (uuid.UUID,
 		"INSERT INTO spaces (key, name, url) VALUES ($1, $2, $3) ON CONFLICT (key) DO UPDATE SET name=EXCLUDED.name, url=EXCLUDED.url RETURNING id",
 		key, name, url,
 	).Scan(&id)
-	return id, err
+	if err != nil {
+		if d.log.Enabled() {
+			d.log.Errorw("create space failed",
+				"key", key,
+				"name", name,
+				"error", err)
+		}
+		return uuid.Nil, err
+	}
+	if d.log.Enabled() {
+		d.log.Infow("space created", "id", id, "key", key, "name", name)
+	}
+	return id, nil
 }
 
 func (d *DB) GetSpaceByKey(ctx context.Context, key string) (*Space, error) {
@@ -63,7 +75,13 @@ func (d *DB) GetSpaceByKey(ctx context.Context, key string) (*Space, error) {
 		"SELECT id, key, name, url, last_crawled, created_at FROM spaces WHERE key = $1", key,
 	).Scan(&s.ID, &s.Key, &s.Name, &s.URL, &s.LastCrawled, &s.CreatedAt)
 	if err != nil {
+		if d.log.Enabled() {
+			d.log.Debugw("get space by key: not found", "key", key, "error", err)
+		}
 		return nil, err
+	}
+	if d.log.Enabled() {
+		d.log.Debugw("space retrieved", "id", s.ID, "key", s.Key, "name", s.Name)
 	}
 	return &s, nil
 }
@@ -71,6 +89,9 @@ func (d *DB) GetSpaceByKey(ctx context.Context, key string) (*Space, error) {
 func (d *DB) ListSpaces(ctx context.Context) ([]Space, error) {
 	rows, err := d.pool.Query(ctx, "SELECT id, key, name, url, last_crawled, created_at FROM spaces ORDER BY name")
 	if err != nil {
+		if d.log.Enabled() {
+			d.log.Errorw("list spaces failed", "error", err)
+		}
 		return nil, err
 	}
 	defer rows.Close()
@@ -79,9 +100,15 @@ func (d *DB) ListSpaces(ctx context.Context) ([]Space, error) {
 	for rows.Next() {
 		var s Space
 		if err := rows.Scan(&s.ID, &s.Key, &s.Name, &s.URL, &s.LastCrawled, &s.CreatedAt); err != nil {
+			if d.log.Enabled() {
+				d.log.Errorw("list spaces: scan error", "error", err)
+			}
 			return nil, err
 		}
 		spaces = append(spaces, s)
+	}
+	if d.log.Enabled() {
+		d.log.Infow("spaces listed", "count", len(spaces))
 	}
 	return spaces, nil
 }
@@ -102,7 +129,24 @@ func (d *DB) UpsertPage(ctx context.Context, page *Page) error {
 		page.SpaceID, page.ConfluenceID, page.Title, page.ParentConfluenceID,
 		page.Content, page.HTMLPath, page.RawHTMLPath, page.MetadataPath, page.FileDir,
 	)
-	return err
+	if err != nil {
+		if d.log.Enabled() {
+			d.log.Errorw("upsert page failed",
+				"space_id", page.SpaceID,
+				"confluence_id", page.ConfluenceID,
+				"title", page.Title,
+				"error", err)
+		}
+		return err
+	}
+	if d.log.Enabled() {
+		d.log.Infow("page saved",
+			"space_id", page.SpaceID,
+			"confluence_id", page.ConfluenceID,
+			"title", page.Title,
+			"html_path", page.HTMLPath)
+	}
+	return nil
 }
 
 func (d *DB) GetPage(ctx context.Context, spaceKey string, pageID int) (*Page, error) {
@@ -119,7 +163,19 @@ func (d *DB) GetPage(ctx context.Context, spaceKey string, pageID int) (*Page, e
 		&p.Content, &p.HTMLPath, &p.RawHTMLPath, &p.MetadataPath, &p.FileDir,
 		&p.CreatedAt, &p.UpdatedAt)
 	if err != nil {
+		if d.log.Enabled() {
+			d.log.Debugw("get page: not found",
+				"space_key", spaceKey,
+				"confluence_id", pageID,
+				"error", err)
+		}
 		return nil, err
+	}
+	if d.log.Enabled() {
+		d.log.Debugw("page retrieved",
+			"id", p.ID,
+			"space_key", spaceKey,
+			"title", p.Title)
 	}
 	return &p, nil
 }
@@ -140,6 +196,9 @@ func (d *DB) ListPages(ctx context.Context, spaceKey string, limit int) ([]Page,
 		spaceKey, limit,
 	)
 	if err != nil {
+		if d.log.Enabled() {
+			d.log.Errorw("list pages failed", "space_key", spaceKey, "error", err)
+		}
 		return nil, err
 	}
 	defer rows.Close()
@@ -150,9 +209,15 @@ func (d *DB) ListPages(ctx context.Context, spaceKey string, limit int) ([]Page,
 		if err := rows.Scan(&p.ID, &p.SpaceID, &p.ConfluenceID, &p.Title, &p.ParentConfluenceID,
 			&p.Content, &p.HTMLPath, &p.RawHTMLPath, &p.MetadataPath, &p.FileDir,
 			&p.CreatedAt, &p.UpdatedAt); err != nil {
+			if d.log.Enabled() {
+				d.log.Errorw("list pages: scan error", "error", err)
+			}
 			return nil, err
 		}
 		pages = append(pages, p)
+	}
+	if d.log.Enabled() {
+		d.log.Infow("pages listed", "space_key", spaceKey, "count", len(pages))
 	}
 	return pages, nil
 }
@@ -162,7 +227,21 @@ func (d *DB) CreateEmbedding(ctx context.Context, pageID uuid.UUID, embedding []
 		"INSERT INTO page_embeddings (page_id, embedding) VALUES ($1, $2)",
 		pageID, embedding,
 	)
-	return err
+	if err != nil {
+		if d.log.Enabled() {
+			d.log.Errorw("create embedding failed",
+				"page_id", pageID,
+				"dimension", len(embedding),
+				"error", err)
+		}
+		return err
+	}
+	if d.log.Enabled() {
+		d.log.Infow("embedding created",
+			"page_id", pageID,
+			"dimension", len(embedding))
+	}
+	return nil
 }
 
 func (d *DB) UpsertEmbedding(ctx context.Context, pageID uuid.UUID, embedding []float32) error {
@@ -172,6 +251,11 @@ func (d *DB) UpsertEmbedding(ctx context.Context, pageID uuid.UUID, embedding []
 		pageID, embedding,
 	)
 	if err != nil {
+		if d.log.Enabled() {
+			d.log.Errorw("upsert embedding failed: insert",
+				"page_id", pageID,
+				"error", err)
+		}
 		return err
 	}
 	_, err = d.pool.Exec(ctx,
@@ -179,7 +263,18 @@ func (d *DB) UpsertEmbedding(ctx context.Context, pageID uuid.UUID, embedding []
 		 AND EXISTS (SELECT 1 FROM page_embeddings WHERE page_id = $1)`,
 		pageID, embedding,
 	)
-	return err
+	if err != nil {
+		if d.log.Enabled() {
+			d.log.Errorw("upsert embedding failed: update",
+				"page_id", pageID,
+				"error", err)
+		}
+		return err
+	}
+	if d.log.Enabled() {
+		d.log.Infow("embedding upserted", "page_id", pageID, "dimension", len(embedding))
+	}
+	return nil
 }
 
 func (d *DB) SearchEmbeddings(ctx context.Context, queryEmbedding []float32, spaceKey string, limit int) ([]SearchResult, error) {
@@ -208,8 +303,18 @@ func (d *DB) SearchEmbeddings(ctx context.Context, queryEmbedding []float32, spa
 	query += fmt.Sprintf(" ORDER BY pe.embedding <-> $1::vector LIMIT $%d", argIdx)
 	args = append(args, limit)
 
+	if d.log.Enabled() {
+		d.log.Debugw("searching embeddings",
+			"space_key", spaceKey,
+			"limit", limit,
+			"dimension", len(queryEmbedding))
+	}
+
 	rows, err := d.pool.Query(ctx, query, args...)
 	if err != nil {
+		if d.log.Enabled() {
+			d.log.Errorw("search embeddings failed", "error", err)
+		}
 		return nil, err
 	}
 	defer rows.Close()
@@ -218,12 +323,18 @@ func (d *DB) SearchEmbeddings(ctx context.Context, queryEmbedding []float32, spa
 	for rows.Next() {
 		var r SearchResult
 		if err := rows.Scan(&r.PageID, &r.SpaceKey, &r.Title, &r.Excerpt, &r.Similarity, &r.FilePath); err != nil {
+			if d.log.Enabled() {
+				d.log.Errorw("search embeddings: scan error", "error", err)
+			}
 			return nil, err
 		}
 		if len(r.Excerpt) > 200 {
 			r.Excerpt = r.Excerpt[:200] + "..."
 		}
 		results = append(results, r)
+	}
+	if d.log.Enabled() {
+		d.log.Infow("search results", "space_key", spaceKey, "count", len(results))
 	}
 	return results, nil
 }

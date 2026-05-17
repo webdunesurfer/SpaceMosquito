@@ -9,6 +9,8 @@ import (
 	"github.com/vkh/spacemosquito/internal/config"
 	"github.com/vkh/spacemosquito/internal/db"
 	"github.com/vkh/spacemosquito/internal/storage"
+	"github.com/vkh/spacemosquito/pkg/logger"
+	"github.com/vkh/spacemosquito/pkg/logging"
 	"go.uber.org/zap"
 )
 
@@ -18,7 +20,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	log, err := zap.NewProduction()
+	log, err := logger.NewProduction(nil)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to create logger: %v\n", err)
 		os.Exit(1)
@@ -66,23 +68,26 @@ func runInit(cfg *config.Config, log *zap.Logger) {
 		migrationsPath = abs
 	}
 
-	fmt.Println("Running migrations...")
-	if err := db.MigrateUp(migrationsPath, dsn); err != nil {
-		fmt.Fprintf(os.Stderr, "migration failed: %v\n", err)
+	sugar := logging.New("cli", log)
+	sugar.Infow("running migrations", "path", migrationsPath)
+
+	if err := db.MigrateUp(migrationsPath, dsn, sugar); err != nil {
+		sugar.Errorw("migration failed", "error", err)
 		os.Exit(1)
 	}
-	fmt.Println("Migrations complete.")
+	sugar.Info("migrations complete")
 }
 
 func runSave(cfg *config.Config, pageURL string, log *zap.Logger) {
-	w := storage.NewWriter(cfg.Storage.BasePath)
+	sugar := logging.New("cli", log)
+	w := storage.NewWriter(cfg.Storage.BasePath, sugar)
 
 	spaceKey := "unknown"
 	pageTitle := "untitled"
 
 	dir, err := w.MakePageDir(spaceKey, pageTitle)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "failed to create page dir: %v\n", err)
+		sugar.Errorw("failed to create page dir", "error", err)
 		os.Exit(1)
 	}
 
@@ -94,18 +99,18 @@ func runSave(cfg *config.Config, pageURL string, log *zap.Logger) {
 	}
 
 	if err := w.SaveMetadata(dir, meta); err != nil {
-		fmt.Fprintf(os.Stderr, "failed to save metadata: %v\n", err)
+		sugar.Errorw("failed to save metadata", "error", err)
 		os.Exit(1)
 	}
 
-	fmt.Printf("Page saved to: %s\n", dir)
+	sugar.Infow("page saved", "path", dir, "url", pageURL)
 }
 
 func runServe(cfg *config.Config, log *zap.Logger) {
-	fmt.Printf("Starting server on :%d\n", cfg.MCP.Port)
+	sugar := logging.New("cli", log)
+	sugar.Infow("starting server", "port", cfg.MCP.Port)
 	// Phase 5: MCP server
 	// Phase 2: API server
-	log.Info("server started", zap.Int("port", cfg.MCP.Port))
 }
 
 func printUsage() {

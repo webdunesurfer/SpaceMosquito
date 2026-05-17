@@ -59,8 +59,25 @@ Implement secure cookie capture, storage, and validation for Confluence session 
 - Invalid cookies → return 400 with details
 - File write errors → return 500 with file path and permissions info
 
+### 2.7 — Session Logging
+- `internal/session/store.go`:
+  - Log encryption operations (save/load/delete) with path, URL, cookie_count
+  - Log failures with error details (cipher creation, GCM, file I/O, decryption)
+  - Log session existence checks
+- `internal/session/session.go`:
+  - Log validation attempts with URL, cookie_count, remote_addr
+  - Log validation success/failure with username, status_code, error details
+- `internal/api/handler.go`:
+  - Log API requests (create/delete/status/validate) with method, path, status
+  - Log session creation with URL, cookie_count
+  - Log validation failures with remote_addr, message
+  - **Add request logging middleware with correlation IDs** (Phase 10 requirement)
+- All logging uses `logging.Sugar` injected via constructors
+
 ## Acceptance Criteria
 - Extension can POST session cookies to backend
 - Backend stores cookies encrypted on disk
 - Session validation confirms active Confluence auth
 - Scraper can use stored session to authenticate with Playwright
+- All session operations logged with structured fields (path, url, cookie_count, remote_addr, error)
+- Request logging middleware implemented with correlation IDs

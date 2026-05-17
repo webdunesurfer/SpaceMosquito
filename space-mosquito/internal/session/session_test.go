@@ -4,9 +4,15 @@ import (
 	"os"
 	"testing"
 	"time"
+
+	"github.com/vkh/spacemosquito/pkg/logging"
 )
 
 const testKey = "abcdefghijklmnop0123456789ABCDEF"
+
+func nilSugar() logging.Sugar {
+	return logging.Sugar{}
+}
 
 func init() {
 	if len(testKey) != 32 {
@@ -17,7 +23,7 @@ func init() {
 func TestStore_RoundTrip(t *testing.T) {
 	tmpFile := t.TempDir() + "/session.enc"
 
-	store := NewStore(tmpFile)
+	store := NewStore(tmpFile, nilSugar())
 	if store.HasSession() {
 		t.Fatal("expected no session before save")
 	}
@@ -63,7 +69,7 @@ func TestStore_WrongKey(t *testing.T) {
 	tmpFile := t.TempDir() + "/session.enc"
 	wrongKey := "zyxwvutsrqponmlk0987654321FEDCBA"
 
-	store := NewStore(tmpFile)
+	store := NewStore(tmpFile, nilSugar())
 	sess := &Session{
 		ConfluenceURL: "https://example.atlassian.net",
 		Cookies:       []Cookie{{Name: "test", Value: "val", Domain: ".example.com"}},
@@ -83,7 +89,7 @@ func TestStore_WrongKey(t *testing.T) {
 func TestStore_Delete(t *testing.T) {
 	tmpFile := t.TempDir() + "/session.enc"
 
-	store := NewStore(tmpFile)
+	store := NewStore(tmpFile, nilSugar())
 	sess := &Session{
 		ConfluenceURL: "https://example.atlassian.net",
 		Cookies:       []Cookie{{Name: "test", Value: "val", Domain: ".example.com"}},
@@ -109,7 +115,7 @@ func TestStore_Delete(t *testing.T) {
 
 func TestStore_MissingFile(t *testing.T) {
 	tmpFile := t.TempDir() + "/nonexistent.enc"
-	store := NewStore(tmpFile)
+	store := NewStore(tmpFile, nilSugar())
 	if store.HasSession() {
 		t.Fatal("expected no session for missing file")
 	}
@@ -122,7 +128,7 @@ func TestStore_MissingFile(t *testing.T) {
 
 func TestStore_EmptyKey(t *testing.T) {
 	tmpFile := t.TempDir() + "/session.enc"
-	store := NewStore(tmpFile)
+	store := NewStore(tmpFile, nilSugar())
 
 	sess := &Session{
 		ConfluenceURL: "https://example.atlassian.net",
@@ -157,7 +163,7 @@ func TestSession_ValidateWithConfluence_NoURL(t *testing.T) {
 	sess := &Session{
 		Cookies: []Cookie{{Name: "test", Value: "val", Domain: ".example.com"}},
 	}
-	result, err := sess.ValidateWithConfluence("", 5)
+	result, err := sess.ValidateWithConfluence("", 5, "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -168,7 +174,7 @@ func TestSession_ValidateWithConfluence_NoURL(t *testing.T) {
 
 func TestSession_ValidateWithConfluence_NoCookies(t *testing.T) {
 	sess := &Session{ConfluenceURL: "https://example.atlassian.net"}
-	result, err := sess.ValidateWithConfluence("", 5)
+	result, err := sess.ValidateWithConfluence("", 5, "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -182,7 +188,7 @@ func TestSession_ValidateWithConfluence_BadURL(t *testing.T) {
 		ConfluenceURL: "http://localhost:99999",
 		Cookies:       []Cookie{{Name: "test", Value: "val", Domain: ".example.com"}},
 	}
-	result, err := sess.ValidateWithConfluence("", 2)
+	result, err := sess.ValidateWithConfluence("", 2, "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -213,7 +219,7 @@ func TestLastSlash(t *testing.T) {
 func TestStore_FilePermissions(t *testing.T) {
 	tmpFile := t.TempDir() + "/session.enc"
 
-	store := NewStore(tmpFile)
+	store := NewStore(tmpFile, nilSugar())
 	sess := &Session{
 		ConfluenceURL: "https://example.atlassian.net",
 		Cookies:       []Cookie{{Name: "test", Value: "val", Domain: ".example.com"}},
@@ -239,7 +245,7 @@ func TestStore_KeyTruncation(t *testing.T) {
 	tmpFile := t.TempDir() + "/session.enc"
 	longKey := "this-is-a-very-long-key-that-exceeds-thirty-two-chars!"
 
-	store := NewStore(tmpFile)
+	store := NewStore(tmpFile, nilSugar())
 	sess := &Session{
 		ConfluenceURL: "https://example.atlassian.net",
 		Cookies:       []Cookie{{Name: "test", Value: "val", Domain: ".example.com"}},
@@ -264,7 +270,7 @@ func TestStore_KeyPadding(t *testing.T) {
 	tmpFile := t.TempDir() + "/session.enc"
 	shortKey := "short"
 
-	store := NewStore(tmpFile)
+	store := NewStore(tmpFile, nilSugar())
 	sess := &Session{
 		ConfluenceURL: "https://example.atlassian.net",
 		Cookies:       []Cookie{{Name: "test", Value: "val", Domain: ".example.com"}},

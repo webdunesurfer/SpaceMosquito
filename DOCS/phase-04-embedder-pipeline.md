@@ -9,6 +9,14 @@ Implement vector embedding generation for extracted page content and store embed
 - OpenAI text-embedding-3 fallback
 - pgvector integration for storage and similarity search
 - Batch embedding for full-space scans
+- Structured logging throughout embedding lifecycle
+
+## Logging Strategy
+- Use `logging.Sugar` injected via constructors in all embedder packages
+- Log model load/unload events with model name and path
+- Log embedding generation with input length, dimension, duration
+- Log batch processing progress (current/total)
+- Log failures with error type (network, model, tokenization)
 
 ## Tasks
 
@@ -22,6 +30,7 @@ Implement vector embedding generation for extracted page content and store embed
   ```
   - Factory: `NewEmbedder(config) Embedder` based on config.model setting
   - Config options: `nomic-embed-text`, `openai`, `bge-m3`
+  - **Log factory selection with model name, config source**
 
 ### 4.2 — nomic-embed-text ONNX Implementation
 - `internal/embedder/onnx.go`:
@@ -34,6 +43,7 @@ Implement vector embedding generation for extracted page content and store embed
     - Normalize output vector (L2 normalization for cosine similarity)
   - `Dim() int` returns 768
   - Model download: first-run check, download from HuggingFace if missing
+  - **Log model load time, tokenization result (token count), inference duration, normalization status**
 
 ### 4.3 — OpenAI Implementation
 - `internal/embedder/openai.go`:
@@ -44,6 +54,7 @@ Implement vector embedding generation for extracted page content and store embed
     - Return embedding vector (1536 dims)
   - `Dim() int` returns 1536
   - Config: `embedder.openai.api_key`, `embedder.openai.model`
+  - **Log API call with token count (if available), response time, cost if exposed, rate limit headers**
 
 ### 4.4 — bge-m3 Implementation (Optional)
 - `internal/embedder/bge.go`:
@@ -52,23 +63,14 @@ Implement vector embedding generation for extracted page content and store embed
   - `Dim() int` returns 1024
   - Config-gated: only loaded if `embedder.model == "bge-m3"`
   - Not included in default Docker image (user downloads separately)
+  - **Log model load time, dimension verification**
 
 ### 4.5 — pgvector Integration
 - `internal/db/models.go`:
   - `CreateEmbedding(pageID uuid.UUID, embedding []float32)` — INSERT into page_embeddings
   - `SearchEmbeddings(query []float32, spaceKey string, limit int) ([]Page, error)` — cosine similarity search
   - `UpsertEmbedding(pageID uuid.UUID, embedding []float32)` — update existing embedding
-- Query for semantic search:
-  ```sql
-  SELECT p.*, pe.embedding <=> $1 AS similarity
-  FROM pages p
-  JOIN page_embeddings pe ON pe.page_id = p.id
-  WHERE $2::text = '' OR p.space_id IN (
-      SELECT id FROM spaces WHERE key = $2
-  )
-  ORDER BY similarity
-  LIMIT $3
-  ```
+  - **Already has logging from Phase 1 logging refactor**
 
 ### 4.6 — Batch Processing
 - `internal/embedder/embedder.go`:
@@ -80,6 +82,7 @@ Implement vector embedding generation for extracted page content and store embed
   - Progress tracking: "Embedding page 50/500..."
   - Error handling: failed embeddings skipped, logged, retry on next crawl
   - Deduplication: only embed pages that don't have embeddings or were updated
+  - **Log batch start/end with duration, per-page embedding results, failure count, retry queue size**
 
 ### 4.7 — Model Management
 - First-run model download:
@@ -88,6 +91,7 @@ Implement vector embedding generation for extracted page content and store embed
   - Extract model and tokenizer files
   - Cache model path in config
 - Model validation: verify file integrity (checksum)
+- **Log model download progress (bytes transferred), checksum verification, extraction status**
 
 ## Acceptance Criteria
 - nomic-embed-text generates embeddings for text input
@@ -96,3 +100,4 @@ Implement vector embedding generation for extracted page content and store embed
 - Semantic search returns relevant results
 - Batch embedding processes 100+ pages efficiently
 - Model downloads automatically on first run
+- All embedding operations are logged with structured fields (model, dimension, duration, tokens)

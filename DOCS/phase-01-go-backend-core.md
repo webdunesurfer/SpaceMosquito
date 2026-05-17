@@ -158,8 +158,18 @@ Scaffold the Go backend with configuration, database setup, file storage layer, 
     pgdata:
   ```
 
+### 1.9 — Logging Infrastructure
+- `pkg/logger/logger.go`: Factory for production logger with JSON/console format support
+- `pkg/logging/logging.go`: `Sugar` struct embedding `*zap.SugaredLogger` for easy injection into packages
+- Logger injection pattern: `*zap.Logger` created in `main()`, passed to constructors, converted to `logging.Sugar`
+- All packages receive logger via constructor: `NewStore(filePath, log)`, `NewWriter(basePath, log)`, `New(&cfg, log)`
+- Structured logging with named scopes: `"session"`, `"api"`, `"db"`, `"storage"`, `"http"`
+- Phase 1 logging coverage: server startup, DB connection, migrations, CLI commands
+
 ## Acceptance Criteria
 - `go run ./cmd/cli init` creates the database schema
 - `go run ./cmd/cli save <url>` saves a page to disk with metadata.json
 - PostgreSQL runs in Docker with pgvector extension
 - Config loaded from YAML with env var overrides
+- Logger factory works with JSON and console formats
+- All core packages (session, api, storage, db) receive logger via constructor injection
