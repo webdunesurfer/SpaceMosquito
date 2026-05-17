@@ -234,6 +234,8 @@ func (s *Scraper) CrawlSpace(spaceURL string, sess *session.Session) error {
 }
 
 func (s *Scraper) scrapePage(pg *Page, spaceKey, spaceURL string) error {
+	baseURL := extractConfluenceBaseURL(spaceURL)
+
 	page := s.browser.MustPage(pg.URL)
 	page = page.MustWaitStable().MustWaitLoad()
 	page.Timeout(30 * time.Second)
@@ -251,7 +253,7 @@ func (s *Scraper) scrapePage(pg *Page, spaceKey, spaceURL string) error {
 			"html_size", len(html))
 	}
 
-	cleanHTML, images, attachments, err := s.extractContent(html, pg.Title)
+	cleanHTML, images, attachments, err := s.extractContent(html, pg.Title, baseURL)
 	if err != nil {
 		return fmt.Errorf("extract content: %w", err)
 	}

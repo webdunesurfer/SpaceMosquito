@@ -119,6 +119,15 @@ func (d *AssetDownloader) Download(destDir, rawURL string) (string, error) {
 		filename := fmt.Sprintf("%x%s", hash[:8], ext)
 		destPath := filepath.Join(destDir, filename)
 
+		if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
+			lastErr = fmt.Errorf("create asset dir: %w", err)
+			if d.log.Enabled() {
+				d.log.Errorw("asset download failed: directory creation",
+					"path", filepath.Dir(destPath), "error", err)
+			}
+			continue
+		}
+
 		if _, err := os.Stat(destPath); err == nil {
 			resp.Body.Close()
 			if d.log.Enabled() {

@@ -18,7 +18,7 @@ const (
 )
 
 // extractContent parses raw HTML, strips chrome, rewrites URLs, and downloads assets.
-func (s *Scraper) extractContent(rawHTML, pageTitle string) (string, []storage.AssetRef, []storage.AssetRef, error) {
+func (s *Scraper) extractContent(rawHTML, pageTitle, baseURL string) (string, []storage.AssetRef, []storage.AssetRef, error) {
 	doc, err := goquery.NewDocumentFromReader(strings.NewReader(rawHTML))
 	if err != nil {
 		return "", nil, nil, fmt.Errorf("parse html: %w", err)
@@ -31,7 +31,7 @@ func (s *Scraper) extractContent(rawHTML, pageTitle string) (string, []storage.A
 	}
 
 	// Find and process images
-	images, err := s.processImages(doc)
+	images, err := s.processImages(doc, baseURL)
 	if err != nil {
 		if s.log.Enabled() {
 			s.log.Warnw("image processing failed", "error", err)
@@ -39,7 +39,7 @@ func (s *Scraper) extractContent(rawHTML, pageTitle string) (string, []storage.A
 	}
 
 	// Find and process attachments
-	attachments, err := s.processAttachments(doc)
+	attachments, err := s.processAttachments(doc, baseURL)
 	if err != nil {
 		if s.log.Enabled() {
 			s.log.Warnw("attachment processing failed", "error", err)
@@ -112,7 +112,7 @@ func (s *Scraper) stripChrome(doc *goquery.Document) int {
 	return removed
 }
 
-func (s *Scraper) processImages(doc *goquery.Document) ([]storage.AssetRef, error) {
+func (s *Scraper) processImages(doc *goquery.Document, baseURL string) ([]storage.AssetRef, error) {
 	var assets []storage.AssetRef
 	basePath := "assets/images"
 
@@ -132,7 +132,7 @@ func (s *Scraper) processImages(doc *goquery.Document) ([]storage.AssetRef, erro
 			strings.Contains(src, "confluence-attachments") ||
 			strings.Contains(src, "/plugins/attachments") {
 
-			localPath, err := s.downloadAsset(src, basePath)
+			localPath, err := s.downloadAsset(src, basePath, baseURL)
 			if err != nil {
 				if s.log.Enabled() {
 					s.log.Warnw("failed to download image",
@@ -161,7 +161,7 @@ func (s *Scraper) processImages(doc *goquery.Document) ([]storage.AssetRef, erro
 	return assets, nil
 }
 
-func (s *Scraper) processAttachments(doc *goquery.Document) ([]storage.AssetRef, error) {
+func (s *Scraper) processAttachments(doc *goquery.Document, baseURL string) ([]storage.AssetRef, error) {
 	var assets []storage.AssetRef
 	basePath := "assets/attachments"
 
@@ -171,7 +171,7 @@ func (s *Scraper) processAttachments(doc *goquery.Document) ([]storage.AssetRef,
 			return
 		}
 
-		localPath, err := s.downloadAsset(href, basePath)
+		localPath, err := s.downloadAsset(href, basePath, baseURL)
 		if err != nil {
 			if s.log.Enabled() {
 				s.log.Warnw("failed to download attachment",
@@ -198,9 +198,14 @@ func (s *Scraper) processAttachments(doc *goquery.Document) ([]storage.AssetRef,
 	return assets, nil
 }
 
-func (s *Scraper) downloadAsset(rawURL, basePath string) (string, error) {
+func (s *Scraper) downloadAsset(rawURL, basePath, baseURL string) (string, error) {
 	// Rate limiting
 	time.Sleep(rateLimit)
+
+	// Resolve relative URLs to absolute
+	if strings.HasPrefix(rawURL, "/") && !strings.HasPrefix(rawURL, "//") && baseURL != "" {
+		rawURL = baseURL + rawURL
+	}
 
 	// Retry logic with exponential backoff
 	var lastErr error
@@ -283,6 +288,37 @@ func (s *Scraper) rewriteInternalLinks(doc *goquery.Document) {
 func (s *Scraper) cleanupEmptyElements(doc *goquery.Document) {
 	// Remove empty divs and spans that result from chrome stripping
 	doc.Find("div:empty, span:empty").Remove()
+}
+
+func extractConfluenceBaseURL(url string) string {
+	if url == "" {
+		return ""
+	}
+
+	url = strings.TrimRight(url, "/")
+
+	if strings.Contains(url, "atlassian.net/wiki/") {
+		parts := strings.Split(url, "/wiki/")
+		if len(parts) > 0 {
+			return parts[0]
+		}
+	}
+
+	if strings.Contains(url, "/wiki/") {
+		parts := strings.Split(url, "/wiki/")
+		if len(parts) > 0 {
+			return parts[0]
+		}
+	}
+
+	if strings.Contains(url, "/confluence/") {
+		parts := strings.Split(url, "/confluence/")
+		if len(parts) > 0 {
+			return parts[0]
+		}
+	}
+
+	return url
 }
 
 // extractTextFromHTML extracts plain text from cleaned HTML for embedding.
