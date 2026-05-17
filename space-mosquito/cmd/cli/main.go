@@ -8,6 +8,8 @@ import (
 
 	"github.com/vkh/spacemosquito/internal/config"
 	"github.com/vkh/spacemosquito/internal/db"
+	"github.com/vkh/spacemosquito/internal/session"
+	"github.com/vkh/spacemosquito/internal/scraper"
 	"github.com/vkh/spacemosquito/internal/storage"
 	"github.com/vkh/spacemosquito/pkg/logger"
 	"github.com/vkh/spacemosquito/pkg/logging"
@@ -48,6 +50,12 @@ func main() {
 			os.Exit(1)
 		}
 		runSave(cfg, os.Args[2], log)
+	case "crawl":
+		if len(os.Args) < 3 {
+			fmt.Fprintln(os.Stderr, "usage: spacemosquito crawl <space-url>")
+			os.Exit(1)
+		}
+		runCrawl(cfg, os.Args[2], log)
 	case "serve":
 		runServe(cfg, log)
 	default:
@@ -113,11 +121,86 @@ func runServe(cfg *config.Config, log *zap.Logger) {
 	// Phase 2: API server
 }
 
+func runCrawl(cfg *config.Config, spaceURL string, log *zap.Logger) {
+	requestID := fmt.Sprintf("crawl-%d", time.Now().Unix())
+	sugar := logging.New("crawl", log)
+	sugar.Infow("crawl command initiated",
+		"space_url", spaceURL,
+		"request_id", requestID)
+
+	// Setup database
+	database, err := db.New(&cfg.Database, log)
+	if err != nil {
+		sugar.Errorw("failed to connect to database", "error", err)
+		os.Exit(1)
+	}
+	defer database.Close()
+
+	// Load session
+	store := session.NewStore(cfg.Session.FilePath, sugar)
+	if !store.HasSession() {
+		sugar.Errorw("no session found — run the Firefox extension to capture cookies first")
+		os.Exit(1)
+	}
+
+	encKey := cfg.Session.EncryptionKey
+	if encKey == "" {
+		sugar.Errorw("encryption key not configured")
+		os.Exit(1)
+	}
+
+	sess, err := store.Load(encKey)
+	if err != nil {
+		sugar.Errorw("failed to load session", "error", err)
+		os.Exit(1)
+	}
+
+	// Validate session
+	result, err := sess.ValidateWithConfluence("", 10, "cli")
+	if err != nil {
+		sugar.Errorw("session validation failed", "error", err)
+		os.Exit(1)
+	}
+
+	if !result.Valid {
+		sugar.Errorw("session is not valid", "message", result.Message)
+		os.Exit(1)
+	}
+
+	sugar.Infow("session validated",
+		"message", result.Message,
+		"confluence_url", sess.ConfluenceURL)
+
+	// Setup storage
+	storageWriter := storage.NewWriter(cfg.Storage.BasePath, sugar)
+	assetDownloader := storage.NewAssetDownloader(sugar)
+
+	// Create scraper and run crawl
+	s := scraper.New(cfg, database, storageWriter, assetDownloader, sugar)
+
+	if err := s.LaunchBrowser(); err != nil {
+		sugar.Errorw("failed to launch browser", "error", err)
+		os.Exit(1)
+	}
+
+	if err := s.CrawlSpace(spaceURL, sess); err != nil {
+		sugar.Errorw("crawl failed", "error", err)
+		os.Exit(1)
+	}
+
+	sugar.Infow("crawl completed successfully", "request_id", requestID)
+
+	fmt.Println()
+	fmt.Println("=== Crawl Summary ===")
+	fmt.Println()
+}
+
 func printUsage() {
 	fmt.Println("Usage: spacemosquito <command> [arguments]")
 	fmt.Println()
 	fmt.Println("Commands:")
 	fmt.Println("  init        Run database migrations")
 	fmt.Println("  save <url>  Save a Confluence page")
+	fmt.Println("  crawl <url> Crawl a full Confluence space")
 	fmt.Println("  serve       Start the API and MCP server")
 }
