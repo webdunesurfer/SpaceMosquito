@@ -2,11 +2,13 @@ package scraper
 
 import (
 	"fmt"
+	"os"
 	"regexp"
 	"strings"
 	"time"
 
 	"github.com/PuerkitoBio/goquery"
+	"github.com/go-rod/rod"
 )
 
 // SpaceInfo holds discovered metadata about a Confluence space.
@@ -20,11 +22,16 @@ type SpaceInfo struct {
 // discoverSpace navigates to the space root and discovers all pages via sidebar parsing.
 func (s *Scraper) discoverSpace(spaceURL string) (*SpaceInfo, error) {
 	page := s.browser.MustPage(spaceURL)
-	page.Timeout(60 * time.Second)
+	page.Timeout(90 * time.Second)
 
 	// Navigate and wait for page to load
 	page.MustWaitLoad()
+	
+	// Wait for dynamic content to render (Confluence is a SPA)
 	page.MustWaitStable()
+	
+	// Additional wait for sidebar to fully render
+	time.Sleep(10 * time.Second)
 
 	// Capture the full page HTML
 	html, err := page.HTML()
@@ -34,6 +41,11 @@ func (s *Scraper) discoverSpace(spaceURL string) (*SpaceInfo, error) {
 
 	if s.log.Enabled() {
 		s.log.Debugw("space root page captured", "html_size", len(html))
+	}
+
+	// Save HTML for debugging
+	if err := os.WriteFile("/tmp/confluence_debug.html", []byte(html), 0644); err == nil {
+		s.log.Debugw("saved debug html", "path", "/tmp/confluence_debug.html", "size", len(html))
 	}
 
 	doc, err := goquery.NewDocumentFromReader(strings.NewReader(html))
@@ -54,15 +66,21 @@ func (s *Scraper) discoverSpace(spaceURL string) (*SpaceInfo, error) {
 			"space_name", spaceInfo.SpaceName)
 	}
 
-	spaceInfo.Pages, err = s.parseSidebar(doc, spaceInfo.SpaceKey, 0)
-	if err != nil {
-		return nil, fmt.Errorf("parse sidebar: %w", err)
+	// Try rod's Element API first for dynamic content
+	pages := s.findPagesByRod(page, spaceURL)
+	
+	// Fall back to goquery if rod didn't find any
+	if len(pages) == 0 {
+		pages, err = s.parseSidebar(doc, spaceInfo.SpaceKey, 0)
+		if err != nil {
+			return nil, fmt.Errorf("parse sidebar: %w", err)
+		}
 	}
 
 	seen := make(map[int]bool)
 	var unique []*Page
 	duplicates := 0
-	for _, p := range spaceInfo.Pages {
+	for _, p := range pages {
 		if seen[p.ConfluenceID] {
 			duplicates++
 			continue
@@ -81,6 +99,57 @@ func (s *Scraper) discoverSpace(spaceURL string) (*SpaceInfo, error) {
 	}
 
 	return spaceInfo, nil
+}
+
+// findPagesByRod uses rod's Element API to find page links in the rendered DOM.
+func (s *Scraper) findPagesByRod(page *rod.Page, spaceURL string) []*Page {
+	// Normalize space URL to ensure trailing slash for URL joining
+	if !strings.HasSuffix(spaceURL, "/") {
+		spaceURL += "/"
+	}
+	var pages []*Page
+	
+	// Try to find all links with /pages/ in the href (Confluence uses /pages/ not /page/)
+	elements, err := page.Elements("a[href*='/pages/']")
+	if err != nil {
+		if s.log.Enabled() {
+			s.log.Debugw("rod Elements failed", "error", err)
+		}
+		return nil
+	}
+	
+	for _, el := range elements {
+		href := el.MustAttribute("href")
+		if href == nil || *href == "" || !strings.Contains(*href, "/pages/") {
+			continue
+		}
+		
+		text := el.MustText()
+		text = strings.TrimSpace(text)
+		
+		confluenceID := s.parseConfluenceID(*href)
+		if confluenceID == 0 {
+			continue
+		}
+		
+		title := text
+		if title == "" {
+			title = fmt.Sprintf("page-%d", confluenceID)
+		}
+		
+		pages = append(pages, &Page{
+			ConfluenceID: confluenceID,
+			Title:        title,
+			URL:          s.resolveURL(*href, spaceURL),
+			Level:        0,
+		})
+	}
+	
+	if s.log.Enabled() && len(pages) > 0 {
+		s.log.Debugw("found pages via rod", "count", len(pages))
+	}
+	
+	return pages
 }
 
 func (s *Scraper) extractSpaceKey(doc *goquery.Document, spaceURL string) string {
@@ -136,17 +205,6 @@ func (s *Scraper) extractSpaceName(doc *goquery.Document) string {
 func (s *Scraper) parseSidebar(doc *goquery.Document, spaceKey string, level int) ([]*Page, error) {
 	var pages []*Page
 
-	// Collect all sidebar page links using multiple selectors
-	sidebarSelectors := []string{
-		"#sidebar #page-tree li.page-tree-item a",
-		"#sidebar .page-tree a",
-		"[data-testid=sidebar.navigation] a",
-		"#sidebar a[href*='/spaces/']",
-		".aui-sidebar .aui-nav a[href*='/spaces/']",
-		"[id^=sidebar] a[href*='/page']",
-		".sidebar a[href*='/page']",
-	}
-
 	type linkInfo struct {
 		href string
 		text string
@@ -154,14 +212,30 @@ func (s *Scraper) parseSidebar(doc *goquery.Document, spaceKey string, level int
 
 	var allLinks []linkInfo
 
+	// Collect all sidebar page links using multiple selectors
+	sidebarSelectors := []string{
+		"[data-testid='page-tree-item'] a[href*='/pages/']",
+		"[data-testid*='sidebar'] a[href*='/pages/']",
+		"[data-testid*='sidebar'] [data-testid*='tree'] a[href*='/pages/']",
+		"[data-testid*='navigation'] a[href*='/pages/']",
+		"[data-testid*='page-tree'] a[href*='/pages/']",
+		"nav a[href*='/pages/']",
+		"a[href*='/spaces/'][href*='/pages/']",
+	}
+
 	for _, sel := range sidebarSelectors {
+		count := 0
 		doc.Find(sel).Each(func(i int, s *goquery.Selection) {
 			href, _ := s.Attr("href")
 			text := strings.TrimSpace(s.Text())
-			if len(href) > 0 && strings.Contains(href, "/spaces/") && strings.Contains(href, "/page/") {
+			if len(href) > 0 && strings.Contains(href, "/pages/") {
 				allLinks = append(allLinks, linkInfo{href: href, text: text})
+				count++
 			}
 		})
+		if s.log.Enabled() && count > 0 {
+			s.log.Debugw("found links with selector", "selector", sel, "count", count)
+		}
 	}
 
 	// Deduplicate links by href
@@ -194,8 +268,8 @@ func (s *Scraper) parseSidebar(doc *goquery.Document, spaceKey string, level int
 }
 
 func (s *Scraper) parseConfluenceID(href string) int {
-	// Confluence page URLs contain the page ID: /spaces/key/page/NNNNNNN
-	re := regexp.MustCompile(`/page/(\d+)`)
+	// Confluence page URLs contain the page ID: /spaces/key/pages/NNNNNNN
+	re := regexp.MustCompile(`/pages/(\d+)`)
 	matches := re.FindStringSubmatch(href)
 	if len(matches) >= 2 {
 		var id int
