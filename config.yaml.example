@@ -10,7 +10,7 @@ storage:
   base_path: ./saved
 
 session:
-  encryption_key: ""
+  encryption_key: "change-me-to-a-random-string-minimum-32-chars"
   file_path: ~/.config/spacemosquito/session.enc
 
 embedder:

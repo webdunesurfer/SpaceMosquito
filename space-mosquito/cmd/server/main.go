@@ -7,8 +7,10 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/vkh/spacemosquito/internal/api"
 	"github.com/vkh/spacemosquito/internal/config"
 	"github.com/vkh/spacemosquito/internal/db"
+	"github.com/vkh/spacemosquito/internal/session"
 	"go.uber.org/zap"
 )
 
@@ -46,16 +48,24 @@ func main() {
 		log.Fatal("failed to run migrations", zap.Error(err))
 	}
 
-	log.Info("initializing SpaceMosquito server")
-	log.Info("MCP server will listen on", zap.Int("port", cfg.MCP.Port))
+	sessionStore := session.NewStore(cfg.Session.FilePath)
+	sessionHandler := api.New(sessionStore, cfg)
 
-	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("ok"))
 	})
+	mux.HandleFunc("POST /api/session", sessionHandler.CreateSession)
+	mux.HandleFunc("DELETE /api/session", sessionHandler.DeleteSession)
+	mux.HandleFunc("GET /api/session/status", sessionHandler.SessionStatus)
+	mux.HandleFunc("POST /api/session/validate", sessionHandler.ValidateSession)
 
-	addr := fmt.Sprintf(":%d", cfg.MCP.Port)
-	server := &http.Server{Addr: addr}
+	addr := fmt.Sprintf("%s:%d", cfg.MCP.Host, cfg.MCP.Port)
+	server := &http.Server{
+		Addr:    addr,
+		Handler: mux,
+	}
 
 	go func() {
 		fmt.Printf("Server listening on %s\n", addr)

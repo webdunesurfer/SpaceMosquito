@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 
@@ -29,7 +30,7 @@ func (c DatabaseConfig) DSN() string {
 	if os.Getenv("DATABASE_URL") != "" {
 		return os.Getenv("DATABASE_URL")
 	}
-	return "host=" + c.Host + " port=" + string(rune(c.Port+48)) + " user=" + c.User + " password=" + c.Password + " dbname=" + c.DBName + " sslmode=" + c.SSLMode
+	return fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=%s", c.Host, c.Port, c.User, c.Password, c.DBName, c.SSLMode)
 }
 
 type StorageConfig struct {
