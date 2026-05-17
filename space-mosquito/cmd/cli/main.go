@@ -155,20 +155,8 @@ func runCrawl(cfg *config.Config, spaceURL string, log *zap.Logger) {
 		os.Exit(1)
 	}
 
-	// Validate session
-	result, err := sess.ValidateWithConfluence("", 10, "cli")
-	if err != nil {
-		sugar.Errorw("session validation failed", "error", err)
-		os.Exit(1)
-	}
-
-	if !result.Valid {
-		sugar.Errorw("session is not valid", "message", result.Message)
-		os.Exit(1)
-	}
-
-	sugar.Infow("session validated",
-		"message", result.Message,
+	sugar.Infow("session loaded",
+		"cookie_count", len(sess.Cookies),
 		"confluence_url", sess.ConfluenceURL)
 
 	// Setup storage

@@ -1,10 +1,10 @@
-# Phase 3: Playwright Scraper
+# Phase 3: chromedp Scraper
 
 ## Objective
-Implement headless Firefox scraping via Playwright to discover and extract all pages in a Confluence space.
+Implement headless Chromium scraping via chromedp to discover and extract all pages in a Confluence space.
 
 ## Deliverables
-- Playwright Go bindings with Firefox
+- chromedp Go bindings with Chromium
 - Space traversal: sidebar parsing → page discovery
 - Page scraping: content extraction (trafilatura-style), asset download
 - Clean HTML generation with rewritten URLs
@@ -16,21 +16,22 @@ Implement headless Firefox scraping via Playwright to discover and extract all p
 - Log at INFO for page start/end, WARN for retries, ERROR for failures
 - Include `space_key`, `page_id`, `page_title` in all page-related log entries
 - Include `remote_addr` in HTTP requests during asset download
-- Log browser lifecycle events (launch, navigate, close)
+- Log browser lifecycle events (context creation, navigation, close)
 
 ## Tasks
 
-### 3.1 — Playwright Setup
+### 3.1 — chromedp Setup
 - `internal/scraper/scraper.go`:
-  - Initialize Playwright: `playwright.New()`
-  - Launch Firefox headless: `browser.NewContext()` with persistent context for cookies
-  - Configure viewport, user agent (match Firefox on desktop)
-  - Handle browser binary location (system install or bundled)
-  - **Log browser launch/close events**, log viewport config
+  - Create chromedp context: `chromedp.NewContext()` with headless option
+  - Configure Chromium: `--headless=new --no-sandbox --disable-gpu`
+  - Handle context lifecycle: `chromedp.NewExecAllocator` with timeout
+  - **Log context creation/close events**
+  - No Xvfb or DISPLAY required — Chromium headless is native
 
 ### 3.2 — Space Page Discovery
-- `internal/scraper/page.go`:
-  - Navigate to space root URL
+- `internal/scraper/discovery.go`:
+  - Navigate to space root URL via `chromedp.Navigate()`
+  - Wait for sidebar to render: `chromedp.WaitVisible()` for `.page-tree` or `#sidebar`
   - Parse sidebar navigation DOM to discover all page links
   - Recursive traversal: for each page, check for sub-pages in sidebar
   - Build a page tree: `{ pageId, title, url, parentId, level }`
@@ -41,6 +42,7 @@ Implement headless Firefox scraping via Playwright to discover and extract all p
 ### 3.3 — Page Content Extraction (Trafilatura-style)
 - `internal/scraper/page.go`:
   - Navigate to each page, wait for full render
+  - Extract raw HTML via `chromedp.OuterHTML("#content", &html)` or `chromedp.Evaluate`
   - Use goquery to parse HTML in Go:
     ```go
     doc, err := goquery.NewDocumentFromReader(strings.NewReader(html))
@@ -79,28 +81,28 @@ Implement headless Firefox scraping via Playwright to discover and extract all p
   - `CrawlSpace(url string, session *session.Session) error`
   - Flow:
     1. Validate session
-    2. Create Playwright Firefox context with session cookies
+    2. Create chromedp context with session cookies (via CDP `Network.SetCookies`)
     3. Discover all pages in space (build page tree)
     4. For each page:
        a. Navigate and extract content
        b. Download assets
        c. Save to disk (clean HTML + raw HTML + metadata)
        d. Store in database
-    5. Close browser context
+    5. Close context and allocator
   - Progress reporting: emit events/callbacks for crawl status
   - Error handling: skip failed pages, log errors, continue with next
   - **Log crawl start/end with duration, per-page progress, asset totals, per-page errors, summary stats**
 
 ### 3.7 — CLI Integration
 - `cmd/cli/main.go`:
-  - Command: `space-mosquito crawl <space-url>`
+  - Command: `spacemosquito crawl <space-url>`
   - Loads config, validates session, runs full crawl
   - Progress output: "Crawling page 15/142: Page Title..."
   - Summary: "Crawl complete: 142 pages, 89 images, 12 attachments"
   - **Use structured logger instead of fmt for progress, include request_id for crawl job**
 
 ## Acceptance Criteria
-- Full Confluence space can be crawled headlessly with Firefox
+- Full Confluence space can be crawled headlessly with Chromium
 - Page tree is correctly discovered (including nested pages)
 - Content extraction produces clean, readable HTML
 - Assets (images, attachments) are downloaded and linked

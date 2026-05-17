@@ -1,0 +1,35 @@
+database:
+  host: localhost
+  port: 5432
+  user: spacemosquito
+  password: spacemosquito
+  dbname: spacemosquito
+  sslmode: disable
+
+storage:
+  base_path: ./saved
+
+session:
+  encryption_key: ""
+  file_path: ~/.config/spacemosquito/session.enc
+
+embedder:
+  model: nomic-embed-text
+  # openai:
+  #   api_key: ""
+  #   model: text-embedding-3-small
+
+mcp:
+  port: 8081
+  host: "0.0.0.0"
+  session_timeout: 3600
+
+cron:
+  full_crawl:
+    enabled: false
+    interval: "24h"
+    spaces: []
+  incremental:
+    enabled: false
+    interval: "2h"
+    spaces: []

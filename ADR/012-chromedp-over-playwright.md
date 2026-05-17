@@ -1,0 +1,26 @@
+# ADR-012: chromedp over Playwright for Scraper
+
+- **Status**: Accepted
+- **Date**: 2026-05-17
+- **Context**: After significant effort, Playwright with Firefox proved problematic in Docker: sandbox namespace failures (EPERM), DISPLAY/Xvfb complexity, driver version mismatches, and 30-second launch timeouts. The team needed a simpler, more reliable approach.
+- **Decision**: Replace Playwright + Firefox with chromedp + Chromium
+- **Rationale**:
+  - **Zero Node.js dependency**: chromedp is pure Go, communicating via Chrome DevTools Protocol. No npm, no driver downloads, no version pinning.
+  - **No Xvfb needed**: Chromium headless runs without a display server. Eliminates the entire DISPLAY environment variable complexity.
+  - **Simpler Docker image**: Removes Node.js (~118MB binary), unzip, Firefox deps, driver structure management. Image is smaller and faster to build.
+  - **Faster startup**: chromedp launches Chromium in seconds, not 30+ seconds waiting for timeouts.
+  - **Better debugging**: Go-native means stack traces, logging, and debugging are straightforward. No black-box Node.js driver layer.
+  - **Battle-tested**: chromedp is widely used for web scraping and automation. Confluence's Chromium-based rendering is well-supported.
+  - **Cookie support**: chromedp supports sending CDP commands to set cookies directly, matching our session store format.
+- **Trade-offs**:
+  - Slightly less "fancy" API than Playwright (no built-in frame handling, no mobile emulation — neither needed for our use case)
+  - Firefox rendering parity lost — but Confluence renders identically in Chrome/Chromium, so this is not a practical concern
+  - chromedp is less actively maintained than Playwright — but the CDP API is stable and the library is feature-complete for our needs
+- **Implementation impact**:
+  - `playwright-go` dependency replaced with `github.com/chromedp/chromedp`
+  - Browser lifecycle: `chromedp.Run(chromedp.NewContext())` instead of `playwright.Run()` / `browser.Launch()`
+  - Cookie injection: `cdp.Network.SetCookies` instead of `context.AddCookies()`
+  - Navigation: `chromedp.Navigate(url)` + `chromedp.WaitVisible(selector)` instead of `page.Goto()` + `page.WaitForLoadState()`
+  - Content extraction: `chromedp.OuterHTML()` instead of `page.Content()`
+  - Dockerfile: no Node.js, no Xvfb, no Firefox, no driver extraction
+  - app-start.sh: no Xvfb startup, just exec the server

@@ -1,0 +1,14 @@
+**/node_modules/
+**/dist/
+**/build/
+**/*.enc
+**/.env
+**/config.yaml
+**/*.log
+**/.DS_Store
+**/.git/
+firefox-extension/
+docs/
+ADR/
+DOCS/
+*.md

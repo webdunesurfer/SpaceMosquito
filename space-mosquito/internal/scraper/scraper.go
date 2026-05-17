@@ -6,7 +6,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/playwright-community/playwright-go"
+	"github.com/go-rod/rod"
+	"github.com/go-rod/rod/lib/launcher"
+	"github.com/go-rod/rod/lib/proto"
 	"github.com/vkh/spacemosquito/internal/config"
 	"github.com/vkh/spacemosquito/internal/db"
 	"github.com/vkh/spacemosquito/internal/session"
@@ -43,9 +45,9 @@ type CrawlStats struct {
 
 // Scraper manages browser lifecycle and crawl operations.
 type Scraper struct {
-	pw      *playwright.Playwright
-	browser playwright.Browser
-	context playwright.BrowserContext
+	browser *rod.Browser
+	ctx     context.Context
+	cancel  context.CancelFunc
 	cfg     *config.Config
 	db      *db.DB
 	storage *storage.Writer
@@ -72,105 +74,85 @@ func New(
 	}
 }
 
-// LaunchBrowser initializes Playwright and launches a headless Firefox browser.
+// LaunchBrowser creates a rod browser instance with Chromium headless.
 func (s *Scraper) LaunchBrowser() error {
 	if s.log.Enabled() {
-		s.log.Info("initializing playwright")
+		s.log.Info("initializing rod with Chromium")
 	}
 
-	pw, err := playwright.Run()
+	url, err := launcher.New().
+		Bin("/usr/bin/chromium").
+		Headless(true).
+		NoSandbox(true).
+		Set("disable-gpu", "").
+		Set("disable-dev-shm-usage", "").
+		Set("disable-gpu-sandbox", "").
+		Set("disable-setuid-sandbox", "").
+		Set("disable-seccomp-filter-sandbox", "").
+		Set("disable-features", "VizDisplayCompositor,TranslateUI,BlinkGenPropertyTrees").
+		Set("user-agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36").
+		Launch()
 	if err != nil {
-		s.log.Errorw("failed to launch playwright", "error", err)
-		return fmt.Errorf("launch playwright: %w", err)
+		return fmt.Errorf("launch chromium: %w", err)
 	}
-	s.pw = pw
 
-	browser, err := s.pw.Firefox.Launch(playwright.BrowserTypeLaunchOptions{
-		Headless: playwright.Bool(true),
-	})
-	if err != nil {
-		s.pw.Stop()
-		s.pw = nil
-		s.log.Errorw("failed to launch firefox", "error", err)
-		return fmt.Errorf("launch firefox: %w", err)
-	}
-	s.browser = browser
+	s.browser = rod.New().ControlURL(url).MustConnect()
+	s.ctx, s.cancel = context.WithCancel(context.Background())
 
 	if s.log.Enabled() {
-		s.log.Infow("firefox launched",
-			"headless", true)
+		s.log.Info("rod browser created", "control_url", url)
 	}
 
 	return nil
 }
 
-// SetupContextWithSession creates a browser context with cookies from a session.
+// SetupContextWithSession injects cookies from a session into the browser.
 func (s *Scraper) SetupContextWithSession(sess *session.Session) error {
-	context, err := s.browser.NewContext(playwright.BrowserNewContextOptions{
-		IgnoreHttpsErrors: playwright.Bool(true),
-		UserAgent:         playwright.String("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"),
-		Viewport:          &playwright.Size{Width: 1920, Height: 1080},
-	})
-	if err != nil {
-		s.log.Errorw("failed to create browser context", "error", err)
-		return fmt.Errorf("create context: %w", err)
+	if len(sess.Cookies) == 0 {
+		return nil
 	}
-	s.context = context
 
-	var cookies []playwright.OptionalCookie
+	cookies := make([]*proto.NetworkCookie, 0, len(sess.Cookies))
 	for _, c := range sess.Cookies {
-		var expires *float64
-		if c.Expires > 0 {
-			e := float64(c.Expires)
-			expires = &e
-		}
-		cookies = append(cookies, playwright.OptionalCookie{
+		cookie := &proto.NetworkCookie{
 			Name:     c.Name,
 			Value:    c.Value,
-			Domain:   ptrString(c.Domain),
-			Path:     ptrString(c.Path),
-			Expires:  expires,
-			Secure:   ptrBool(c.Secure),
-			HttpOnly: ptrBool(c.HTTPOnly),
-			SameSite: (*playwright.SameSiteAttribute)(&c.SameSite),
-		})
+			Domain:   c.Domain,
+			Path:     c.Path,
+			Secure:   c.Secure,
+			HTTPOnly: c.HTTPOnly,
+		}
+		if c.Expires > 0 {
+			cookie.Expires = proto.TimeSinceEpoch(time.Unix(int64(c.Expires), 0).Unix() * 1000)
+		}
+		cookies = append(cookies, cookie)
 	}
 
-	if len(cookies) > 0 {
-		if err := context.AddCookies(cookies); err != nil {
-			s.log.Warnw("failed to add cookies to context", "error", err)
-		}
-	}
+	s.browser.MustSetCookies(cookies...)
 
 	if s.log.Enabled() {
-		s.log.Infow("browser context created with cookies",
-			"cookie_count", len(sess.Cookies))
+		s.log.Infow("rod context ready",
+			"cookie_count", len(sess.Cookies),
+			"confluence_url", sess.ConfluenceURL)
 	}
 
 	return nil
 }
 
-// CloseBrowser tears down the browser and playwright instance.
+// CloseBrowser tears down the browser.
 func (s *Scraper) CloseBrowser() {
-	if s.context != nil {
-		s.context.Close()
-		s.context = nil
+	if s.cancel != nil {
+		s.cancel()
+		s.cancel = nil
 		if s.log.Enabled() {
-			s.log.Debug("browser context closed")
+			s.log.Debug("rod context closed")
 		}
 	}
 	if s.browser != nil {
 		s.browser.Close()
 		s.browser = nil
 		if s.log.Enabled() {
-			s.log.Debug("browser closed")
-		}
-	}
-	if s.pw != nil {
-		s.pw.Stop()
-		s.pw = nil
-		if s.log.Enabled() {
-			s.log.Debug("playwright closed")
+			s.log.Debug("rod browser closed")
 		}
 	}
 }
@@ -178,7 +160,6 @@ func (s *Scraper) CloseBrowser() {
 // CrawlSpace performs a full crawl of a Confluence space.
 func (s *Scraper) CrawlSpace(spaceURL string, sess *session.Session) error {
 	crawlStart := time.Now()
-	ctx := context.Background()
 
 	s.log.Infow("crawl started",
 		"space_url", spaceURL,
@@ -189,7 +170,7 @@ func (s *Scraper) CrawlSpace(spaceURL string, sess *session.Session) error {
 	}
 	defer s.CloseBrowser()
 
-	pageInfo, err := s.discoverSpace(spaceURL, ctx)
+	pageInfo, err := s.discoverSpace(spaceURL)
 	if err != nil {
 		return fmt.Errorf("discover space: %w", err)
 	}
@@ -201,7 +182,7 @@ func (s *Scraper) CrawlSpace(spaceURL string, sess *session.Session) error {
 			"duration_ms", time.Since(crawlStart).Milliseconds())
 	}
 
-	spaceID, err := s.db.CreateSpace(ctx, pageInfo.SpaceKey, pageInfo.SpaceName, spaceURL)
+	spaceID, err := s.db.CreateSpace(s.ctx, pageInfo.SpaceKey, pageInfo.SpaceName, spaceURL)
 	if err != nil {
 		s.log.Warnw("failed to create space record, continuing",
 			"space_key", pageInfo.SpaceKey,
@@ -220,7 +201,7 @@ func (s *Scraper) CrawlSpace(spaceURL string, sess *session.Session) error {
 			"page_id", pg.ConfluenceID,
 			"title", pg.Title)
 
-		if err := s.scrapePage(ctx, pg, pageInfo.SpaceKey, pageInfo.SpaceURL); err != nil {
+		if err := s.scrapePage(pg, pageInfo.SpaceKey, pageInfo.SpaceURL); err != nil {
 			s.log.Errorw("page scrape failed",
 				"space_key", pageInfo.SpaceKey,
 				"page_id", pg.ConfluenceID,
@@ -252,21 +233,25 @@ func (s *Scraper) CrawlSpace(spaceURL string, sess *session.Session) error {
 	return nil
 }
 
-func (s *Scraper) scrapePage(ctx context.Context, pg *Page, spaceKey, spaceURL string) error {
-	page, err := s.context.NewPage()
-	if err != nil {
-		return fmt.Errorf("new page: %w", err)
-	}
-	defer page.Close()
+func (s *Scraper) scrapePage(pg *Page, spaceKey, spaceURL string) error {
+	page := s.browser.MustPage(pg.URL)
+	page = page.MustWaitStable().MustWaitLoad()
+	page.Timeout(30 * time.Second)
 
-	rawHTML, err := s.navigateAndWait(page, pg.URL)
+	html, err := page.HTML()
 	if err != nil {
-		return fmt.Errorf("navigate: %w", err)
+		return fmt.Errorf("get html: %w", err)
 	}
 
-	pg.RawHTML = rawHTML
+	pg.RawHTML = html
 
-	cleanHTML, images, attachments, err := s.extractContent(rawHTML, pg.Title)
+	if s.log.Enabled() {
+		s.log.Debugw("page content captured",
+			"url", pg.URL,
+			"html_size", len(html))
+	}
+
+	cleanHTML, images, attachments, err := s.extractContent(html, pg.Title)
 	if err != nil {
 		return fmt.Errorf("extract content: %w", err)
 	}
@@ -286,7 +271,7 @@ func (s *Scraper) scrapePage(ctx context.Context, pg *Page, spaceKey, spaceURL s
 	}
 	pg.HTMLPath = dir + "/index.html"
 
-	if err := s.storage.SaveRawHTML(dir, rawHTML); err != nil {
+	if err := s.storage.SaveRawHTML(dir, html); err != nil {
 		s.log.Warnw("save raw html failed",
 			"page_id", pg.ConfluenceID,
 			"title", pg.Title,
@@ -313,7 +298,7 @@ func (s *Scraper) scrapePage(ctx context.Context, pg *Page, spaceKey, spaceURL s
 	}
 	pg.MetadataPath = dir + "/metadata.json"
 
-	space, err := s.db.GetSpaceByKey(ctx, spaceKey)
+	space, err := s.db.GetSpaceByKey(context.Background(), spaceKey)
 	if err != nil {
 		s.log.Warnw("space not found for page save",
 			"space_key", spaceKey,
@@ -337,7 +322,7 @@ func (s *Scraper) scrapePage(ctx context.Context, pg *Page, spaceKey, spaceURL s
 		FileDir:              dir,
 	}
 
-	if err := s.db.UpsertPage(ctx, dbPage); err != nil {
+	if err := s.db.UpsertPage(s.ctx, dbPage); err != nil {
 		s.log.Warnw("save page to db failed",
 			"page_id", pg.ConfluenceID,
 			"title", pg.Title,
@@ -345,57 +330,4 @@ func (s *Scraper) scrapePage(ctx context.Context, pg *Page, spaceKey, spaceURL s
 	}
 
 	return nil
-}
-
-func (s *Scraper) navigateAndWait(page playwright.Page, pageURL string) (string, error) {
-	resp, err := page.Goto(pageURL, playwright.PageGotoOptions{
-		WaitUntil: playwright.WaitUntilStateCommit,
-		Timeout:   playwright.Float(60000),
-	})
-	if err != nil {
-		return "", fmt.Errorf("goto: %w", err)
-	}
-
-	if s.log.Enabled() {
-		status := "unknown"
-		if resp != nil {
-			status = fmt.Sprintf("%d", resp.Status())
-		}
-		s.log.Infow("page navigated",
-			"url", pageURL,
-			"status", status)
-	}
-
-	waitStart := time.Now()
-	if err := page.WaitForLoadState(playwright.PageWaitForLoadStateOptions{
-		State:   playwright.LoadStateNetworkidle,
-		Timeout: playwright.Float(30000),
-	}); err != nil {
-		if s.log.Enabled() {
-			s.log.Warnw("network idle timeout", "waited_ms", time.Since(waitStart).Milliseconds())
-		}
-	} else if s.log.Enabled() {
-		s.log.Debugw("network idle reached", "waited_ms", time.Since(waitStart).Milliseconds())
-	}
-
-	html, err := page.Content()
-	if err != nil {
-		return "", fmt.Errorf("get content: %w", err)
-	}
-
-	if s.log.Enabled() {
-		s.log.Debugw("page content captured",
-			"url", pageURL,
-			"html_size", len(html))
-	}
-
-	return html, nil
-}
-
-func ptrBool(b bool) *bool {
-	return &b
-}
-
-func ptrString(s string) *string {
-	return &s
 }

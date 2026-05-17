@@ -2,19 +2,24 @@
 
 - **Status**: Accepted
 - **Date**: 2025-01-17
-- **Context**: The cron job needs to scrape Confluence pages headlessly. We need a browser engine that reliably renders JavaScript-heavy pages like Confluence.
-- **Decision**: Use Playwright with Firefox for headless scraping, matching the Firefox extension for rendering consistency
+- **Updated**: 2026-05-17
+- **Context**: The cron job needs to scrape Confluence pages headlessly. We need a browser engine that reliably renders JavaScript-heavy pages like Confluence, without excessive Docker complexity.
+- **Decision**: Use chromedp (Go-native Chrome DevTools Protocol) with Chromium for headless scraping
 - **Rationale**:
-  - Playwright provides a high-level, reliable API for browser automation across browsers
-  - Firefox ensures the headless scraper renders Confluence pages identically to the Firefox extension
-  - Playwright handles dynamic content, AJAX loading, and Confluence's JavaScript rendering
+  - chromedp is a pure-Go library — zero Node.js dependency, no driver downloads, no version pinning
+  - Uses Chrome DevTools Protocol directly; no Xvfb or DISPLAY required for headless mode
+  - Significantly simpler Docker image: no Node.js, no unzip, no driver structure management
+  - Well-maintained, battle-tested for scraping automation
   - Confluence is heavily JavaScript-dependent; raw HTTP requests with Go would fail to capture rendered content
-  - Playwright's persistent context preserves cookies from the session store, enabling authenticated scraping
+  - chromedp supports persistent context for cookies from the session store, enabling authenticated scraping
+  - Chromium headless is the de facto standard for server-side scraping; rendering consistency across platforms
 - **Alternatives considered**:
-  - Playwright with Chromium — more reliable headless mode and lighter, but potential rendering differences vs Firefox extension
-  - Go-native HTTP + HTML parsing — would fail on JavaScript-rendered Confluence content; would require maintaining a wiki markup parser
-  - Selenium — heavier, slower, and less mature Go bindings than Playwright
+  - Playwright with Firefox — rejected due to sandbox namespace errors, Xvfb requirements, and driver version mismatches in Docker
+  - Playwright with Chromium — still requires Node.js bridge, driver downloads, and version management
+  - Selenium — heavier, slower, and less mature Go bindings
+  - Go-native HTTP + HTML parsing — would fail on JavaScript-rendered Confluence content
 - **Consequences**:
-  - Firefox binary must be available in the Docker image (adds ~200MB)
-  - Headless Firefox can be slightly slower than Chromium in some cases
-  - Playwright Go bindings are less mature than the Node.js version, but functional for our use case
+  - Chromium binary must be available in the Docker image (adds ~150MB)
+  - Uses Chrome DevTools Protocol — may need attention if Confluence uses non-standard Chrome features
+  - Pure-Go stack means fewer moving parts and easier debugging
+  - No Xvfb needed; Chromium runs headless natively without a display server

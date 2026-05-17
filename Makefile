@@ -1,4 +1,4 @@
-.PHONY: build run test dev-extension build-extension docker-up docker-down migrate-up migrate-down lint
+.PHONY: build run test dev-extension build-extension docker-up docker-down docker-logs migrate-up migrate-down lint docker-build clean
 
 BUILD_DIR=build
 
@@ -15,14 +15,26 @@ test:
 migrate-up:
 	cd space-mosquito && go run ./cmd/cli init
 
-migrate-down:
-	cd space-mosquito && go build -o $(BUILD_DIR)/cli ./cmd/cli
-
 docker-up:
 	docker compose up --build -d
 
 docker-down:
 	docker compose down
+
+docker-logs:
+	docker compose logs -f app
+
+docker-build:
+	docker compose build --no-cache
+
+migrate-docker:
+	docker compose exec app /app/cli init
+
+serve-docker:
+	docker compose exec app /app/server
+
+crawl-docker:
+	docker compose exec app /app/cli crawl
 
 lint:
 	cd space-mosquito && go vet ./...
@@ -33,6 +45,10 @@ dev-extension:
 
 build-extension:
 	cd firefox-extension && npx webpack --mode production
+
+clean:
+	rm -rf build/
+	cd space-mosquito && go clean
 
 config-example:
 	@cat > config.yaml.example << 'EOF'

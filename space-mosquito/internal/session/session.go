@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/vkh/spacemosquito/pkg/logging"
@@ -21,9 +22,9 @@ type Cookie struct {
 }
 
 type Session struct {
-	ConfluenceURL string    `json:"confluence_url"`
-	Cookies       []Cookie  `json:"cookies"`
-	CapturedAt    time.Time `json:"captured_at"`
+	ConfluenceURL string     `json:"confluence_url"`
+	Cookies       []Cookie   `json:"cookies"`
+	CapturedAt    time.Time  `json:"captured_at"`
 	ValidatedAt   *time.Time `json:"validated_at,omitempty"`
 	log           logging.Sugar
 }
@@ -43,16 +44,17 @@ func (s *Session) SetLogger(l logging.Sugar) {
 }
 
 func (s *Session) ValidateWithConfluence(confluenceURL string, timeoutSeconds int, remoteAddr string) (*ValidationResult, error) {
-	testURL := confluenceURL
-	if testURL == "" {
-		testURL = s.ConfluenceURL
+	// Extract Confluence root URL from full space URL
+	rootURL := extractConfluenceRoot(confluenceURL)
+	if rootURL == "" {
+		rootURL = extractConfluenceRoot(s.ConfluenceURL)
 	}
-	if testURL == "" {
+	if rootURL == "" {
 		if s.log.Enabled() {
 			s.log.Infow("session validation skipped: no confluence URL", "remote_addr", remoteAddr)
 		}
 		return &ValidationResult{
-			Valid: false,
+			Valid:   false,
 			Message: "no confluence URL available",
 		}, nil
 	}
@@ -62,12 +64,20 @@ func (s *Session) ValidateWithConfluence(confluenceURL string, timeoutSeconds in
 			s.log.Infow("session validation skipped: no cookies", "remote_addr", remoteAddr)
 		}
 		return &ValidationResult{
-			Valid: false,
+			Valid:   false,
 			Message: "no cookies in session",
 		}, nil
 	}
 
-	testURL = fmt.Sprintf("%s/rest/myself", testURL)
+	// Try Confluence Cloud REST API endpoint first
+	testURL := fmt.Sprintf("%s/wiki/rest/api/user/current", rootURL)
+	if s.log.Enabled() {
+		s.log.Infow("validating session with confluence",
+			"url", testURL,
+			"root_url", rootURL,
+			"cookie_count", len(s.Cookies),
+			"remote_addr", remoteAddr)
+	}
 	if s.log.Enabled() {
 		s.log.Infow("validating session with confluence",
 			"url", testURL,
@@ -152,6 +162,7 @@ func (s *Session) ValidateWithConfluence(confluenceURL string, timeoutSeconds in
 		}, nil
 	}
 
+	// Confluence Cloud uses "username" field
 	if username, ok := myself["username"].(string); ok {
 		if s.log.Enabled() {
 			s.log.Infow("session validated successfully",
@@ -164,6 +175,19 @@ func (s *Session) ValidateWithConfluence(confluenceURL string, timeoutSeconds in
 		}, nil
 	}
 
+	// Fallback: check for displayName
+	if displayName, ok := myself["displayName"].(string); ok {
+		if s.log.Enabled() {
+			s.log.Infow("session validated successfully",
+				"displayName", displayName,
+				"remote_addr", remoteAddr)
+		}
+		return &ValidationResult{
+			Valid:   true,
+			Message: fmt.Sprintf("authenticated as %s", displayName),
+		}, nil
+	}
+
 	if s.log.Enabled() {
 		s.log.Infow("session validated successfully", "remote_addr", remoteAddr)
 	}
@@ -171,4 +195,66 @@ func (s *Session) ValidateWithConfluence(confluenceURL string, timeoutSeconds in
 		Valid:   true,
 		Message: "authenticated",
 	}, nil
+}
+
+// GetSpaceKeyFromURL extracts space key from Confluence URL
+func GetSpaceKeyFromURL(url string) string {
+	// Handle URLs like: https://tenant.atlassian.net/wiki/spaces/SPACEKEY/...
+	if strings.Contains(url, "/wiki/spaces/") {
+		parts := strings.Split(url, "/wiki/spaces/")
+		if len(parts) > 1 {
+			spaceKey := strings.Split(parts[1], "/")[0]
+			return spaceKey
+		}
+	}
+	return ""
+}
+
+// GetSpaceNameFromURL extracts space name from Confluence URL
+func GetSpaceNameFromURL(url string) string {
+	if strings.Contains(url, "/wiki/spaces/") {
+		parts := strings.Split(url, "/wiki/spaces/")
+		if len(parts) > 1 {
+			spacePart := strings.Split(parts[1], "/")[0]
+			// Convert SPACEKEY to space name (e.g., NCHB -> NCHB)
+			return strings.ToUpper(spacePart)
+		}
+	}
+	return ""
+}
+
+// extractConfluenceRoot extracts the base URL from a Confluence URL
+func extractConfluenceRoot(url string) string {
+	if url == "" {
+		return ""
+	}
+
+	// Remove trailing slash
+	url = strings.TrimRight(url, "/")
+
+	// Handle Atlassian Cloud URLs: https://tenant.atlassian.net/wiki/...
+	if strings.Contains(url, "atlassian.net/wiki/") {
+		parts := strings.Split(url, "/wiki/")
+		if len(parts) > 0 {
+			return parts[0]
+		}
+	}
+
+	// Handle custom Confluence URLs with /wiki/
+	if strings.Contains(url, "/wiki/") {
+		parts := strings.Split(url, "/wiki/")
+		if len(parts) > 0 {
+			return parts[0]
+		}
+	}
+
+	// Handle Confluence Data Center URLs with /confluence/
+	if strings.Contains(url, "/confluence/") {
+		parts := strings.Split(url, "/confluence/")
+		if len(parts) > 0 {
+			return parts[0]
+		}
+	}
+
+	return url
 }

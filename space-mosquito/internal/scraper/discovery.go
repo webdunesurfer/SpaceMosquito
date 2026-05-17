@@ -1,14 +1,12 @@
 package scraper
 
 import (
-	"context"
 	"fmt"
 	"regexp"
 	"strings"
 	"time"
 
 	"github.com/PuerkitoBio/goquery"
-	"github.com/playwright-community/playwright-go"
 )
 
 // SpaceInfo holds discovered metadata about a Confluence space.
@@ -20,36 +18,16 @@ type SpaceInfo struct {
 }
 
 // discoverSpace navigates to the space root and discovers all pages via sidebar parsing.
-func (s *Scraper) discoverSpace(spaceURL string, ctx context.Context) (*SpaceInfo, error) {
-	page, err := s.context.NewPage()
-	if err != nil {
-		return nil, fmt.Errorf("new page: %w", err)
-	}
-	defer page.Close()
+func (s *Scraper) discoverSpace(spaceURL string) (*SpaceInfo, error) {
+	page := s.browser.MustPage(spaceURL)
+	page.Timeout(60 * time.Second)
 
-	resp, err := page.Goto(spaceURL, playwright.PageGotoOptions{
-		WaitUntil: playwright.WaitUntilStateCommit,
-		Timeout:   playwright.Float(60000),
-	})
-	if err != nil {
-		return nil, fmt.Errorf("goto space: %w", err)
-	}
+	// Navigate and wait for page to load
+	page.MustWaitLoad()
+	page.MustWaitStable()
 
-	if resp != nil && resp.Status() >= 400 {
-		return nil, fmt.Errorf("space returned status %d", resp.Status())
-	}
-
-	waitStart := time.Now()
-	if err := page.WaitForLoadState(playwright.PageWaitForLoadStateOptions{
-		State:   playwright.LoadStateNetworkidle,
-		Timeout: playwright.Float(30000),
-	}); err != nil {
-		if s.log.Enabled() {
-			s.log.Warnw("network idle timeout on space root", "waited_ms", time.Since(waitStart).Milliseconds())
-		}
-	}
-
-	html, err := page.Content()
+	// Capture the full page HTML
+	html, err := page.HTML()
 	if err != nil {
 		return nil, fmt.Errorf("get space html: %w", err)
 	}
@@ -107,8 +85,8 @@ func (s *Scraper) discoverSpace(spaceURL string, ctx context.Context) (*SpaceInf
 
 func (s *Scraper) extractSpaceKey(doc *goquery.Document, spaceURL string) string {
 	// Try extracting from space key element
-	doc.Find("#space-heading, .aui-navgroup-label, [data-testid=" +
-		"sidebar.navigation.space-name").Each(func(i int, s *goquery.Selection) {
+	doc.Find("#space-heading, .aui-navgroup-label, [data-testid="+
+		"sidebar.navigation.space-name]").Each(func(i int, s *goquery.Selection) {
 		text := s.Text()
 		if len(text) > 0 {
 			// Space key is usually the first part of the display name or a separate element

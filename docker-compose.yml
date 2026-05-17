@@ -1,6 +1,6 @@
 services:
   db:
-    image: pgvector/pgvector:pg16
+    image: pgvector/pgvector:pg17
     environment:
       POSTGRES_USER: spacemosquito
       POSTGRES_PASSWORD: spacemosquito
@@ -9,6 +9,31 @@ services:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U spacemosquito"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      CONFIG_PATH: /app/config.yaml
+      DATABASE_URL: postgres://spacemosquito:spacemosquito@db:5432/spacemosquito?sslmode=disable
+    ports:
+      - "8080:8080"
+      - "8081:8081"
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./config.yaml:/app/config.yaml:ro
+      - saved-data:/app/saved
+      - ./session.enc:/app/session.enc:rw
 
 volumes:
   pgdata:
+  saved-data:
