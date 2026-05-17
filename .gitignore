@@ -1,0 +1,35 @@
+# Dependencies
+node_modules/
+vendor/
+
+# Build outputs
+build/
+dist/
+tmp/
+*.exe
+
+# Saved data
+saved/
+
+# Secrets
+*.enc
+.env
+config.yaml
+session-data/
+
+# Logs
+*.log
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Firefox extension
+firefox-extension/*.xpi
