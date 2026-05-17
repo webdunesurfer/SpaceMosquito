@@ -1,0 +1,24 @@
+# ADR-007: MCP Transport — SSE over HTTP
+
+- **Status**: Accepted
+- **Date**: 2025-01-17
+- **Context**: The MCP server needs to expose tools (search, get_page, list_spaces) to AI agent clients like opencode, Cursor, and Gemini CLI.
+- **Decision**: Use Server-Sent Events (SSE) transport over HTTP for the MCP protocol
+- **Rationale**:
+  - SSE is the recommended transport for remote MCP servers and works well with HTTP-based clients
+  - Compatible with opencode, Cursor, Gemini CLI, and other MCP clients that support SSE
+  - Stateless design — each client session gets a unique endpoint URL from the initial `/mcp` POST
+  - No WebSocket complexity or additional infrastructure needed
+  - Simple firewall/NAT traversal compared to WebSocket or custom protocols
+- **Alternatives considered**:
+  - Stdio transport — only works for local processes, not for remote Docker containers or networked clients
+  - WebSocket — more complex, requires bidirectional connection management
+  - HTTP POST only (no SSE) — each request must carry full state; less efficient for streaming responses
+- **Endpoints**:
+  - `POST /mcp` — client initiates session, receives SSE URL
+  - `POST /mcp/session/<id>` — JSON-RPC 2.0 requests with MCP tool calls
+  - SSE stream from the session URL for server-to-client responses
+- **Consequences**:
+  - MCP server must persist session state in memory (or Redis for multi-instance deployments)
+  - Sessions timeout after inactivity; clients must reconnect
+  - For local dev, the MCP server listens on port 8081; in containers, this is exposed for remote clients

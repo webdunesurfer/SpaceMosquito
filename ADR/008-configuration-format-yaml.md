@@ -1,0 +1,21 @@
+# ADR-008: Configuration Format — YAML
+
+- **Status**: Accepted
+- **Date**: 2025-01-17
+- **Context**: The Go backend needs a configuration file for database connections, encryption keys, scraper settings, and embedding model selection.
+- **Decision**: Use YAML (`gopkg.in/yaml.v3`) for the configuration file
+- **Rationale**:
+  - YAML is human-readable and widely used for application configuration
+  - Supports nested structures (database, scraper, embedder, mcp sections)
+  - `gopkg.in/yaml.v3` is the standard, well-maintained Go YAML library
+  - Easy to generate a template `.env.example` or `config.yaml.example`
+- **Alternatives considered**:
+  - TOML — flat structure, less ideal for nested config
+  - JSON — verbose, no comments
+  - Environment variables — hard to document, no nested structure, unwieldy for complex configs
+  - HCL — used by Terraform, overkill for this use case
+- **Config file location**: `~/.config/spacemosquito/config.yaml` on host, `./config.yaml` in container
+- **Consequences**:
+  - Config file should be documented with comments and a sample template
+  - Sensitive values (encryption key, API keys) should be in the config but documented as requiring protection
+  - Config can be overridden by environment variables for sensitive values in container deployments

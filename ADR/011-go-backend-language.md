@@ -1,0 +1,27 @@
+# ADR-011: Go Backend Language Choice
+
+- **Status**: Accepted
+- **Date**: 2025-01-17
+- **Context**: We need a backend for the SpaceMosquito project that handles API serving, database operations, MCP server, cron scheduling, and container orchestration.
+- **Decision**: Use Go for all backend logic
+- **Rationale**:
+  - Matches user preference and strong language fit for the required components:
+    - Single binary deployment (ideal for Docker)
+    - Built-in HTTP server (API + MCP)
+    - Excellent PostgreSQL driver ecosystem
+    - Strong concurrency model for parallel scraping and batch processing
+    - Fast compilation and low memory footprint
+    - No external runtime dependencies
+  - `golang-migrate` for migrations
+  - `playwright-go` for headless scraping
+  - `gocron` for cron scheduling
+  - Standard library SSE support for MCP server
+- **Alternatives considered**:
+  - Python — rich ML/embedding ecosystem but slower, heavier, and less ideal for HTTP servers
+  - Node.js — good for the extension but not ideal for database/ML workloads
+  - Rust — excellent performance but longer development time, less mature Playwright bindings
+  - TypeScript (Node) — possible but embedding generation would require Python/ONNX runtime integration anyway
+- **Consequences**:
+  - All backend services (API, MCP, scraper, cron, embedder) in one Go codebase
+  - Single Docker image with one process (simpler container management)
+  - Go's static typing helps maintain large codebases over time

@@ -1,0 +1,24 @@
+# ADR-003: Embedding Model Selection
+
+- **Status**: Accepted
+- **Date**: 2025-01-17
+- **Context**: We need to generate vector embeddings for Confluence page content to enable semantic search via the MCP server. The solution must work both locally (Docker container) and on the host, with minimal external dependencies.
+- **Decision**: Default to nomic-embed-text (local ONNX) with configurable fallback to OpenAI text-embedding-3 and bge-m3
+- **Rationale**:
+  - nomic-embed-text offers the best balance of quality, speed, and resource usage for this use case
+  - Runs entirely locally (ONNX runtime), no API keys required
+  - Model size ~250MB, inference RAM ~500MB, batch of 1000 embeddings in ~1-3 seconds
+  - Fits comfortably in a Docker container with 2GB RAM
+  - OpenAI text-embedding-3-small provides higher quality but requires API key, adds cost, and sends data externally
+  - bge-m3 provides slightly better quality (MTEB ~67.5 vs ~64.0) but requires ~1.9GB model, 3-4GB RAM, and is 3-5x slower — overkill for technical documentation search
+  - Making the model configurable allows users to trade quality for resources based on their needs
+- **Alternatives considered**:
+  - bge-m3 as default — too resource-heavy for a container-friendly solution
+  - OpenAI only — unacceptable as the only option (cost, data privacy, API key requirement)
+  - All-MiniLM-L6-v2 — smaller and faster but lower quality than nomic-embed-text
+  - Voyage AI voyage-code-v2 — excellent for code but expensive and external
+- **Consequences**:
+  - ONNX runtime must be compiled/linked in Go (via gontf or similar)
+  - Model file (~250MB) needs to be downloaded on first run or included in Docker image
+  - Users with OpenAI API keys can switch to text-embedding-3-small via config without code changes
+  - Batch embedding of large spaces (1000+ pages) may take several minutes with nomic-embed-text

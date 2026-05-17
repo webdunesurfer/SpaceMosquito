@@ -1,0 +1,25 @@
+# ADR-006: Saved Page Format — Mix of Clean and Raw HTML
+
+- **Status**: Accepted
+- **Date**: 2025-01-17
+- **Context**: We need to save Confluence pages in a format that is both human-navigable offline and preserves the original content for reference.
+- **Decision**: Save each page as a directory containing:
+  - `index.html` — clean extracted content with rewritten URLs and downloaded assets
+  - `raw.html` — original Confluence HTML as fallback
+  - `assets/images/` and `assets/attachments/` — downloaded media files
+  - `metadata.json` — page metadata (title, author, dates, Confluence URL, parent relationship)
+- **Rationale**:
+  - Clean HTML is navigable in any browser offline with properly rewritten URLs and bundled assets
+  - Raw HTML serves as a fallback if the clean extraction loses important content
+  - Separating assets from HTML allows for organized storage and easy cleanup
+  - Metadata.json enables fast listing/searching without parsing HTML
+- **Alternatives considered**:
+  - Raw HTML only — preserves everything but doesn't work offline (external URLs, missing assets)
+  - Markdown only — lightweight and portable but loses formatting, images require separate storage, not directly browsable in a browser
+  - PDF — not searchable, loses interactivity
+  - Single HTML file with base64 assets — large files, harder to manage individual assets
+- **Consequences**:
+  - Each page becomes a directory with multiple files (more filesystem operations)
+  - Asset download must handle Confluence's CDN URLs, attachment links, and inline images
+  - URL rewriting in clean HTML must handle relative paths, wiki markup links, and embedded macros
+  - Directory structure under `saved/<space-key>/` must handle nested pages and special characters in titles
