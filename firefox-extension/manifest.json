@@ -1,0 +1,25 @@
+{
+  "manifest_version": 3,
+  "name": "SpaceMosquito",
+  "version": "0.1.0",
+  "description": "Capture Confluence spaces for offline access",
+  "permissions": ["cookies", "storage", "activeTab"],
+  "host_permissions": [
+    "https://*.atlassian.net/*",
+    "http://localhost:8080/*",
+    "http://localhost:8081/*"
+  ],
+  "background": {
+    "service_worker": "dist/background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://*.atlassian.net/*"],
+      "js": ["dist/content.js"]
+    }
+  ],
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_title": "SpaceMosquito"
+  }
+}

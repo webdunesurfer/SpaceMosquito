@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -40,12 +41,20 @@ type PageEmbedding struct {
 }
 
 type SearchResult struct {
-	PageID        uuid.UUID `db:"page_id"`
-	SpaceKey      string    `db:"space_key"`
-	Title         string    `db:"title"`
-	Excerpt       string    `db:"excerpt"`
-	Similarity    float64   `db:"similarity"`
-	FilePath      string    `db:"file_path"`
+	PageID     uuid.UUID `db:"page_id"`
+	SpaceKey   string    `db:"space_key"`
+	Title      string    `db:"title"`
+	Excerpt    string    `db:"excerpt"`
+	Similarity float64   `db:"similarity"`
+	FilePath   string    `db:"file_path"`
+}
+
+type PageStats struct {
+	TotalPages      int       `db:"total_pages"`
+	TotalSpaces     int       `db:"total_spaces"`
+	LastCrawled     time.Time `db:"last_crawled"`
+	LastCrawledStr  string    `db:"-"`
+	ContentLang     string    `db:"content_lang"`
 }
 
 func (d *DB) CreateSpace(ctx context.Context, key, name, url string) (uuid.UUID, error) {
@@ -337,4 +346,184 @@ func (d *DB) SearchEmbeddings(ctx context.Context, queryEmbedding []float32, spa
 		d.log.Infow("search results", "space_key", spaceKey, "count", len(results))
 	}
 	return results, nil
+}
+
+func (d *DB) IndexPageContent(ctx context.Context, spaceKey string, pageID int) error {
+	var pageID64 uuid.UUID
+	err := d.pool.QueryRow(ctx,
+		`SELECT id FROM pages WHERE space_id = (SELECT id FROM spaces WHERE key = $1) AND confluence_id = $2`,
+		spaceKey, pageID,
+	).Scan(&pageID64)
+	if err != nil {
+		if d.log.Enabled() {
+			d.log.Errorw("index page content: page not found",
+				"space_key", spaceKey,
+				"confluence_id", pageID,
+				"error", err)
+		}
+		return fmt.Errorf("page not found: %w", err)
+	}
+
+	_, err = d.pool.Exec(ctx,
+		`UPDATE pages SET content_vector = to_tsvector('english', coalesce(title, '')) || to_tsvector('english', coalesce(content, ''))
+		 WHERE id = $1`,
+		pageID64,
+	)
+	if err != nil {
+		if d.log.Enabled() {
+			d.log.Errorw("index page content: update failed",
+				"page_id", pageID64,
+				"error", err)
+		}
+		return fmt.Errorf("index page content: %w", err)
+	}
+	if d.log.Enabled() {
+		d.log.Infow("page content indexed",
+			"page_id", pageID64,
+			"space_key", spaceKey,
+			"confluence_id", pageID)
+	}
+	return nil
+}
+
+func (d *DB) IndexAllPageContents(ctx context.Context) error {
+	rows, err := d.pool.Query(ctx,
+		`SELECT p.id, s.key, p.confluence_id FROM pages p
+		 JOIN spaces s ON s.id = p.space_id
+		 WHERE p.content_vector IS NULL OR p.updated_at > pg_last_xact_replay_timestamp()`,
+	)
+	if err != nil {
+		if d.log.Enabled() {
+			d.log.Errorw("index all page contents: query failed", "error", err)
+		}
+		return fmt.Errorf("index all page contents: %w", err)
+	}
+	defer rows.Close()
+
+	count := 0
+	for rows.Next() {
+		var pageID64 uuid.UUID
+		var spaceKey string
+		var confluenceID int
+		if err := rows.Scan(&pageID64, &spaceKey, &confluenceID); err != nil {
+			if d.log.Enabled() {
+				d.log.Errorw("index all page contents: scan error", "error", err)
+			}
+			continue
+		}
+		_, err := d.pool.Exec(ctx,
+			`UPDATE pages SET content_vector = to_tsvector('english', coalesce(title, '')) || to_tsvector('english', coalesce(content, ''))
+			 WHERE id = $1`,
+			pageID64,
+		)
+		if err != nil {
+			if d.log.Enabled() {
+				d.log.Warnw("index page content: update failed, skipping",
+					"page_id", pageID64,
+					"error", err)
+			}
+			continue
+		}
+		count++
+	}
+	if d.log.Enabled() {
+		d.log.Infow("all page contents indexed", "indexed", count)
+	}
+	return nil
+}
+
+func (d *DB) SearchPages(ctx context.Context, query string, spaceKey string, limit int) ([]SearchResult, error) {
+	if limit == 0 {
+		limit = 10
+	}
+
+	query = strings.TrimSpace(query)
+	if query == "" {
+		if d.log.Enabled() {
+			d.log.Warn("search pages: empty query")
+		}
+		return nil, nil
+	}
+
+	baseQuery := `
+		SELECT p.id AS page_id, s.key AS space_key, p.title,
+		       LEFT(p.content, 200) AS excerpt,
+		       ts_rank(p.content_vector, plainto_tsquery('english', $1)) AS similarity,
+		       p.html_path AS file_path
+		FROM pages p
+		JOIN spaces s ON s.id = p.space_id
+		WHERE p.content_vector @@ plainto_tsquery('english', $1)
+	`
+	args := []interface{}{query}
+	argIdx := 2
+
+	if spaceKey != "" {
+		baseQuery += fmt.Sprintf(" AND s.key = $%d", argIdx)
+		args = append(args, spaceKey)
+		argIdx++
+	}
+
+	baseQuery += fmt.Sprintf(" ORDER BY similarity DESC LIMIT $%d", argIdx)
+	args = append(args, limit)
+
+	if d.log.Enabled() {
+		d.log.Debugw("searching pages",
+			"query", query,
+			"space_key", spaceKey,
+			"limit", limit)
+	}
+
+	rows, err := d.pool.Query(ctx, baseQuery, args...)
+	if err != nil {
+		if d.log.Enabled() {
+			d.log.Errorw("search pages failed", "error", err)
+		}
+		return nil, fmt.Errorf("search pages: %w", err)
+	}
+	defer rows.Close()
+
+	var results []SearchResult
+	for rows.Next() {
+		var r SearchResult
+		if err := rows.Scan(&r.PageID, &r.SpaceKey, &r.Title, &r.Excerpt, &r.Similarity, &r.FilePath); err != nil {
+			if d.log.Enabled() {
+				d.log.Errorw("search pages: scan error", "error", err)
+			}
+			return nil, fmt.Errorf("search pages: scan error: %w", err)
+		}
+		results = append(results, r)
+	}
+	if d.log.Enabled() {
+		d.log.Infow("search results", "query", query, "space_key", spaceKey, "count", len(results))
+	}
+	return results, nil
+}
+
+func (d *DB) GetPageStats(ctx context.Context) (*PageStats, error) {
+	stats := &PageStats{}
+	var lastCrawled *time.Time
+	err := d.pool.QueryRow(ctx, `
+		SELECT (SELECT COUNT(*) FROM pages),
+		       (SELECT COUNT(*) FROM spaces),
+		       (SELECT MAX(last_crawled) FROM spaces),
+		       CASE WHEN EXISTS (SELECT 1 FROM pages WHERE content_vector IS NOT NULL)
+		            THEN 'ft_vector' ELSE 'none' END AS content_lang
+	`).Scan(&stats.TotalPages, &stats.TotalSpaces, &lastCrawled, &stats.ContentLang)
+	if err != nil {
+		if d.log.Enabled() {
+			d.log.Errorw("get page stats failed", "error", err)
+		}
+		return nil, fmt.Errorf("get page stats: %w", err)
+	}
+	if lastCrawled != nil {
+		stats.LastCrawled = *lastCrawled
+		stats.LastCrawledStr = lastCrawled.Format(time.RFC3339)
+	}
+	if d.log.Enabled() {
+		d.log.Infow("page stats retrieved",
+			"total_pages", stats.TotalPages,
+			"total_spaces", stats.TotalSpaces,
+			"content_indexing", stats.ContentLang)
+	}
+	return stats, nil
 }

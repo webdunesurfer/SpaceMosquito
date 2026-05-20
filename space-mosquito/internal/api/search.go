@@ -1,0 +1,111 @@
+package api
+
+import (
+	"net/http"
+	"strconv"
+
+	"github.com/vkh/spacemosquito/internal/config"
+	"github.com/vkh/spacemosquito/internal/db"
+	"github.com/vkh/spacemosquito/internal/session"
+	"github.com/vkh/spacemosquito/pkg/logging"
+)
+
+type SearchHandler struct {
+	db     *db.DB
+	store  *session.Store
+	cfg    *config.Config
+	log    logging.Sugar
+}
+
+func NewSearchHandler(database *db.DB, store *session.Store, cfg *config.Config, log logging.Sugar) *SearchHandler {
+	return &SearchHandler{
+		db:    database,
+		store: store,
+		cfg:   cfg,
+		log:   log,
+	}
+}
+
+func (h *SearchHandler) Search(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	query := r.URL.Query().Get("q")
+	if query == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "query parameter 'q' is required"})
+		return
+	}
+
+	spaceKey := r.URL.Query().Get("space")
+	limitStr := r.URL.Query().Get("limit")
+	limit := 10
+	if limitStr != "" {
+		if parsed, err := strconv.Atoi(limitStr); err == nil && parsed > 0 {
+			limit = parsed
+		}
+	}
+
+	results, err := h.db.SearchPages(r.Context(), query, spaceKey, limit)
+	if err != nil {
+		h.log.Errorw("search failed", "query", query, "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "search failed: " + err.Error()})
+		return
+	}
+
+	if results == nil {
+		results = []db.SearchResult{}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"query":  query,
+		"count":  len(results),
+		"results": results,
+	})
+}
+
+func (h *SearchHandler) Reindex(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	pageIDStr := r.URL.Query().Get("page_id")
+	if pageIDStr != "" {
+		pageID, err := strconv.Atoi(pageIDStr)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid page_id"})
+			return
+		}
+		spaceKey := r.URL.Query().Get("space")
+		if spaceKey == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "space parameter is required with page_id"})
+			return
+		}
+		if err := h.db.IndexPageContent(r.Context(), spaceKey, pageID); err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]string{"message": "page reindexed"})
+		return
+	}
+
+	if err := h.db.IndexAllPageContents(r.Context()); err != nil {
+		h.log.Errorw("reindex all failed", "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "reindex failed: " + err.Error()})
+		return
+	}
+
+	h.log.Info("all pages reindexed")
+	writeJSON(w, http.StatusOK, map[string]string{"message": "all pages reindexed"})
+}
+
+func (h *SearchHandler) Stats(w http.ResponseWriter, r *http.Request) {
+	stats, err := h.db.GetPageStats(r.Context())
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, stats)
+}

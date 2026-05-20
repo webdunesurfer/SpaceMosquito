@@ -1,4 +1,4 @@
-.PHONY: build run test dev-extension build-extension docker-up docker-down docker-logs migrate-up migrate-down lint docker-build clean
+.PHONY: build run test migrate-up migrate-down docker-up docker-down docker-logs docker-build docker-migrate serve-docker crawl-docker lint dev-extension build-extension clean config-example
 
 BUILD_DIR=build
 
@@ -15,6 +15,9 @@ test:
 migrate-up:
 	cd space-mosquito && go run ./cmd/cli init
 
+migrate-down:
+	cd space-mosquito && go run github.com/golang-migrate/migrate/v4/cli -path migrations -database "postgres://spacemosquito:spacemosquito@localhost:5432/spacemosquito?sslmode=disable" -path migrations down
+
 docker-up:
 	docker compose up --build -d
 
@@ -27,7 +30,7 @@ docker-logs:
 docker-build:
 	docker compose build --no-cache
 
-migrate-docker:
+docker-migrate:
 	docker compose exec app /app/cli init
 
 serve-docker:
@@ -63,6 +66,8 @@ database:
 storage:
   base_path: ./saved
 
+# WARNING: Generate a secure encryption key (never use defaults).
+# Run: openssl rand -base64 32
 session:
   encryption_key: ""
   file_path: ~/.config/spacemosquito/session.enc

@@ -1,0 +1,1 @@
+-- No-op: migration 003 placeholder (see 003_placeholder.up.sql)

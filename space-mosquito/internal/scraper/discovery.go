@@ -1,6 +1,7 @@
 package scraper
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"regexp"
@@ -21,17 +22,70 @@ type SpaceInfo struct {
 
 // discoverSpace navigates to the space root and discovers all pages via sidebar parsing.
 func (s *Scraper) discoverSpace(spaceURL string) (*SpaceInfo, error) {
+	if s.log.Enabled() {
+		s.log.Infow("navigating to space", "url", spaceURL)
+	}
+
 	page := s.browser.MustPage(spaceURL)
 	page.Timeout(90 * time.Second)
 
-	// Navigate and wait for page to load
-	page.MustWaitLoad()
-	
+	// Wait for the page to load with timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	done := make(chan struct{})
+	go func() {
+		page.MustWaitLoad()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		if s.log.Enabled() {
+			s.log.Info("page loaded successfully")
+		}
+	case <-ctx.Done():
+		if s.log.Enabled() {
+			s.log.Errorw("page load timeout, taking screenshot for debug", "timeout", 60*time.Second)
+		}
+		// Take a screenshot for debugging
+		page.MustScreenshot("/tmp/confluence_timeout.png")
+		return nil, fmt.Errorf("page load timeout after 60s")
+	}
+
 	// Wait for dynamic content to render (Confluence is a SPA)
-	page.MustWaitStable()
-	
-	// Additional wait for sidebar to fully render
+	// Use a timeout to prevent hanging
+	stableCtx, stableCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer stableCancel()
+
+	stableDone := make(chan struct{})
+	go func() {
+		page.MustWaitStable()
+		close(stableDone)
+	}()
+
+	select {
+	case <-stableDone:
+		if s.log.Enabled() {
+			s.log.Info("page is stable")
+		}
+	case <-stableCtx.Done():
+		if s.log.Enabled() {
+			s.log.Warn("page stable timeout, continuing anyway")
+		}
+	}
+
+	// Wait for sidebar to fully render
+	if s.log.Enabled() {
+		s.log.Info("waiting for sidebar rendering")
+	}
 	time.Sleep(10 * time.Second)
+
+	// Print current URL to verify we're on the right page
+	currentURL := page.MustInfo().URL
+	if s.log.Enabled() {
+		s.log.Infow("current page URL", "url", currentURL)
+	}
 
 	// Capture the full page HTML
 	html, err := page.HTML()
@@ -40,12 +94,14 @@ func (s *Scraper) discoverSpace(spaceURL string) (*SpaceInfo, error) {
 	}
 
 	if s.log.Enabled() {
-		s.log.Debugw("space root page captured", "html_size", len(html))
+		s.log.Debugw("space root page captured", "html_size", len(html), "url", currentURL)
 	}
 
 	// Save HTML for debugging
 	if err := os.WriteFile("/tmp/confluence_debug.html", []byte(html), 0644); err == nil {
-		s.log.Debugw("saved debug html", "path", "/tmp/confluence_debug.html", "size", len(html))
+		if s.log.Enabled() {
+			s.log.Debugw("saved debug html", "path", "/tmp/confluence_debug.html", "size", len(html))
+		}
 	}
 
 	doc, err := goquery.NewDocumentFromReader(strings.NewReader(html))
@@ -68,7 +124,7 @@ func (s *Scraper) discoverSpace(spaceURL string) (*SpaceInfo, error) {
 
 	// Try rod's Element API first for dynamic content
 	pages := s.findPagesByRod(page, spaceURL)
-	
+
 	// Fall back to goquery if rod didn't find any
 	if len(pages) == 0 {
 		pages, err = s.parseSidebar(doc, spaceInfo.SpaceKey, 0)
@@ -108,8 +164,12 @@ func (s *Scraper) findPagesByRod(page *rod.Page, spaceURL string) []*Page {
 		spaceURL += "/"
 	}
 	var pages []*Page
-	
+
 	// Try to find all links with /pages/ in the href (Confluence uses /pages/ not /page/)
+	if s.log.Enabled() {
+		s.log.Debugw("searching for page links with /pages/")
+	}
+
 	elements, err := page.Elements("a[href*='/pages/']")
 	if err != nil {
 		if s.log.Enabled() {
@@ -117,26 +177,30 @@ func (s *Scraper) findPagesByRod(page *rod.Page, spaceURL string) []*Page {
 		}
 		return nil
 	}
-	
+
+	if s.log.Enabled() {
+		s.log.Debugw("found raw elements", "count", len(elements))
+	}
+
 	for _, el := range elements {
 		href := el.MustAttribute("href")
 		if href == nil || *href == "" || !strings.Contains(*href, "/pages/") {
 			continue
 		}
-		
+
 		text := el.MustText()
 		text = strings.TrimSpace(text)
-		
+
 		confluenceID := s.parseConfluenceID(*href)
 		if confluenceID == 0 {
 			continue
 		}
-		
+
 		title := text
 		if title == "" {
 			title = fmt.Sprintf("page-%d", confluenceID)
 		}
-		
+
 		pages = append(pages, &Page{
 			ConfluenceID: confluenceID,
 			Title:        title,
@@ -144,11 +208,11 @@ func (s *Scraper) findPagesByRod(page *rod.Page, spaceURL string) []*Page {
 			Level:        0,
 		})
 	}
-	
+
 	if s.log.Enabled() && len(pages) > 0 {
 		s.log.Debugw("found pages via rod", "count", len(pages))
 	}
-	
+
 	return pages
 }
 

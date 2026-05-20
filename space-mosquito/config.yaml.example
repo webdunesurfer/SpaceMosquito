@@ -9,6 +9,8 @@ database:
 storage:
   base_path: ./saved
 
+# WARNING: Generate a secure encryption key (never use defaults).
+# Run: openssl rand -base64 32
 session:
   encryption_key: ""
   file_path: ~/.config/spacemosquito/session.enc
@@ -28,8 +30,13 @@ cron:
   full_crawl:
     enabled: false
     interval: "24h"
-    spaces: []
+    max_duration: "4h"
+    spaces:
+      - "https://company.atlassian.net/wiki/spaces/PROJ"
   incremental:
     enabled: false
     interval: "2h"
-    spaces: []
+    max_duration: "30m"
+    detection: "dom"  # "api" | "dom" | disabled by re-crawling all
+    spaces:
+      - "https://company.atlassian.net/wiki/spaces/PROJ"

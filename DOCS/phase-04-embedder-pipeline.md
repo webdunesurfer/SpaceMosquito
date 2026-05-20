@@ -1,7 +1,15 @@
 # Phase 4: Embedder Pipeline
 
-## Objective
+> **Status**: Deferred. BM25/lexical search via PostgreSQL `tsvector` (migration 004_fts) is used instead. See ADR-003 for model selection rationale. Vector embeddings via ONNX/OpenAI are planned for a future phase.
+
+## Objective (deferred)
 Implement vector embedding generation for extracted page content and store embeddings in PostgreSQL with pgvector for semantic search.
+
+## Current State
+- PostgreSQL `tsvector` with GIN index provides BM25-style lexical search
+- Search via `content_vector @@ plainto_tsquery(query)` with `ts_rank_cd` ranking
+- `page_embeddings` table schema exists in migration 001 but no embedding generation code
+- Search endpoint (`/api/search`) uses only FTS, not vector similarity
 
 ## Deliverables
 - Embedder interface with pluggable implementations

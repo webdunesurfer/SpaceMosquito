@@ -26,14 +26,15 @@ Extend the Firefox extension with page-by-page scraping capabilities, crawl prog
 
 ### 7.2 — Scraping Orchestration
 - `background.ts`:
-  - `startCrawl(spaceUrl)` — creates Playwright Firefox context
+  - `startCrawl(spaceUrl)` — initiates backend crawl via `POST /api/crawl`
+  - Backend uses go-rod + Chromium for scraping (Phase 3)
   - Uses stored session cookies (from Phase 2)
   - Discovers pages via sidebar (same logic as Phase 3)
   - For each page:
-    1. Navigate and wait for render
-    2. Extract content (trafilatura-style via goquery on backend — extension sends HTML to backend)
-    3. Send extracted data to backend API
-    4. Update progress in `chrome.storage.local`
+    1. Navigate and wait for render (go-rod `MustWaitStable()`)
+    2. Extract content (trafilatura-style via goquery on backend)
+    3. Update progress in `chrome.storage.local`
+  - Poll backend for progress every 2 seconds
   - Report completion to user
   - **Log page navigation, content extraction start/end, API upload results per page**
 
@@ -43,7 +44,7 @@ Extend the Firefox extension with page-by-page scraping capabilities, crawl prog
   - Use DOM queries to find main content area
   - Return `{ title, html, text, images: [...], attachments: [...] }`
   - Called by background script for each crawled page
-  - Extension-side extraction is a fallback; primary scraping is backend-driven via Playwright
+  - Extension-side extraction is a fallback; primary scraping is backend-driven via go-rod
   - **Log extraction DOM queries, element counts, errors**
 
 ### 7.4 — Progress Tracking
@@ -60,11 +61,11 @@ Extend the Firefox extension with page-by-page scraping capabilities, crawl prog
   - **Log progress polling, state transitions in chrome.storage.local**
 
 ### 7.5 — Backend Crawl API
-- `internal/api/handler.go`:
+- `internal/api/crawl.go`:
   - `POST /api/crawl` — start crawl job
     - Body: `{ "space_url": string, "options": { "depth": "all"|"shallow" } }`
     - Returns: `{ "job_id": string }`
-    - Starts Playwright scraper (Phase 3) in background goroutine
+    - Starts go-rod scraper (Phase 3) in background goroutine via `CrawlRunner`
   - `GET /api/crawl/status/<job_id>` — get job status
     - Returns: `{ "status": "running", "current": 23, "total": 142, "page": "API Documentation" }`
   - `POST /api/crawl/pause/<job_id>` — pause current crawl

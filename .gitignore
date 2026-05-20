@@ -7,17 +7,21 @@ build/
 dist/
 tmp/
 *.exe
+
+# Compiled binaries
 space-mosquito/cli
 space-mosquito/server
 
-# Saved data
-saved/
-
-# Secrets
+# Secrets & sensitive config
 *.enc
+*.enc.bak
 .env
 config.yaml
+cron-config.json
 session-data/
+
+# Saved data
+saved/
 
 # Logs
 *.log
@@ -34,4 +38,6 @@ session-data/
 Thumbs.db
 
 # Firefox extension
+firefox-extension/node_modules/
+firefox-extension/dist/
 firefox-extension/*.xpi

@@ -1,0 +1,29 @@
+# ADR-013: go-rod over chromedp for Scraper
+
+- **Status**: Accepted
+- **Date**: 2026-05-17
+- **Context**: ADR-012 recommended chromedp as the headless browser library. However, during implementation in Docker (Colima with vz driver on Apple Silicon), chromedp's `NoSandbox` flag caused sandbox namespace failures (EPERM) when launching Chromium. The scraper needed a working alternative that maintains the same benefits (pure-Go, no Node.js, no Xvfb).
+- **Decision**: Replace chromedp with go-rod, a Go-native headless browser library that uses Chrome DevTools Protocol
+- **Rationale**:
+  - **Fixes Colima vz driver sandbox issue**: go-rod's `launcher.NoSandbox(true)` with explicit `Bin("/usr/bin/chromium")` works reliably in Colima's vz driver, while chromedp's sandbox flag triggers EPERM errors
+  - **Pure Go**: Zero Node.js dependency, no driver downloads, no version pinning — same benefit as chromedp
+  - **CDP-based**: Communicates via Chrome DevTools Protocol, same underlying protocol as chromedp
+  - **Better API ergonomics**: go-rod provides a higher-level fluent API with type-safe element queries, waits, and actions
+  - **Explicit browser control**: go-rod gives direct access to the browser instance, making cookie injection and browser lifecycle management more straightforward
+  - **Cookie injection works**: `Browser.MustSetCookies()` maps to CDP `Storage.setCookies` which correctly handles SameSite=None + Secure=true cookies (required by Atlassian Confluence)
+  - **Better stability**: go-rod's `MustWaitStable()` provides robust page load detection with improved timeout handling
+- **Trade-offs**:
+  - Different library ecosystem from chromedp — but the CDP protocol is the same, so most concepts transfer
+  - go-rod's `rod` package is slightly less battle-tested than chromedp, but has good adoption in the scraping community
+  - go-rod requires the `launcher` subpackage to configure Chromium — minimal additional complexity
+- **Implementation impact**:
+  - `github.com/chromedp/chromedp` replaced with `github.com/go-rod/rod` + `github.com/go-rod/rod/lib/launcher`
+  - Browser lifecycle: `rod.Browser.MustStart()` with `launcher.New().NoSandbox(true).Bin("/usr/bin/chromium").MustBuild()` instead of `chromedp.New()`
+  - Cookie injection: `Browser.MustSetCookies()` → `Storage.setCookies` CDP method (vs. chromedp's `cdp.Network.SetCookies`)
+  - Navigation: `page.MustNavigate(url)` + `page.MustWaitStable()` instead of `chromedp.Navigate(url)` + `chromedp.WaitVisible()`
+  - Content extraction: `page.MustElement("#page-content").MustText()` instead of `chromedp.OuterHTML()`
+  - Dockerfile: no changes needed (Chromium binary is the same dependency)
+- **Alternatives considered**:
+  - chromedp with different sandbox flags — no working combination found for Colima vz driver
+  - Playwright — rejected due to sandbox namespace failures, Xvfb requirements, and driver version mismatches (ADR-012)
+  - go-cdp — lower-level CDP bindings, more boilerplate, no advantage over go-rod

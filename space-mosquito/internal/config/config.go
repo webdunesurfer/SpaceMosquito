@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -64,14 +65,16 @@ type MCPConfig struct {
 }
 
 type CronConfig struct {
-	FullCrawl    *CronJobConfig `yaml:"full_crawl"`
-	Incremental  *CronJobConfig `yaml:"incremental"`
+	FullCrawl   *CronJobConfig `yaml:"full_crawl"`
+	Incremental *CronJobConfig `yaml:"incremental"`
 }
 
 type CronJobConfig struct {
-	Enabled  bool     `yaml:"enabled"`
-	Interval string   `yaml:"interval"`
-	Spaces   []string `yaml:"spaces"`
+	Enabled    bool     `yaml:"enabled"`
+	Interval   string   `yaml:"interval"`
+	Spaces     []string `yaml:"spaces"`
+	Detection  string   `yaml:"detection"`
+	MaxDuration string  `yaml:"max_duration"`
 }
 
 func Load(path string) (*Config, error) {
@@ -112,5 +115,35 @@ func Load(path string) (*Config, error) {
 		cfg.Embedder.Model = "nomic-embed-text"
 	}
 
+	// Cron defaults
+	if cfg.Cron.FullCrawl != nil && cfg.Cron.FullCrawl.Interval == "" {
+		cfg.Cron.FullCrawl.Interval = "24h"
+	}
+	if cfg.Cron.Incremental != nil && cfg.Cron.Incremental.Interval == "" {
+		cfg.Cron.Incremental.Interval = "2h"
+	}
+	if cfg.Cron.Incremental != nil && cfg.Cron.Incremental.Detection == "" {
+		cfg.Cron.Incremental.Detection = "dom"
+	}
+	if cfg.Cron.FullCrawl != nil && cfg.Cron.FullCrawl.MaxDuration == "" {
+		cfg.Cron.FullCrawl.MaxDuration = "4h"
+	}
+	if cfg.Cron.Incremental != nil && cfg.Cron.Incremental.MaxDuration == "" {
+		cfg.Cron.Incremental.MaxDuration = "30m"
+	}
+
 	return &cfg, nil
+}
+
+// ParseCronDuration parses a cron interval string and returns the duration.
+func ParseCronDuration(d string) (time.Duration, error) {
+	return time.ParseDuration(d)
+}
+
+// ParseMaxDuration parses the MaxDuration string and returns a duration with a default fallback.
+func (c *CronJobConfig) ParseMaxDuration() (time.Duration, error) {
+	if c == nil || c.MaxDuration == "" {
+		return 4 * time.Hour, nil
+	}
+	return time.ParseDuration(c.MaxDuration)
 }

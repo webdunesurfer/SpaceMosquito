@@ -90,3 +90,30 @@ func MigrateUp(migrationsPath, dsn string, log logging.Sugar) error {
 	}
 	return nil
 }
+
+func MigrateDown(migrationsPath, dsn string, log logging.Sugar) error {
+	if log.Enabled() {
+		log.Infow("rolling back migration", "path", migrationsPath)
+	}
+
+	m, err := migrate.New("file://"+migrationsPath, dsn)
+	if err != nil {
+		if log.Enabled() {
+			log.Errorw("create migrator failed", "error", err)
+		}
+		return fmt.Errorf("create migrator: %w", err)
+	}
+	defer m.Close()
+
+	if err := m.Steps(-1); err != nil && err != migrate.ErrNilVersion {
+		if log.Enabled() {
+			log.Errorw("migrate down failed", "error", err)
+		}
+		return fmt.Errorf("migrate down: %w", err)
+	}
+
+	if log.Enabled() {
+		log.Info("migration rolled back")
+	}
+	return nil
+}

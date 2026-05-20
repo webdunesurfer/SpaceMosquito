@@ -1,0 +1,4 @@
+-- Migration 002 placeholder
+-- No changes: migration numbering gap between 001_initial and 004_fts
+-- was filled by inline work in the original codebase.
+-- Kept as a no-op to maintain expected sequential numbering.

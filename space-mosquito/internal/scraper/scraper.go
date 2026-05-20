@@ -3,6 +3,7 @@ package scraper
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -106,6 +107,7 @@ func (s *Scraper) LaunchBrowser() error {
 	return nil
 }
 
+
 // SetupContextWithSession injects cookies from a session into the browser.
 func (s *Scraper) SetupContextWithSession(sess *session.Session) error {
 	if len(sess.Cookies) == 0 {
@@ -116,11 +118,19 @@ func (s *Scraper) SetupContextWithSession(sess *session.Session) error {
 	for _, c := range sess.Cookies {
 		cookie := &proto.NetworkCookie{
 			Name:     c.Name,
-			Value:    c.Value,
-			Domain:   c.Domain,
+			Value:    strings.TrimSpace(c.Value),
+			Domain:   strings.TrimSpace(c.Domain),
 			Path:     c.Path,
 			Secure:   c.Secure,
 			HTTPOnly: c.HTTPOnly,
+		}
+		switch strings.TrimSpace(c.SameSite) {
+		case "None":
+			cookie.SameSite = proto.NetworkCookieSameSiteNone
+		case "Lax":
+			cookie.SameSite = proto.NetworkCookieSameSiteLax
+		case "Strict":
+			cookie.SameSite = proto.NetworkCookieSameSiteStrict
 		}
 		if c.Expires > 0 {
 			cookie.Expires = proto.TimeSinceEpoch(time.Unix(int64(c.Expires), 0).Unix() * 1000)
@@ -201,7 +211,7 @@ func (s *Scraper) CrawlSpace(spaceURL string, sess *session.Session) error {
 			"page_id", pg.ConfluenceID,
 			"title", pg.Title)
 
-		if err := s.scrapePage(pg, pageInfo.SpaceKey, pageInfo.SpaceURL); err != nil {
+		if err := s.ScrapePage(pg, pageInfo.SpaceKey, pageInfo.SpaceURL); err != nil {
 			s.log.Errorw("page scrape failed",
 				"space_key", pageInfo.SpaceKey,
 				"page_id", pg.ConfluenceID,
@@ -233,7 +243,8 @@ func (s *Scraper) CrawlSpace(spaceURL string, sess *session.Session) error {
 	return nil
 }
 
-func (s *Scraper) scrapePage(pg *Page, spaceKey, spaceURL string) error {
+// ScrapePage scrapes a single page and saves it.
+func (s *Scraper) ScrapePage(pg *Page, spaceKey, spaceURL string) error {
 	baseURL := extractConfluenceBaseURL(spaceURL)
 
 	page := s.browser.MustPage(pg.URL)
