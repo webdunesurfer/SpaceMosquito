@@ -15,8 +15,8 @@ Confluence space scraper, indexer, and search engine with automated cron schedul
 │  │  ┌──────────────────────────────────────────────────────┐  │  │
 │  │  │  Pirate Mosquito (Web Extension)                     │  │  │
 │  │  │  ┌──────────┐ ┌──────────┐ ┌───────────┐            │  │  │
-│  │  │  │  Content │ │ Background│ │  Popup UI │            │  │  │
-│  │  │  │  Script  │ │  Worker  │ │  (Session │            │  │  │
+│  │  │  │          │ │ Background│ │  Popup UI │            │  │  │
+│  │  │  │          │ │  Worker  │ │  (Session │            │  │  │
 │  │  │  │          │ │          │ │  /Crawl/  │            │  │  │
 │  │  │  │          │ │          │ │  Cron)    │            │  │  │
 │  │  │  └──────────┘ └──────────┘ └───────────┘            │  │  │
@@ -32,7 +32,7 @@ Confluence space scraper, indexer, and search engine with automated cron schedul
 │  │  HTTP API  :8080     │    │  ┌──────────┐  ┌──────────┐  │  │
 │  │  MCP/SSE :8081       │◄───┤  │  spaces  │  │  pages   │  │  │
 │  │                      │    │  │          │  │  +fts     │  │  │
-│  │  Cron Scheduler      │    │  │  crawl   │  │  +vector* │  │  │
+│  │  Cron Scheduler      │    │  │  crawl   │  │          │  │  │
 │  │  Headless Scraper    │    │  │  jobs    │  │          │  │  │
 │  │  Storage (disk)      │    │  └──────────┘  └──────────┘  │  │
 │  │  Session (AES-GCM)   │    └───────────────────────────────┘  │
@@ -195,18 +195,36 @@ The server provides tools for searching pages, retrieving page content, listing 
 
 ### Installation
 
-1. Load as a temporary extension via `about:debugging` → "Load Temporary Add-on..." → select `firefox-extension/dist/manifest.json`
-2. Pin the Pirate Mosquito icon to your toolbar
-3. Open the popup to access Session, Crawl, Spaces, and Cron tabs
+#### Quick Install (Temporary)
 
-### Tabs
+1. Build the extension:
+   ```bash
+   cd firefox-extension
+   npm install
+   npm run build
+   ```
 
-| Tab | Function |
-|-----|----------|
-| **Session** | Capture cookies from the current Confluence session, validate, and delete |
-| **Crawl** | Trigger immediate crawls of the current space, view progress |
-| **Spaces** | Add/remove Confluence spaces for automated crawling |
-| **Cron** | Configure per-space crawl intervals and scheduling |
+2. Open `about:debugging` in Firefox
+
+3. Click **"This Firefox"** → **"Load Temporary Add-on..."**
+
+4. Select `firefox-extension/dist/manifest.json`
+
+5. Pin the Pirate Mosquito icon to your toolbar
+
+6. Open the popup to access Session, Crawl, Spaces, and Cron tabs
+
+#### Persistent Install (Advanced)
+
+To install as a permanent extension:
+
+1. Build the extension as above
+
+2. Edit `firefox-extension/manifest.json` and change `"update_url"` to your server URL
+
+3. Install via Firefox Add-ons page (about:addons) → Gear icon → "Install Add-on From File..."
+
+> Note: The extension must be loaded from the same machine as the backend (localhost:8080).
 
 ### Development
 
@@ -216,6 +234,22 @@ npm install
 npm run dev        # Watch mode, rebuilds on changes
 npm run dev:firefox  # Auto-reload in Firefox via web-ext
 ```
+
+### Popup Tabs
+
+| Tab | Function |
+|-----|----------|
+| **Session** | Capture cookies from the current Confluence session, validate, and delete |
+| **Crawl** | Trigger immediate crawls of the current space, view progress |
+| **Spaces** | Add/remove Confluence spaces for automated crawling |
+| **Cron** | Configure per-space crawl intervals and scheduling |
+
+### Architecture
+
+- **Background worker**: Service worker handling all logic (no content scripts due to Confluence CSP)
+- **Popup UI**: Displays session status, crawl progress, space list, and cron config
+- **Messaging**: Promise-based `browser.runtime.sendMessage` between popup and background
+- **Storage**: `browser.storage.local` for extension state (active crawl ID, settings)
 
 ## Backend CLI
 
@@ -351,7 +385,7 @@ go run ./cmd/server
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/api/search?q=<query>&space_key=<key>` | Search pages (BM25/lexical) |
+| GET | `/api/search?q=<query>&space=<key>` | Search pages (BM25/lexical) |
 | POST | `/api/search/reindex` | Rebuild FTS indexes |
 | GET | `/api/search/stats` | Index statistics |
 
@@ -447,29 +481,34 @@ Available tools: `search_pages`, `get_page`, `list_spaces`, `crawl_space`.
 ```
 spaces          → tracked Confluence spaces
   ├─ id (UUID, PK)
-  ├─ space_key
-  ├─ space_name
-  ├─ confluence_url
-  └─ created_at
+  ├─ key (VARCHAR, UNIQUE)
+  ├─ name (TEXT)
+  ├─ url (TEXT)
+  ├─ last_crawled (TIMESTAMP)
+  └─ created_at (TIMESTAMP)
 
 pages           → crawled pages
   ├─ id (UUID, PK)
   ├─ space_id (FK → spaces)
-  ├─ page_id (Confluence page ID)
-  ├─ title
-  ├─ confluence_url
-  ├─ parent_id
-  ├─ html_path (local file reference)
+  ├─ confluence_id (INT)
+  ├─ title (TEXT)
+  ├─ confluence_url (TEXT)
+  ├─ parent_confluence_id (INT)
+  ├─ content (TEXT, FTS searchable)
+  ├─ html_path (TEXT)
+  ├─ raw_html_path (TEXT)
+  ├─ metadata_path (TEXT)
   ├─ content_vector (tsvector, GIN indexed)  ← BM25/lexical search
+  ├─ pages_crawled (INT)                       ← dynamic count from pages table
   └─ created_at / updated_at
 
-crawl_jobs      → async crawl job records
+crawl_jobs      → async crawl job records (in-memory)
   ├─ id (UUID, PK)
-  ├─ space_key
+  ├─ space_url (TEXT)
   ├─ status (pending/running/completed/failed/cancelled)
-  ├─ current_page / total_pages
+  ├─ total_pages / completed / failed / progress
   ├─ error
-  └─ created_at / updated_at
+  └─ created_at / started_at / completed_at / updated_at
 ```
 
 \* Vector embeddings (`page_embeddings` table with IVFFlat index) are deferred to a later phase. Current search uses PostgreSQL `tsvector` with GIN indexing (BM25-style lexical search).
