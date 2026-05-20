@@ -1,5 +1,5 @@
 // @ts-nocheck
-import browser from 'webextension-polyfill';
+// Firefox provides browser API natively
 import { ApiClient } from './lib/api';
 import { captureAndSave } from './lib/session';
 import { checkAuthStatus, AuthStatus } from './lib/auth';
@@ -16,24 +16,22 @@ async function getSettings(): Promise<{ backendUrl: string }> {
 }
 
 // Handle session capture flow
-async function handleCaptureSession() {
+async function handleCaptureSession(tabUrl: string) {
+  console.log('[spacemosquito] handleCaptureSession(tabUrl):', tabUrl);
   try {
     const settings = await getSettings();
+    console.log('[spacemosquito] settings:', settings);
     const api = new ApiClient(settings.backendUrl);
 
-    // Get active tab
-    const tabs: any[] = await browser.tabs.query({ active: true, currentWindow: true });
-    if (!tabs[0] || !tabs[0].url) {
-      return { success: false, error: 'No active tab' };
+    if (!tabUrl) {
+      return { success: false, error: 'Empty tab URL' };
     }
-
-    // Check if on Confluence
-    if (!tabs[0].url.includes('atlassian.net')) {
+    if (!tabUrl.includes('atlassian.net')) {
       return { success: false, error: 'Not on a Confluence page' };
     }
 
     // Capture cookies and save
-    const result = await captureAndSave(tabs[0].url, api);
+    const result = await captureAndSave(tabUrl, api);
 
     // Update session status
     if (result.success) {
@@ -128,24 +126,112 @@ async function pollCrawlStatus() {
 browser.runtime.onMessage.addListener((msg: any, sender: any, sendResponse: (response: any) => void) => {
   switch (msg.type) {
     case 'capture-session':
-      handleCaptureSession().then(sendResponse);
-      return true;
+      console.log('[spacemosquito] capture-session received');
+      return new Promise(resolve => {
+        (async () => {
+          let tabUrl: string | undefined;
+          console.log('[spacemosquito] sender.tab:', sender?.tab);
+          if (sender?.tab?.url) {
+            tabUrl = sender.tab.url;
+          } else {
+            console.log('[spacemosquito] No sender.tab, querying windows...');
+            try {
+              const windows: any[] = await browser.windows.getAll({ populate: true });
+              console.log('[spacemosquito] Found', windows.length, 'windows');
+              for (const w of windows) {
+                for (const t of w.tabs || []) {
+                  console.log('[spacemosquito] checking tab:', t.id, t.active, t.url?.substring(0, 60));
+                  if (t.active && t.url) {
+                    tabUrl = t.url;
+                    console.log('[spacemosquito] Found active tab:', tabUrl);
+                    break;
+                  }
+                }
+                if (tabUrl) break;
+              }
+            } catch (err) {
+              console.error('[spacemosquito] windows.getAll failed:', err);
+            }
+          }
+          if (!tabUrl) {
+            console.error('[spacemosquito] No active tab URL found');
+            resolve({ success: false, error: 'No active tab' });
+            return;
+          }
+          const result = await handleCaptureSession(tabUrl);
+          console.log('[spacemosquito] capture result:', result);
+          resolve(result);
+        })().catch(err => {
+          console.error('[spacemosquito] capture error:', err);
+          resolve({ success: false, error: err.message });
+        });
+      });
 
     case 'start-crawl':
-      handleStartCrawl(msg.spaceUrl).then(sendResponse);
-      return true;
+      console.log('[spacemosquito] start-crawl received, spaceUrl:', msg.spaceUrl);
+      return new Promise(resolve => {
+        handleStartCrawl(msg.spaceUrl).then(result => {
+          console.log('[spacemosquito] start-crawl result:', result);
+          resolve(result);
+        }).catch(err => {
+          console.error('[spacemosquito] start-crawl error:', err);
+          resolve({ success: false, error: err.message });
+        });
+      });
 
     case 'cancel-crawl':
-      handleCancelCrawl(msg.jobId).then(sendResponse);
-      return true;
+      console.log('[spacemosquito] cancel-crawl received, jobId:', msg.jobId);
+      return new Promise(resolve => {
+        handleCancelCrawl(msg.jobId).then(result => {
+          console.log('[spacemosquito] cancel-crawl result:', result);
+          resolve(result);
+        }).catch(err => {
+          console.error('[spacemosquito] cancel-crawl error:', err);
+          resolve({ success: false, error: err.message });
+        });
+      });
 
     case 'get-space-info':
-      browser.tabs.query({ active: true, currentWindow: true }).then((tabs: any[]) => {
-        if (tabs[0]?.id) {
-          browser.tabs.sendMessage(tabs[0].id, { type: 'get-space-info' }).then(sendResponse);
-        }
+      console.log('[spacemosquito] get-space-info received');
+      return new Promise(resolve => {
+        (async () => {
+          let tabUrl: string | undefined;
+          if (sender?.tab?.url) {
+            tabUrl = sender.tab.url;
+          } else {
+            try {
+              const windows: any[] = await browser.windows.getAll({ populate: true });
+              for (const w of windows) {
+                for (const t of w.tabs || []) {
+                  if (t.active && t.url) {
+                    tabUrl = t.url;
+                    break;
+                  }
+                }
+                if (tabUrl) break;
+              }
+            } catch (err) {
+              console.error('[spacemosquito] get-space-info windows.getAll failed:', err);
+            }
+          }
+          if (!tabUrl || !tabUrl.includes('atlassian.net')) {
+            console.log('[spacemosquito] get-space-info: not on Confluence');
+            resolve({ spaceKey: '', spaceName: '', spaceURL: '', pageTitle: '' });
+            return;
+          }
+          const hostname = new URL(tabUrl).hostname;
+          const match = tabUrl.match(/\/wiki\/spaces\/([^/]+)/);
+          const spaceKey = match ? match[1] : '';
+          const spaceName = spaceKey || 'Unknown';
+          const spaceURL = spaceKey ? `https://${hostname}/wiki/spaces/${spaceKey}/overview` : tabUrl;
+          const info = { spaceKey, spaceName, spaceURL, pageTitle: '' };
+          console.log('[spacemosquito] get-space-info:', info);
+          resolve(info);
+        })().catch(err => {
+          console.error('[spacemosquito] get-space-info error:', err);
+          resolve({ spaceKey: '', spaceName: '', spaceURL: '', pageTitle: '' });
+        });
       });
-      return true;
 
     case 'get-settings':
       getSettings().then(sendResponse);

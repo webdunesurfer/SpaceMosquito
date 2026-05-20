@@ -21,18 +21,24 @@
   --shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
 }
 
+html,
 body {
   width: 400px;
-  min-height: 250px;
+  min-height: 350px;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   background: var(--bg);
   color: var(--text);
   font-size: 13px;
   line-height: 1.4;
+  margin: 0;
+  padding: 0;
 }
 
 .popup {
-  padding: 0;
+  width: 100%;
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
 }
 
 /* Header */
@@ -184,6 +190,20 @@ body {
   color: var(--text-muted);
 }
 
+.no-spaces {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.crawl-error {
+  color: var(--danger);
+  margin-top: 8px;
+  padding: 8px;
+  background: rgba(231, 76, 60, 0.1);
+  border-radius: var(--radius);
+  font-size: 0.85rem;
+}
+
 .session-info {
   margin-top: 12px;
   padding: 10px;
@@ -253,6 +273,7 @@ body {
 
 .progress-fill {
   height: 100%;
+  width: 0%;
   background: var(--primary);
   transition: width 0.5s ease;
   border-radius: 3px;
@@ -474,10 +495,6 @@ body {
 
 /* Responsive */
 @media (max-width: 420px) {
-  body {
-    width: 100vw;
-  }
-
   .cron-fields {
     grid-template-columns: 1fr;
   }

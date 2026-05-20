@@ -311,11 +311,21 @@ func (s *Scraper) ScrapePage(pg *Page, spaceKey, spaceURL string) error {
 	}
 	pg.MetadataPath = dir + "/metadata.json"
 
-	space, err := s.db.GetSpaceByKey(context.Background(), spaceKey)
+	var space *db.Space
+	space, err = s.db.GetSpaceByKey(context.Background(), spaceKey)
 	if err != nil {
-		s.log.Warnw("space not found for page save",
-			"space_key", spaceKey,
-			"error", err)
+		s.log.Infow("space not found, auto-creating", "space_key", spaceKey)
+		spaceURL := spaceURL
+		if spaceURL == "" {
+			spaceURL = "https://example.atlassian.net/wiki/spaces/" + spaceKey
+		}
+		spaceID, err := s.db.CreateSpace(context.Background(), spaceKey, spaceKey, spaceURL)
+		if err != nil {
+			s.log.Warnw("failed to auto-create space, skipping db save",
+				"space_key", spaceKey, "error", err)
+			return nil
+		}
+		space = &db.Space{ID: spaceID, Key: spaceKey, Name: spaceKey, URL: spaceURL}
 	}
 
 	var parentID *int

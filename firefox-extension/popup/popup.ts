@@ -1,5 +1,5 @@
 // @ts-nocheck
-import browser from 'webextension-polyfill';
+// Firefox provides browser API natively
 import { ApiClient } from '../lib/api';
 import { CrawlJob, CrawlSpace, CronSpaceConfig, ExtensionSettings } from '../lib/types';
 
@@ -14,10 +14,14 @@ async function init() {
   api = new ApiClient(settings.backend_url);
 
   setupTabs();
-  await loadSessionStatus();
-  await detectCurrentSpace();
-  await loadSpaces();
-  await loadCronConfig();
+  
+  // Run these in parallel and don't let one failure stop the others
+  Promise.allSettled([
+    loadSessionStatus(),
+    detectCurrentSpace(),
+    loadSpaces(),
+    loadCronConfig()
+  ]).catch(console.error);
 }
 
 async function getSettings(): Promise<ExtensionSettings & { backend_url: string }> {
@@ -56,9 +60,14 @@ async function loadSessionStatus() {
 
     if (status.exists) {
       dot?.classList.add('connected');
-      dot?.classList.remove('disconnected', 'checking');
+      dot?.classList.remove('connected', 'disconnected', 'checking');
       statusText.textContent = status.message || 'Session stored';
-      captureBtn.classList.add('hidden');
+      if (status.valid) {
+        captureBtn.classList.add('hidden');
+      } else {
+        captureBtn.classList.remove('hidden');
+        captureBtn.textContent = 'Re-Capture Session';
+      }
       validateBtn.classList.remove('hidden');
       deleteBtn.classList.remove('hidden');
 
@@ -92,12 +101,15 @@ async function loadSessionStatus() {
 }
 
 (document.getElementById('btn-capture') as HTMLButtonElement)?.addEventListener('click', async () => {
+  console.log('[spacemosquito] popup: capture clicked');
   const btn = document.getElementById('btn-capture') as HTMLButtonElement;
   btn.textContent = 'Capturing...';
   btn.disabled = true;
 
   try {
+    console.log('[spacemosquito] popup: sending capture-session message');
     const result: any = await browser.runtime.sendMessage({ type: 'capture-session' });
+    console.log('[spacemosquito] popup: got response:', result);
     if (result?.success) {
       const statusText = document.getElementById('session-status-text') as HTMLParagraphElement;
       statusText.textContent = `Session captured (${result.cookieCount} cookies)`;
@@ -165,6 +177,8 @@ async function detectCurrentSpace() {
 }
 
 (document.getElementById('btn-start-crawl') as HTMLButtonElement)?.addEventListener('click', async () => {
+  console.log('[spacemosquito] popup: start-crawl clicked');
+  console.log('[spacemosquito] popup: currentSpaceInfo:', currentSpaceInfo);
   if (!currentSpaceInfo) {
     alert('Not on a Confluence page');
     return;
@@ -175,10 +189,13 @@ async function detectCurrentSpace() {
   btn.disabled = true;
 
   try {
-    const result: any = await browser.runtime.sendMessage({
+    const payload = {
       type: 'start-crawl',
       spaceUrl: currentSpaceInfo.spaceURL,
-    });
+    };
+    console.log('[spacemosquito] popup: sending start-crawl with payload:', payload);
+    const result: any = await browser.runtime.sendMessage(payload);
+    console.log('[spacemosquito] popup: start-crawl result:', result);
 
     if (result?.success) {
       activeJobId = result.jobId;
@@ -202,8 +219,10 @@ function startCrawlPolling() {
   pollInterval = window.setInterval(async () => {
     if (!activeJobId) return;
 
-    try {
+   try {
+      console.log('[spacemosquito] crawl poll requesting:', api.getBackendUrl(), '/api/crawl/status?id=' + activeJobId);
       const job = await api.getCrawlStatus(activeJobId);
+      console.log('[spacemosquito] crawl poll got:', job);
       updateCrawlProgress(job);
 
       if (job.status !== 'running') {
@@ -213,8 +232,8 @@ function startCrawlPolling() {
         (document.getElementById('btn-cancel-crawl') as HTMLButtonElement)?.classList.add('hidden');
         (document.getElementById('btn-cleanup') as HTMLButtonElement)?.classList.remove('hidden');
       }
-    } catch {
-      // Silently fail during polling
+    } catch (error) {
+      console.error('[spacemosquito] crawl poll error:', error, 'jobId:', activeJobId);
     }
   }, 3000);
 }
@@ -375,10 +394,10 @@ async function loadSpaces() {
       });
     } else {
       crawlAllBtn.classList.add('hidden');
-      list.innerHTML = '<li style="color: var(--text-muted); font-style: italic;">No spaces configured</li>';
+      list.innerHTML = '<li class="no-spaces">No spaces configured</li>';
     }
   } catch (error) {
-    list.innerHTML = `<li style="color: var(--danger);">Failed to load: ${(error as Error).message}</li>`;
+    list.innerHTML = `<li class="crawl-error">Failed to load: ${(error as Error).message}</li>`;
   }
 }
 

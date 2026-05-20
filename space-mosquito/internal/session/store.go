@@ -205,11 +205,25 @@ func (s *Store) Load(key string) (*Session, error) {
 }
 
 func (s *Store) Delete() error {
-	if err := os.Remove(s.filePath); err != nil && !os.IsNotExist(err) {
+	if !s.HasSession() {
 		if s.log.Enabled() {
-			s.log.Errorw("session delete failed", "path", s.filePath, "error", err)
+			s.log.Info("session delete: no session file to delete")
 		}
-		return fmt.Errorf("failed to delete session file %s: %w", s.filePath, err)
+		return nil
+	}
+
+	backupPath := s.filePath + ".bak"
+	if err := os.Rename(s.filePath, backupPath); err != nil {
+		if os.IsNotExist(err) {
+			if s.log.Enabled() {
+				s.log.Info("session delete: file already gone")
+			}
+			return nil
+		}
+		if s.log.Enabled() {
+			s.log.Errorw("session delete failed: rename to .bak", "path", s.filePath, "error", err)
+		}
+		return fmt.Errorf("failed to remove session file %s: %w", s.filePath, err)
 	}
 
 	if s.log.Enabled() {

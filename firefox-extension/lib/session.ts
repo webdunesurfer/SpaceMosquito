@@ -1,5 +1,5 @@
 // @ts-nocheck
-import browser from 'webextension-polyfill';
+// Firefox provides browser API natively
 import type { Cookie } from './types';
 
 const ATLASIAN_COOKIE_PATTERNS = [

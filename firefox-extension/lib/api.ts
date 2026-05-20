@@ -84,7 +84,7 @@ export class ApiClient {
   }
 
   async getCrawlStatus(jobId: string): Promise<CrawlJob> {
-    return this.request<CrawlJob>(`/api/crawl/status?job_id=${encodeURIComponent(jobId)}`);
+    return this.request<CrawlJob>(`/api/crawl/status?id=${encodeURIComponent(jobId)}`);
   }
 
   async cancelCrawl(jobId: string): Promise<void> {

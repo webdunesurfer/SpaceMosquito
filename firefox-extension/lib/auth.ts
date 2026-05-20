@@ -1,5 +1,5 @@
 // @ts-nocheck
-import browser from 'webextension-polyfill';
+// Firefox provides browser API natively
 
 export type AuthStatus = 'authenticated' | 'unauthenticated' | 'unknown';
 
