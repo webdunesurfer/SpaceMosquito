@@ -1,5 +1,7 @@
 # SpaceMosquito
 
+[![SpaceMosquito](firefox-extension/assets/icon.svg)](https://github.com/webdunesurfer/SpaceMosquito)
+
 Confluence space scraper, indexer, and search engine with automated cron scheduling. Captures pages via a headless browser, stores them locally, and indexes content for semantic (BM25) and lexical search. Exposes an MCP server for LLM integration and a Firefox extension for interactive session management and crawl control.
 
 ## Architecture at a Glance
