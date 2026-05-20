@@ -18,6 +18,10 @@ space-mosquito/server
 .env
 config.yaml
 cron-config.json
+
+# Opencode / AI tool config
+.opencode/
+.antigravitycli/
 session-data/
 
 # Saved data
