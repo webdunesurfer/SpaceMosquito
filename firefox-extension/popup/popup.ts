@@ -20,8 +20,46 @@ async function init() {
     loadSessionStatus(),
     detectCurrentSpace(),
     loadSpaces(),
-    loadCronConfig()
+    loadCronConfig(),
+    resumeActiveCrawl(),
   ]).catch(console.error);
+}
+
+// Resume an active crawl if one was in progress when popup was closed
+async function resumeActiveCrawl() {
+  try {
+    const data: any = await browser.storage.local.get('active_job_id');
+    if (!data.active_job_id) return;
+    
+    const jobId = data.active_job_id;
+    console.log('[spacemosquito] Resuming active crawl:', jobId);
+    
+    try {
+      const job = await api.getCrawlStatus(jobId);
+      if (job.status === 'running') {
+        activeJobId = jobId;
+        (document.getElementById('crawl-progress') as HTMLDivElement)?.classList.remove('hidden');
+        (document.getElementById('btn-cancel-crawl') as HTMLButtonElement)?.classList.remove('hidden');
+        startCrawlPolling();
+        console.log('[spacemosquito] Active crawl resumed:', job);
+      } else if (job.status === 'completed' || job.status === 'failed' || job.status === 'cancelled') {
+        // Crawl already finished, clean up
+        console.log('[spacemosquito] Crawl already finished:', job.status);
+        await browser.storage.local.remove('active_job_id');
+        if (job.status === 'completed') {
+          (document.getElementById('btn-cleanup') as HTMLButtonElement)?.classList.remove('hidden');
+        }
+      } else {
+        console.log('[spacemosquito] Crawl no longer running:', job.status);
+        await browser.storage.local.remove('active_job_id');
+      }
+    } catch (error) {
+      console.error('[spacemosquito] Failed to resume crawl:', error);
+      await browser.storage.local.remove('active_job_id');
+    }
+  } catch (error) {
+    console.error('[spacemosquito] Resume crawl error:', error);
+  }
 }
 
 async function getSettings(): Promise<ExtensionSettings & { backend_url: string }> {
@@ -199,6 +237,7 @@ async function detectCurrentSpace() {
 
     if (result?.success) {
       activeJobId = result.jobId;
+      await browser.storage.local.set({ active_job_id: result.jobId });
       (document.getElementById('crawl-progress') as HTMLDivElement)?.classList.remove('hidden');
       (document.getElementById('btn-cancel-crawl') as HTMLButtonElement)?.classList.remove('hidden');
       startCrawlPolling();
@@ -225,10 +264,11 @@ function startCrawlPolling() {
       console.log('[spacemosquito] crawl poll got:', job);
       updateCrawlProgress(job);
 
-      if (job.status !== 'running') {
+ if (job.status !== 'running') {
         clearInterval(pollInterval!);
         pollInterval = null;
         activeJobId = null;
+        await browser.storage.local.remove('active_job_id');
         (document.getElementById('btn-cancel-crawl') as HTMLButtonElement)?.classList.add('hidden');
         (document.getElementById('btn-cleanup') as HTMLButtonElement)?.classList.remove('hidden');
       }
@@ -278,6 +318,7 @@ function updateCrawlProgress(job: CrawlJob) {
   if (!activeJobId) return;
   try {
     await browser.runtime.sendMessage({ type: 'cancel-crawl', jobId: activeJobId });
+    await browser.storage.local.remove('active_job_id');
     (document.getElementById('crawl-progress') as HTMLDivElement)?.classList.add('hidden');
   } catch (error) {
     alert('Cancel failed: ' + (error as Error).message);
@@ -287,6 +328,7 @@ function updateCrawlProgress(job: CrawlJob) {
 (document.getElementById('btn-cleanup') as HTMLButtonElement)?.addEventListener('click', async () => {
   try {
     await api.cleanupCrawls();
+    await browser.storage.local.remove('active_job_id');
     (document.getElementById('crawl-progress') as HTMLDivElement)?.classList.add('hidden');
     (document.getElementById('btn-cleanup') as HTMLButtonElement)?.classList.add('hidden');
   } catch (error) {

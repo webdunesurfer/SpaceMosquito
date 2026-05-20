@@ -191,6 +191,16 @@ func (m *CrawlJobManager) RunJob(ctx context.Context, jobID string) error {
 		log:     m.log,
 	}
 
+	defer func() {
+		if r := recover(); r != nil {
+			if m.log.Enabled() {
+				m.log.Errorw("crawl panicked",
+					"job_id", jobID,
+					"panic", fmt.Sprintf("%v", r))
+			}
+		}
+	}()
+
 	err := runner.Run(ctx, job)
 
 	m.mu.Lock()
@@ -260,7 +270,11 @@ func (r *CrawlRunner) Run(ctx context.Context, job *CrawlJob) error {
 	job.TotalPages = len(pageInfo.Pages)
 	now := time.Now()
 	job.UpdatedAt = now
-
+	if r.manager.log.Enabled() {
+		r.manager.log.Infow("discovery complete",
+			"job_id", job.ID,
+			"total_pages", job.TotalPages)
+	}
 	for i, pg := range pageInfo.Pages {
 		select {
 		case <-ctx.Done():
@@ -269,7 +283,9 @@ func (r *CrawlRunner) Run(ctx context.Context, job *CrawlJob) error {
 		}
 
 		if err := scraper.ScrapePage(pg, pageInfo.SpaceKey, pageInfo.SpaceURL); err != nil {
+			r.manager.mu.Lock()
 			job.Failed++
+			r.manager.mu.Unlock()
 			if r.log.Enabled() {
 				r.log.Errorw("page scrape failed",
 					"job_id", job.ID,
@@ -279,10 +295,13 @@ func (r *CrawlRunner) Run(ctx context.Context, job *CrawlJob) error {
 			continue
 		}
 
+		r.manager.mu.Lock()
 		job.Completed++
-		job.Progress = int(float64(job.Completed) / float64(job.TotalPages) * 100)
-		now := time.Now()
-		job.UpdatedAt = now
+		if job.TotalPages > 0 {
+			job.Progress = int(float64(job.Completed) / float64(job.TotalPages) * 100)
+		}
+		job.UpdatedAt = time.Now()
+		r.manager.mu.Unlock()
 
 		if r.log.Enabled() {
 			r.log.Infow("page crawled",
@@ -291,6 +310,23 @@ func (r *CrawlRunner) Run(ctx context.Context, job *CrawlJob) error {
 				"total", job.TotalPages,
 				"completed", job.Completed)
 		}
+	}
+
+	// Update space page count
+	if job.Failed == job.TotalPages && job.TotalPages > 0 {
+		return fmt.Errorf("all %d pages failed to crawl", job.TotalPages)
+	}
+
+	if r.log.Enabled() {
+		r.log.Infow("updating space page count",
+			"job_id", job.ID,
+			"total_pages", job.Completed)
+	}
+
+	if err := r.manager.db.UpdateSpaceLastCrawled(ctx, pageInfo.SpaceKey); err != nil {
+		r.log.Warnw("failed to update space last crawled",
+			"job_id", job.ID,
+			"error", err)
 	}
 
 	return nil

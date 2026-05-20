@@ -52,16 +52,19 @@ func (h *spacesHandler) list(w http.ResponseWriter, r *http.Request) {
 		if s.LastCrawled != nil {
 			lastCrawledStr = s.LastCrawled.Format(time.RFC3339)
 		}
-		pageCount = 0 // We'll leave this at 0 since we don't have a dedicated count query
-		_ = pageCount
+		err := h.db.Pool().QueryRow(ctx, "SELECT COUNT(*) FROM pages WHERE space_id = $1", s.ID).Scan(&pageCount)
+		if err != nil {
+			h.log.Warnw("count pages failed", "space_key", s.Key, "error", err)
+			pageCount = 0
+		}
 
 		result = append(result, map[string]interface{}{
-			"space_key":    s.Key,
-			"space_name":   s.Name,
-			"space_url":    s.URL,
+			"space_key":     s.Key,
+			"space_name":    s.Name,
+			"space_url":     s.URL,
 			"pages_crawled": pageCount,
-			"last_crawled": lastCrawledStr,
-			"created_at":   s.CreatedAt.Format(time.RFC3339),
+			"last_crawled":  lastCrawledStr,
+			"created_at":    s.CreatedAt.Format(time.RFC3339),
 		})
 	}
 

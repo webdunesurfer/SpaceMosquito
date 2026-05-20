@@ -352,5 +352,11 @@ func (s *Scraper) ScrapePage(pg *Page, spaceKey, spaceURL string) error {
 			"error", err)
 	}
 
+	if err := s.db.UpdateSpaceLastCrawled(s.ctx, spaceKey); err != nil {
+		s.log.Warnw("failed to update space last crawled",
+			"space_key", spaceKey,
+			"error", err)
+	}
+
 	return nil
 }

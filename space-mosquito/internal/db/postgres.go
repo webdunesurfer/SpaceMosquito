@@ -64,6 +64,14 @@ func (d *DB) Close() {
 	d.pool.Close()
 }
 
+func (d *DB) UpdateSpaceLastCrawled(ctx context.Context, spaceKey string) error {
+	_, err := d.pool.Exec(ctx,
+		`UPDATE spaces SET last_crawled = $1 WHERE key = $2`,
+		time.Now(), spaceKey,
+	)
+	return err
+}
+
 func MigrateUp(migrationsPath, dsn string, log logging.Sugar) error {
 	if log.Enabled() {
 		log.Infow("running migrations", "path", migrationsPath)
