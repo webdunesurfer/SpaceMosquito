@@ -35,9 +35,8 @@ services:
     volumes:
       - ./config.yaml:/app/config.yaml:ro
       - ./cron-config.json:/app/cron-config.json:rw
-      - saved-data:/app/saved
+      - ./saved-data:/app/saved
       - ./session.enc:/app/session.enc:rw
 
 volumes:
   pgdata:
-  saved-data:
