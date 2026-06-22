@@ -2,7 +2,7 @@
 
 [![SpaceMosquito](firefox-extension/assets/icon.svg)](https://github.com/webdunesurfer/SpaceMosquito)
 
-Confluence space scraper, indexer, and search engine with automated cron scheduling. Captures pages via a headless browser, stores them locally, and indexes content for semantic (BM25) and lexical search. Exposes an MCP server for LLM integration and a Firefox extension for interactive session management and crawl control.
+Confluence space scraper, indexer, and search engine with automated cron scheduling. Uses Confluence REST API for content extraction (with headless browser fallback), stores pages locally, and indexes content for semantic (BM25) and lexical search. Exposes an MCP server for LLM integration and browser extensions (Firefox/Chrome) for interactive session management and crawl control.
 
 ## Architecture at a Glance
 
@@ -11,7 +11,7 @@ Confluence space scraper, indexer, and search engine with automated cron schedul
 │                      Host Machine                                │
 │                                                                  │
 │  ┌────────────────────────────────────────────────────────────┐  │
-│  │              Firefox (Browser)                             │  │
+│  │              Firefox / Chrome (Browser)                    │  │
 │  │  ┌──────────────────────────────────────────────────────┐  │  │
 │  │  │  Pirate Mosquito (Web Extension)                     │  │  │
 │  │  │  ┌──────────┐ ┌───────────┐ ┌───────────┐            │  │  │
@@ -34,7 +34,7 @@ Confluence space scraper, indexer, and search engine with automated cron schedul
 │  │  MCP/SSE :8081       │◄───┤  │  spaces  │  │  pages   │   │   │
 │  │                      │    │  │          │  │  +fts    │   │   │
 │  │  Cron Scheduler      │    │  │  crawl   │  │          │   │   │
-│  │  Headless Scraper    │    │  │  jobs    │  │          │   │   │
+│  │  Scraper (API+rod)   │    │  │  jobs    │  │          │   │   │
 │  │  Storage (disk)      │    │  └──────────┘  └──────────┘   │   │
 │  │  Session (AES-GCM)   │    └───────────────────────────────┘   │
 │  └──────────────────────┘                                        │
@@ -170,6 +170,8 @@ curl -X POST http://localhost:8081/api/crawl \
   -d '{"space_url": "https://company.atlassian.net/wiki/spaces/PROJ"}'
 ```
 
+> **Scraping mode**: Crawls use Confluence REST API for content extraction (fast, no browser overhead). If API access fails (permissions, rate limits), the scraper automatically falls back to a headless browser (go-rod). Browser is only launched on-demand when needed.
+
 ### 8. Search
 
 Via CLI:
@@ -192,11 +194,11 @@ http://localhost:8081/mcp
 
 The server provides tools for searching pages, retrieving page content, listing spaces, and triggering crawls.
 
-## Firefox Extension
+## Extensions
 
 ### Installation
 
-#### Quick Install (Temporary)
+#### Firefox (Temporary)
 
 1. Build the extension:
    ```bash
@@ -215,25 +217,48 @@ The server provides tools for searching pages, retrieving page content, listing 
 
 6. Open the popup to access Session, Crawl, Spaces, and Cron tabs
 
+#### Chrome (Temporary)
+
+1. Build the extension:
+   ```bash
+   cd chrome-extension
+   npm install
+   npm run build
+   ```
+
+2. Open `chrome://extensions` in Chrome
+
+3. Enable **"Developer mode"** (top-right)
+
+4. Click **"Load unpacked"** and select `chrome-extension/dist/`
+
+5. Pin the Pirate Mosquito icon to your toolbar
+
 #### Persistent Install (Advanced)
 
 To install as a permanent extension:
 
 1. Build the extension as above
 
-2. Edit `firefox-extension/manifest.json` and change `"update_url"` to your server URL
+2. Edit the manifest and set `"update_url"` to your server URL
 
-3. Install via Firefox Add-ons page (about:addons) → Gear icon → "Install Add-on From File..."
+3. Install via browser add-ons manager
 
 > Note: The extension must be loaded from the same machine as the backend (localhost:8081).
 
 ### Development
 
 ```bash
+# Firefox
 cd firefox-extension
 npm install
 npm run dev        # Watch mode, rebuilds on changes
 npm run dev:firefox  # Auto-reload in Firefox via web-ext
+
+# Chrome
+cd chrome-extension
+npm install
+npm run dev        # Watch mode, rebuilds on changes
 ```
 
 ### Popup Tabs
@@ -249,8 +274,9 @@ npm run dev:firefox  # Auto-reload in Firefox via web-ext
 
 - **Background worker**: Service worker handling all logic (no content scripts due to Confluence CSP)
 - **Popup UI**: Displays session status, crawl progress, space list, and cron config
-- **Messaging**: Promise-based `browser.runtime.sendMessage` between popup and background
-- **Storage**: `browser.storage.local` for extension state (active crawl ID, settings)
+- **Messaging**: Promise-based runtime messaging between popup and background
+- **Storage**: Extension storage API for extension state (active crawl ID, settings)
+- **Confluence flavor detection**: Auto-detects Cloud vs Server/DC during session validation
 
 ## Backend CLI
 
@@ -306,7 +332,7 @@ All configuration options:
 | | `incremental.enabled` | `false` | Enable incremental scan scheduler |
 | | `incremental.interval` | `2h` | Scan interval |
 | | `incremental.max_duration` | `30m` | Max scan duration |
-| | `incremental.detection` | `dom` | Change detection: `dom` (DOM diff) or `api` (Confluence API) |
+| | `incremental.detection` | `dom` | Change detection: `dom` (DOM diff) or `api` (Confluence API) — note: full crawls always use Confluence REST API with browser fallback |
 | | `incremental.spaces` | `[]` | List of space overview URLs |
 
 ### Cron Overrides (cron-config.json)
@@ -341,7 +367,7 @@ Keys are space keys. Values override the global cron config for that space.
 | `config.yaml` | `/app/config.yaml:ro` | `./config.yaml` | Runtime config (read-only) |
 | `cron-config.json` | `/app/cron-config.json:rw` | `./cron-config.json` | Per-space cron overrides |
 | `session.enc` | `/app/session.enc:rw` | `./session.enc` | Encrypted session cookies |
-| `saved-data` | `/app/saved` | _(Docker volume)_ | Crawled pages and assets |
+| `saved-data` | `/app/saved` | _(bind mount)_ | Crawled pages and assets |
 | `pgdata` | `/var/lib/postgresql/data` | _(Docker volume)_ | PostgreSQL data |
 
 ### Building Locally
@@ -513,6 +539,22 @@ crawl_jobs      → async crawl job records (in-memory)
 ```
 
 \* Vector embeddings (`page_embeddings` table with IVFFlat index) are deferred to a later phase. Current search uses PostgreSQL `tsvector` with GIN indexing (BM25-style lexical search).
+
+## Scraping Modes
+
+SpaceMosquito uses two scraping strategies:
+
+1. **Confluence REST API** (default, fast)
+   - Cloud: `GET /wiki/rest/api/content/{id}?expand=body.storage,version,ancestors`
+   - Server/DC: `GET /rest/api/content/{id}?expand=body.storage,version,ancestors`
+   - Space discovery: `GET /wiki/rest/api/space/{key}/content/page` (Cloud) or `GET /rest/api/content?spaceKey={key}` (Server)
+   - Requires valid session cookies and appropriate Confluence permissions
+
+2. **Headless Browser** (fallback, slower)
+   - go-rod with Chromium, launched on-demand only when API fails
+   - Navigates to page, extracts HTML via DOM
+   - Used for space discovery fallback and API failure fallback
+   - Resilient to permission restrictions but slower
 
 ## Security
 

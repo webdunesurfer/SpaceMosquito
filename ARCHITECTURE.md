@@ -11,6 +11,43 @@ SpaceMosquito is a Confluence space scraper, indexer, and search engine with aut
 │                      Host Machine                                │
 │                                                                  │
 │  ┌────────────────────────────────────────────────────────────┐  │
+│  │              Firefox / Chrome (Browser)                    │  │
+│  │  ┌──────────────────────────────────────────────────────┐  │  │
+│  │  │  Pirate Mosquito (Web Extension)                     │  │  │
+│  │  │  ┌──────────┐ ┌──────────┐ ┌───────────┐            │  │  │
+│  │  │  │          │ │ Background│ │  Popup UI │            │  │  │
+│  │  │  │          │ │  Worker  │ │  (Session │            │  │  │
+│  │  │  │          │ │          │ │  /Crawl/  │            │  │  │
+│  │  │  └──────────┘ └──────────┘ └───────────┘            │  │  │
+│  │  └──────────────────────────────────────────────────────┘  │  │
+│  └────────────────────────────────────────────────────────────┘  │
+│                                                                  │
+├──────────────────────────────────────────────────────────────────┤
+│                          Docker (Colima)                         │
+│                                                                  │
+│  ┌──────────────────────┐    ┌───────────────────────────────┐  │
+│  │   app (Go Backend)   │    │     PostgreSQL + pgvector     │  │
+│  │                      │    │                               │  │
+│  │  HTTP API/MCP :8081  │◄───┤  │  spaces  │  │  pages   │  │  │
+│  │                      │    │  │          │  │  +fts     │  │  │
+│  │  Cron Scheduler      │    │  │  crawl   │  │          │  │  │
+│  │  Scraper (API+rod)   │    │  │  jobs    │  │          │  │  │
+│  │  Storage (disk)      │    │  └──────────┘  └──────────┘  │  │
+│  │  Session (AES-GCM)   │    └───────────────────────────────┘  │
+│  └──────────────────────┘                                       │
+│                                                                  │
+│  Volumes:                                                      │
+│    config.yaml          → runtime config                        │
+│    cron-config.json     → per-space cron overrides              │
+│    session.enc          → encrypted cookies                     │
+│    saved-data/          → crawled pages + assets                │
+│    pgdata/              → PostgreSQL data                       │
+└──────────────────────────────────────────────────────────────────┘
+```
+┌──────────────────────────────────────────────────────────────────┐
+│                      Host Machine                                │
+│                                                                  │
+│  ┌────────────────────────────────────────────────────────────┐  │
 │  │              Firefox (Browser)                             │  │
 │  │  ┌──────────────────────────────────────────────────────┐  │  │
 │  │  │  Pirate Mosquito (Web Extension)                     │  │  │
@@ -71,7 +108,7 @@ SpaceMosquito is a Confluence space scraper, indexer, and search engine with aut
 | `db` | PostgreSQL access via pgx — models, migrations, FTS indexing |
 | `embedder` | (Deferred) Vector embeddings — ONNX runtime, OpenAI, BGE models |
 | `mcp` | MCP (SSE) transport — JSON-RPC 2.0, tools: `search_pages`, `get_page`, `list_spaces`, `crawl_space` |
-| `scraper` | go-rod headless browser — discovery, page scraping, content extraction |
+| `scraper` | Dual-mode scraper — Confluence REST API (primary) + go-rod browser (fallback) |
 | `session` | Cookie capture and management — `tenant.session.token` extraction, CDP cookie injection |
 | `storage` | File system storage — HTML, assets, metadata per space/page |
 
@@ -80,7 +117,7 @@ SpaceMosquito is a Confluence space scraper, indexer, and search engine with aut
 ### 1. Session Capture
 
 ```
-Firefox (Confluence page)
+Firefox / Chrome (Confluence page)
   → browser.storage.cookies.get() (extension background)
   → POST /api/session (REST API)
   → AES-256-GCM encryption
@@ -91,6 +128,10 @@ Key details:
 - Uses Firefox native `browser` API (no polyfill)
 - Captures all cookies, maps `Secure=true` cookies to `SameSite=None` (Atlassian requirement)
 - Writes AES-GCM encrypted JSON to `session.enc` via `session/store.go`
+- Auto-detects Confluence flavor during validation:
+  - **Cloud**: matches `/wiki/rest/api/...` endpoints (e.g., `tenant.atlassian.net`)
+  - **Server/DC**: matches `/rest/api/...` endpoints
+- Flavor stored in session and used for API URL construction (`/wiki/rest/api/` prefix for Cloud)
 
 ### 2. Crawl Job
 
@@ -98,12 +139,14 @@ Key details:
 Extension popup (click Crawl)
   → POST /api/crawl (REST API)
   → CrawlJobManager creates in-memory job
-  → CrawlRunner.Run() spawns go-rod browser
-  → discoverSpace() parses space overview page
-  → ScrapePage() for each page:
-    → go-rod navigates to page
-    → MustWaitStable() waits for network idle + DOM stability
-    → extractContent() cleans HTML, extracts text, downloads images
+  → CrawlRunner.Run() loads session
+  → discoverSpace() tries API first, falls back to browser:
+    → API: GET /rest/api/space/{key}/content/page (Cloud) or /rest/api/content?spaceKey={key} (Server)
+    → Browser: go-rod navigates to space overview, parses sidebar DOM
+  → For each discovered page:
+    → ScrapePageAPI() — GET /rest/api/content/{id}?expand=body.storage (primary)
+    → If API fails: ScrapePage() — go-rod browser navigation (fallback)
+      → extractContent() cleans HTML, extracts text, downloads images with retry
     → UpsertPage() saves to PostgreSQL
     → UpdateSpaceLastCrawled() updates space metadata
   → Job status: pending → running → completed/failed
@@ -111,8 +154,12 @@ Extension popup (click Crawl)
 ```
 
 Key details:
-- go-rod over chromedp (chromedp `NoSandbox` fails in Colima vz driver)
-- Session loaded from `session.enc` and injected via CDP `Page.setCookies`
+- **Dual-mode scraping**: API-first, browser fallback. Headless browser (go-rod) is only launched on-demand when API fails.
+- **Space discovery dual-mode**: API list endpoint first, sidebar DOM parsing as fallback.
+- **Confluence flavor detection**: Session validation probes multiple API endpoints to auto-detect Cloud vs Server/DC flavor, stored in `session.Flavor`.
+- **Rate-limited asset downloads**: Images and attachments downloaded with 5s rate limit and 3 retries with exponential backoff.
+- **Queue-based child discovery**: Pages discovered in parent pages' sidebars are appended to crawl queue for depth-first traversal.
+- Session loaded from `session.enc`, used as HTTP headers for API calls or CDP `Page.setCookies` for browser fallback.
 - Pages stored as clean HTML + raw HTML + metadata JSON in `saved-data/{space}/{page}/`
 - In-memory job tracking with mutex-protected progress updates
 
@@ -206,7 +253,7 @@ Key details:
 
 ### Cookie Security
 
-- `tenant.session.token` captured via `browser.cookies.getAll()`
+- `tenant.session.token` captured via `browser.cookies.getAll()` (Firefox) or `chrome.cookies.getAll()` (Chrome)
 - `SameSite=None` explicitly set for session token (Atlassian requirement)
 - Cookies encrypted on disk, decrypted in memory only
 
@@ -217,20 +264,34 @@ Key details:
 
 ## Technology Decisions
 
+### Dual-Mode Scraper (API + Browser)
+
+- **Confluence REST API** is the primary content extraction method — lightweight, no browser overhead
+- Supports both Cloud (`/wiki/rest/api/...`) and Server/DC (`/rest/api/...`) API paths
+- **go-rod browser fallback** activates only when API fails (permissions, rate limits, etc.)
+- Browser launched on-demand per crawl job, not at server startup — reduces resource usage
+- Browser is also required for space discovery fallback when API endpoints are unreachable
+
 ### go-rod over chromedp
 
 - chromedp `NoSandbox` fails in Colima vz driver (EPERM)
 - go-rod `launcher.NoSandbox(true)` with explicit Chromium binary works
-- `MustWaitStable()` improved with timeout to prevent indefinite hangs
+- Browser only used as fallback for API failures and legacy discovery
 
-### Firefox Extension Architecture
+### Confluence Flavor Detection
+
+- Session validation auto-detects Cloud vs Server/DC by probing multiple API endpoints
+- Probes: `/wiki/rest/api/user/current` (Cloud), `/rest/api/latest/myself` (Server), `/rest/api/user/current` (Server)
+- Flavor stored in session and used for URL construction in API calls
+
+### Chrome Extension Architecture
 
 - No content_scripts (Confluence CSP blocks all injection)
 - Background service worker handles all logic
-- Popup communicates with background via `browser.runtime.sendMessage`
+- Popup communicates with background via `chrome.runtime.sendMessage`
 - Promise-based messaging for reliable async communication
 - Space detection via URL parsing (not content scripts)
-- Crawl state persisted via `browser.storage.local`
+- Crawl state persisted via `chrome.storage.local`
 
 ### PostgreSQL over SQLite
 
@@ -269,6 +330,14 @@ Key details:
 - Loaded as temporary add-on via `about:debugging`
 - Built via webpack → `firefox-extension/dist/`
 
+### Chrome Extension
+
+- Parallel Chrome/Chromium extension with identical feature set
+- Uses Chrome Extension Manifest V3 with service worker
+- Built via webpack → `chrome-extension/dist/`
+- Same popup UI: Session capture, Crawl control, Space management, Cron scheduling
+- Uses `chrome.runtime.sendMessage` and `chrome.storage.local` (Manifest V3 APIs)
+
 ## Known Limitations
 
 1. **No vector embeddings** — Search uses BM25/lexical only (deferred phase)
@@ -277,3 +346,4 @@ Key details:
 4. **Confluence CSP** — Blocks all content script injection, limits extension capabilities
 5. **In-memory crawl jobs** — Jobs are not persisted across server restarts
 6. **Single browser instance** — One go-rod browser per crawl job (no connection pooling)
+7. **Browser fallback needed for some pages** — Confluence permissions or rate limits may cause API failures, triggering slower browser scraping
