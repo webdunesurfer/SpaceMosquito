@@ -42,7 +42,6 @@ package "Docker (Colima)" {
 [Scraper] --> [Confluence Cloud\natlassian.net] : API / browser
 [Scraper] --> [Confluence Server\nself-hosted] : API / browser
 [app] --> [db]
-storage-dir -[hidden] app
 
 note top of browser
   Captures Confluence session cookies
