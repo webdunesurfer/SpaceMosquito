@@ -8,27 +8,57 @@ Firefox/Chrome browser extensions for session management and crawl control.
 
 ## System Components
 
-Host machine:
-  Firefox / Chrome with Pirate Mosquito extension
-    - Captures Confluence session cookies
-    - Provides popup UI for session/crawl/cron management
+```plantuml
+@startuml
+skinparam componentStyle uml2
+skinparam rectangle {
+  BackgroundColor white
+  BorderColor gray
+}
 
-Docker (Colima):
-  app (Go backend, port 8081)          PostgreSQL + pgvector
-  +----------------------------------+ +---------------------+
-  | HTTP API / MCP SSE               | | tables:             |
-  | Cron scheduler                   | |   spaces | pages    |
-  | Scraper (API + browser fallback) | |   + fts index       |
-  | Storage (saved-data/)            | |                     |
-  | Session (AES-GCM)                | |                     |
-  +----------------------------------+ +---------------------+
+package "Host Machine" {
+  [Firefox / Chrome] as browser
+  browser --> "Pirate Mosquito Extension" : captures cookies, manages UI
+}
 
-Volumes:
-  config.yaml          -> runtime config (read-only)
-  cron-config.json     -> per-space cron overrides
-  session.enc          -> encrypted cookies
-  saved-data/          -> crawled pages + assets
-  pgdata/              -> PostgreSQL data
+package "Docker (Colima)" {
+  [Go Backend :8081] as app
+  app --> [HTTP API]
+  app --> [MCP SSE]
+  app --> [Cron Scheduler]
+  app --> [Scraper\n(API + browser fallback)]
+  app --> [Storage]
+  app --> [Session\nAES-GCM]
+
+  rectangle "PostgreSQL + pgvector" as db {
+    [spaces]
+    [pages]
+    [fts index]
+  }
+}
+
+[Pirate Mosquito Extension] --> [HTTP API] : REST API
+[HTTP API] --> [Scraper]
+[Scraper] --> [Confluence Cloud\natlassian.net] : API / browser
+[Scraper] --> [Confluence Server\nself-hosted] : API / browser
+[app] --> [db]
+storage-dir -[hidden] app
+
+note top of browser
+  Captures Confluence session cookies
+  Provides popup UI for session/crawl/cron
+end note
+
+note right of app
+  Volumes:
+  config.yaml, cron-config.json
+  session.enc, saved-data/, pgdata/
+end note
+
+@enduml
+```
+
+> **Rendering**: Use the PlantUML VS Code extension, `plantuml` CLI (`pip install plantuml`), or the online editor at [plantuml.com/plantuml](https://www.plantuml.com/plantuml).
 
 ## Entry Points
 
