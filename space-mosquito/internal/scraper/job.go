@@ -267,6 +267,11 @@ func (r *CrawlRunner) Run(ctx context.Context, job *CrawlJob) error {
 		return fmt.Errorf("discover space: %w", err)
 	}
 
+	// Build discovered set from space root pages
+	discovered := make(map[int]bool)
+	for _, pg := range pageInfo.Pages {
+		discovered[pg.ConfluenceID] = true
+	}
 	job.TotalPages = len(pageInfo.Pages)
 	now := time.Now()
 	job.UpdatedAt = now
@@ -275,14 +280,16 @@ func (r *CrawlRunner) Run(ctx context.Context, job *CrawlJob) error {
 			"job_id", job.ID,
 			"total_pages", job.TotalPages)
 	}
-	for i, pg := range pageInfo.Pages {
+	for i := 0; i < len(pageInfo.Pages); i++ {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
 		}
 
-		if err := scraper.ScrapePage(pg, pageInfo.SpaceKey, pageInfo.SpaceURL); err != nil {
+		pg := pageInfo.Pages[i]
+		newChildren, scrapeErr := scraper.ScrapePage(pg, pageInfo.SpaceKey, pageInfo.SpaceURL, discovered)
+		if scrapeErr != nil {
 			r.manager.mu.Lock()
 			job.Failed++
 			r.manager.mu.Unlock()
@@ -290,9 +297,23 @@ func (r *CrawlRunner) Run(ctx context.Context, job *CrawlJob) error {
 				r.log.Errorw("page scrape failed",
 					"job_id", job.ID,
 					"page_id", pg.ConfluenceID,
-					"error", err)
+					"error", scrapeErr)
 			}
 			continue
+		}
+		if len(newChildren) > 0 {
+			pageInfo.Pages = append(pageInfo.Pages, newChildren...)
+			job.TotalPages = len(pageInfo.Pages)
+			r.manager.mu.Lock()
+			job.UpdatedAt = time.Now()
+			r.manager.mu.Unlock()
+			if r.log.Enabled() {
+				r.log.Infow("discovered child pages",
+					"job_id", job.ID,
+					"parent", pg.Title,
+					"new_children", len(newChildren),
+					"new_total", job.TotalPages)
+			}
 		}
 
 		r.manager.mu.Lock()

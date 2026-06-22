@@ -108,6 +108,24 @@ func (s *Scraper) LaunchBrowser() error {
 }
 
 
+// waitForPage waits for the page to load, respecting context timeout.
+// Skips MustWaitStable() as Confluence SPA pages have constant background JS/AJAX calls
+// that prevent the page from ever truly "stabilizing".
+func waitForPage(ctx context.Context, page *rod.Page) error {
+	done := make(chan struct{})
+	go func() {
+		defer func() { recover() }()
+		page.MustWaitLoad()
+		close(done)
+	}()
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
 // SetupContextWithSession injects cookies from a session into the browser.
 func (s *Scraper) SetupContextWithSession(sess *session.Session) error {
 	if len(sess.Cookies) == 0 {
@@ -203,7 +221,15 @@ func (s *Scraper) CrawlSpace(spaceURL string, sess *session.Session) error {
 			"space_id", spaceID)
 	}
 
-	for i, pg := range pageInfo.Pages {
+	// Build discovered set from space root pages
+	discovered := make(map[int]bool)
+	for _, pg := range pageInfo.Pages {
+		discovered[pg.ConfluenceID] = true
+	}
+
+	// Queue-based crawl with per-page timeout (ScrapePage handles timeout internally)
+	for i := 0; i < len(pageInfo.Pages); i++ {
+		pg := pageInfo.Pages[i]
 		s.log.Infow("crawling page",
 			"space_key", pageInfo.SpaceKey,
 			"page_index", i+1,
@@ -211,17 +237,24 @@ func (s *Scraper) CrawlSpace(spaceURL string, sess *session.Session) error {
 			"page_id", pg.ConfluenceID,
 			"title", pg.Title)
 
-		if err := s.ScrapePage(pg, pageInfo.SpaceKey, pageInfo.SpaceURL); err != nil {
+		newChildren, scrapeErr := s.ScrapePage(pg, pageInfo.SpaceKey, pageInfo.SpaceURL, discovered)
+		if scrapeErr != nil {
 			s.log.Errorw("page scrape failed",
 				"space_key", pageInfo.SpaceKey,
 				"page_id", pg.ConfluenceID,
 				"title", pg.Title,
-				"error", err)
+				"error", scrapeErr)
 			s.mu.Lock()
 			s.stats.FailedPages++
 			s.mu.Unlock()
 			continue
 		}
+		if len(newChildren) > 0 {
+			s.log.Infow("discovered child pages in sidebar",
+				"parent_page", pg.Title,
+				"new_children", len(newChildren))
+		}
+		pageInfo.Pages = append(pageInfo.Pages, newChildren...)
 
 		s.mu.Lock()
 		s.stats.TotalPages++
@@ -244,16 +277,40 @@ func (s *Scraper) CrawlSpace(spaceURL string, sess *session.Session) error {
 }
 
 // ScrapePage scrapes a single page and saves it.
-func (s *Scraper) ScrapePage(pg *Page, spaceKey, spaceURL string) error {
+func (s *Scraper) ScrapePage(pg *Page, spaceKey, spaceURL string, discovered map[int]bool) ([]*Page, error) {
+	ctx, cancel := context.WithTimeout(s.ctx, 60*time.Second)
+	defer cancel()
+	return s.scrapePageInternal(ctx, pg, spaceKey, spaceURL, discovered)
+}
+
+// scrapePageInternal scrapes a single page using the given context (allows timeout cancellation).
+func (s *Scraper) scrapePageInternal(ctx context.Context, pg *Page, spaceKey, spaceURL string, discovered map[int]bool) ([]*Page, error) {
 	baseURL := extractConfluenceBaseURL(spaceURL)
 
 	page := s.browser.MustPage(pg.URL)
-	page = page.MustWaitStable().MustWaitLoad()
 	page.Timeout(30 * time.Second)
 
-	html, err := page.HTML()
-	if err != nil {
-		return fmt.Errorf("get html: %w", err)
+	if err := waitForPage(ctx, page); err != nil {
+		return nil, fmt.Errorf("waiting for page: %w", err)
+	}
+
+	var scrapeErr error
+	var html string
+
+	type htmlResult struct {
+		html string
+		err  error
+	}
+	htmlCh := make(chan htmlResult, 1)
+	go func() { h, e := page.HTML(); htmlCh <- htmlResult{h, e} }()
+	select {
+	case <-ctx.Done():
+		return nil, fmt.Errorf("page html timed out")
+	case res := <-htmlCh:
+		html = res.html
+		if res.err != nil {
+			scrapeErr = fmt.Errorf("get html: %w", res.err)
+		}
 	}
 
 	pg.RawHTML = html
@@ -266,7 +323,7 @@ func (s *Scraper) ScrapePage(pg *Page, spaceKey, spaceURL string) error {
 
 	cleanHTML, images, attachments, err := s.extractContent(html, pg.Title, baseURL)
 	if err != nil {
-		return fmt.Errorf("extract content: %w", err)
+		return nil, fmt.Errorf("extract content: %w", err)
 	}
 
 	pg.CleanHTML = cleanHTML
@@ -275,12 +332,12 @@ func (s *Scraper) ScrapePage(pg *Page, spaceKey, spaceURL string) error {
 
 	dir, err := s.storage.MakePageDir(spaceKey, pg.Title)
 	if err != nil {
-		return fmt.Errorf("make page dir: %w", err)
+		return nil, fmt.Errorf("make page dir: %w", err)
 	}
 	pg.FileDir = dir
 
 	if err := s.storage.SaveHTML(dir, cleanHTML); err != nil {
-		return fmt.Errorf("save clean html: %w", err)
+		return nil, fmt.Errorf("save clean html: %w", err)
 	}
 	pg.HTMLPath = dir + "/index.html"
 
@@ -307,12 +364,12 @@ func (s *Scraper) ScrapePage(pg *Page, spaceKey, spaceURL string) error {
 		meta.ParentTitle = ""
 	}
 	if err := s.storage.SaveMetadata(dir, meta); err != nil {
-		return fmt.Errorf("save metadata: %w", err)
+		return nil, fmt.Errorf("save metadata: %w", err)
 	}
 	pg.MetadataPath = dir + "/metadata.json"
 
 	var space *db.Space
-	space, err = s.db.GetSpaceByKey(context.Background(), spaceKey)
+	space, err = s.db.GetSpaceByKey(ctx, spaceKey)
 	if err != nil {
 		s.log.Infow("space not found, auto-creating", "space_key", spaceKey)
 		spaceURL := spaceURL
@@ -323,7 +380,7 @@ func (s *Scraper) ScrapePage(pg *Page, spaceKey, spaceURL string) error {
 		if err != nil {
 			s.log.Warnw("failed to auto-create space, skipping db save",
 				"space_key", spaceKey, "error", err)
-			return nil
+			return nil, nil
 		}
 		space = &db.Space{ID: spaceID, Key: spaceKey, Name: spaceKey, URL: spaceURL}
 	}
@@ -345,18 +402,23 @@ func (s *Scraper) ScrapePage(pg *Page, spaceKey, spaceURL string) error {
 		FileDir:              dir,
 	}
 
-	if err := s.db.UpsertPage(s.ctx, dbPage); err != nil {
+	if err := s.db.UpsertPage(ctx, dbPage); err != nil {
 		s.log.Warnw("save page to db failed",
 			"page_id", pg.ConfluenceID,
 			"title", pg.Title,
 			"error", err)
 	}
 
-	if err := s.db.UpdateSpaceLastCrawled(s.ctx, spaceKey); err != nil {
+	if err := s.db.UpdateSpaceLastCrawled(ctx, spaceKey); err != nil {
 		s.log.Warnw("failed to update space last crawled",
 			"space_key", spaceKey,
 			"error", err)
 	}
 
-	return nil
+	// Discover child pages from the sidebar DOM for recursive crawling
+	if scrapeErr == nil {
+		return s.discoverChildPages(page, pg.ConfluenceID, spaceKey, spaceURL, discovered), nil
+	}
+
+	return nil, scrapeErr
 }

@@ -2,6 +2,7 @@ package scraper
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"regexp"
@@ -103,6 +104,12 @@ func (s *Scraper) discoverSpace(spaceURL string) (*SpaceInfo, error) {
 			s.log.Debugw("saved debug html", "path", "/tmp/confluence_debug.html", "size", len(html))
 		}
 	}
+	// Also save to bind-mount for inspection
+	if err := os.WriteFile("/app/saved/.debug.html", []byte(html), 0644); err == nil {
+		if s.log.Enabled() {
+			s.log.Debugw("saved debug html to bind-mount", "path", "/app/saved/.debug.html")
+		}
+	}
 
 	doc, err := goquery.NewDocumentFromReader(strings.NewReader(html))
 	if err != nil {
@@ -122,8 +129,24 @@ func (s *Scraper) discoverSpace(spaceURL string) (*SpaceInfo, error) {
 			"space_name", spaceInfo.SpaceName)
 	}
 
+
+
 	// Try rod's Element API first for dynamic content
-	pages := s.findPagesByRod(page, spaceURL)
+	pages := s.findPagesByRod(page, spaceInfo.SpaceKey, spaceURL)
+	if s.log.Enabled() && len(pages) == 0 {
+		// Debug: dump all links with /pages/ in the page
+		allPages, _ := page.Elements("a[href*='/pages/']")
+		if s.log.Enabled() {
+			s.log.Infow("debug: raw /pages/ links found", "count", len(allPages))
+			for i, el := range allPages {
+				if i < 5 {
+					href, _ := el.Attribute("href")
+					text := el.MustText()
+					s.log.Debugw("debug: page link", "index", i, "href", href, "text", strings.TrimSpace(text))
+				}
+			}
+		}
+	}
 
 	// Fall back to goquery if rod didn't find any
 	if len(pages) == 0 {
@@ -157,34 +180,40 @@ func (s *Scraper) discoverSpace(spaceURL string) (*SpaceInfo, error) {
 	return spaceInfo, nil
 }
 
+
 // findPagesByRod uses rod's Element API to find page links in the rendered DOM.
-func (s *Scraper) findPagesByRod(page *rod.Page, spaceURL string) []*Page {
+func (s *Scraper) findPagesByRod(page *rod.Page, spaceKey, spaceURL string) []*Page {
 	// Normalize space URL to ensure trailing slash for URL joining
 	if !strings.HasSuffix(spaceURL, "/") {
 		spaceURL += "/"
 	}
 	var pages []*Page
 
-	// Try to find all links with /pages/ in the href (Confluence uses /pages/ not /page/)
+	// Try to find all links with /pages/ in the href, filtered to current space
 	if s.log.Enabled() {
-		s.log.Debugw("searching for page links with /pages/")
+		s.log.Infow("searching for page links with /pages/", "space_key", spaceKey)
 	}
 
 	elements, err := page.Elements("a[href*='/pages/']")
 	if err != nil {
 		if s.log.Enabled() {
-			s.log.Debugw("rod Elements failed", "error", err)
+			s.log.Infow("rod Elements failed", "error", err)
 		}
 		return nil
 	}
 
 	if s.log.Enabled() {
-		s.log.Debugw("found raw elements", "count", len(elements))
+		s.log.Infow("found raw elements", "count", len(elements))
 	}
 
 	for _, el := range elements {
 		href := el.MustAttribute("href")
 		if href == nil || *href == "" || !strings.Contains(*href, "/pages/") {
+			continue
+		}
+
+		// Only include pages from the current space
+		if !strings.Contains(*href, "/spaces/"+spaceKey+"/") {
 			continue
 		}
 
@@ -293,6 +322,10 @@ func (s *Scraper) parseSidebar(doc *goquery.Document, spaceKey string, level int
 			href, _ := s.Attr("href")
 			text := strings.TrimSpace(s.Text())
 			if len(href) > 0 && strings.Contains(href, "/pages/") {
+				// Only include pages from the current space
+				if !strings.Contains(href, "/spaces/"+spaceKey+"/") {
+					return
+				}
 				allLinks = append(allLinks, linkInfo{href: href, text: text})
 				count++
 			}
@@ -358,4 +391,97 @@ func (s *Scraper) assignParentIDs(doc *goquery.Document) {
 	// Confluence sidebar typically uses nested <ul> elements for hierarchy
 	// We attempt to infer parent-child from the DOM structure
 	// This is a best-effort approach since Confluence uses dynamic rendering
+}
+
+// childPageAPI represents a child page from the Confluence REST API.
+type childPageAPI struct {
+	ID    string `json:"id"`
+	Title string `json:"title"`
+	HREF  string `json:"_links.webui"`
+}
+
+// discoverChildPages uses a single page.Eval to extract all child page links
+// from the sidebar DOM (links are present even when sidebar nodes are collapsed).
+func (s *Scraper) discoverChildPages(page *rod.Page, parentID int, spaceKey, spaceURL string, discovered map[int]bool) []*Page {
+	baseURL := extractConfluenceBaseURL(spaceURL)
+
+	// Single eval to get all page links in the SAME space only
+	// This avoids discovering pages from other spaces via the space switcher
+	done := make(chan string, 1)
+	go func() {
+		results, err := page.Eval(`(key) => {
+			var links = document.querySelectorAll('a[href*="/spaces/"][href*="/pages/"]');
+			return JSON.stringify(Array.from(links)
+				.filter(l => l.href.includes('/spaces/' + key + '/'))
+				.map(l => ({href: l.href, text: l.textContent.trim()})));
+		}`, spaceKey)
+		if err == nil {
+			done <- results.Value.String()
+		} else {
+			done <- ""
+		}
+	}()
+
+	var linkJSON string
+	select {
+	case linkJSON = <-done:
+		if linkJSON == "" {
+			if s.log.Enabled() {
+				s.log.Warnw("child page discovery eval failed", "parent_id", parentID)
+			}
+			return nil
+		}
+	case <-time.After(10 * time.Second):
+		if s.log.Enabled() {
+			s.log.Warnw("child page discovery timed out", "parent_id", parentID)
+		}
+		return nil
+	}
+
+	type linkInfo struct {
+		Href string `json:"href"`
+		Text string `json:"text"`
+	}
+	var links []linkInfo
+	if err := json.Unmarshal([]byte(linkJSON), &links); err != nil {
+		return nil
+	}
+
+	var children []*Page
+	for _, link := range links {
+		pageID := s.parseConfluenceID(link.Href)
+		if pageID == 0 || pageID == parentID {
+			continue
+		}
+
+		if discovered != nil && discovered[pageID] {
+			continue
+		}
+		if discovered != nil {
+			discovered[pageID] = true
+		}
+
+		title := strings.TrimSpace(link.Text)
+		if title == "" {
+			title = fmt.Sprintf("page-%d", pageID)
+		}
+
+		url := link.Href
+		if !strings.HasPrefix(url, "http") {
+			url = baseURL + "/wiki" + url
+		}
+
+		children = append(children, &Page{
+			ConfluenceID: pageID,
+			Title:        title,
+			URL:          url,
+			Level:        0,
+		})
+	}
+
+	if s.log.Enabled() && len(children) > 0 {
+		s.log.Infow("discovered child pages in sidebar", "parent_id", parentID, "children", len(children))
+	}
+
+	return children
 }

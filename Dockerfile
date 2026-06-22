@@ -16,7 +16,7 @@ RUN go build -o /server ./cmd/server && \
 FROM debian:bookworm-slim
 
 # Install Chromium + required deps
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN apt-get update -o Acquire::Check-Valid-Until=false && apt-get install -y --no-install-recommends \
     chromium \
     libatk-bridge2.0-0 \
     libatk1.0-0 \
@@ -46,6 +46,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
+ENV LEAKLESS=0
 
 # Copy binaries and assets from builder
 COPY --from=builder /server /app/server

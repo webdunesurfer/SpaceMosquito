@@ -395,7 +395,7 @@ func (s *Scheduler) runIncremental(ctx context.Context, jobID, spaceKey, spaceUR
 			Level:        0,
 		}
 
-		if err := scr.ScrapePage(pg, spaceKey, spaceURL); err != nil {
+		if _, err := scr.ScrapePage(pg, spaceKey, spaceURL, nil); err != nil {
 			s.log.Warnw("failed to scrape page",
 				"job_id", jobID,
 				"page_id", page.ConfluenceID,
