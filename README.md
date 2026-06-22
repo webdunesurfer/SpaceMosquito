@@ -30,7 +30,7 @@ Confluence space scraper, indexer, and search engine with automated cron schedul
 │  ┌──────────────────────┐    ┌───────────────────────────────┐   │
 │  │   app (Go Backend)   │    │     PostgreSQL + pgvector     │   │
 │  │                      │    │                               │   │
-│  │  HTTP API  :8080     │    │  ┌──────────┐  ┌──────────┐   │   │
+│  │  HTTP API  :8081     │    │  ┌──────────┐  ┌──────────┐   │   │
 │  │  MCP/SSE :8081       │◄───┤  │  spaces  │  │  pages   │   │   │
 │  │                      │    │  │          │  │  +fts    │   │   │
 │  │  Cron Scheduler      │    │  │  crawl   │  │          │   │   │
@@ -148,10 +148,10 @@ docker compose up app -d
 ```
 
 The server exposes:
-- **HTTP API** on port `8080` (localhost)
+- **HTTP API** on port `8081` (localhost)
 - **MCP (SSE)** on port `8081` (localhost)
 
-Verify: `curl http://localhost:8080/health` → `ok`
+Verify: `curl http://localhost:8081/health` → `ok`
 
 ### 7. Run Your First Crawl
 
@@ -165,7 +165,7 @@ docker compose exec app /app/cli crawl "https://company.atlassian.net/wiki/space
 
 Via API:
 ```bash
-curl -X POST http://localhost:8080/api/crawl \
+curl -X POST http://localhost:8081/api/crawl \
   -H "Content-Type: application/json" \
   -d '{"space_url": "https://company.atlassian.net/wiki/spaces/PROJ"}'
 ```
@@ -179,7 +179,7 @@ docker compose exec app /app/cli search "your query" [space-key]
 
 Via API:
 ```bash
-curl "http://localhost:8080/api/search?q=your+query&space_key=PROJ"
+curl "http://localhost:8081/api/search?q=your+query&space_key=PROJ"
 ```
 
 ### 9. Connect an MCP Client
@@ -225,7 +225,7 @@ To install as a permanent extension:
 
 3. Install via Firefox Add-ons page (about:addons) → Gear icon → "Install Add-on From File..."
 
-> Note: The extension must be loaded from the same machine as the backend (localhost:8080).
+> Note: The extension must be loaded from the same machine as the backend (localhost:8081).
 
 ### Development
 
@@ -332,7 +332,7 @@ Keys are space keys. Values override the global cron config for that space.
 | Service | Image | Ports | Purpose |
 |---------|-------|-------|---------|
 | `db` | `pgvector/pgvector:pg17` | `5432` | PostgreSQL with vector extension |
-| `app` | _(built from Dockerfile)_ | `8080, 8081` | Go backend + headless scraper |
+| `app` | _(built from Dockerfile)_ | `8081, 8081` | Go backend + headless scraper |
 
 ### Volumes
 
@@ -362,7 +362,7 @@ cd space-mosquito && go run ./cmd/cli init
 # 3. Start the server
 go run ./cmd/server
 
-# 4. The extension communicates with http://localhost:8080
+# 4. The extension communicates with http://localhost:8081
 ```
 
 ## API Reference
@@ -449,19 +449,19 @@ Available tools: `search_pages`, `get_page`, `list_spaces`, `crawl_space`.
 
 - Ensure `full_crawl.enabled` or `incremental.enabled` is set to `true` in `config.yaml`
 - Verify the space URLs in the `spaces` list are correct overview URLs
-- Check the cron config file: `curl http://localhost:8080/api/cron`
-- Trigger manually: `curl -X POST http://localhost:8080/api/cron/start`
+- Check the cron config file: `curl http://localhost:8081/api/cron`
+- Trigger manually: `curl -X POST http://localhost:8081/api/cron/start`
 
 ### Crawl Hangs or Times Out
 
-- Check the crawl job status: `curl "http://localhost:8080/api/crawl/status?job_id=<id>"`
+- Check the crawl job status: `curl "http://localhost:8081/api/crawl/status?job_id=<id>"`
 - Increase `max_duration` in the cron config for large spaces
-- Verify the session is valid: `curl http://localhost:8080/api/session/status`
+- Verify the session is valid: `curl http://localhost:8081/api/session/status`
 - Check Docker logs: `docker compose logs app`
 
 ### Extension Can't Connect to Backend
 
-- Ensure the backend is running: `curl http://localhost:8080/health`
+- Ensure the backend is running: `curl http://localhost:8081/health`
 - Check CORS is enabled — the backend includes a CORS middleware for extension requests
 - In Firefox, open `about:debugging` and check the background service worker for errors
 
@@ -475,7 +475,7 @@ Available tools: `search_pages`, `get_page`, `list_spaces`, `crawl_space`.
 
 - Crawled pages and assets accumulate in the `saved-data` volume
 - Check usage: `docker volume inspect spacemosquito_saved-data`
-- Clean up old pages via the API: `curl -X POST http://localhost:8080/api/crawl/cleanup`
+- Clean up old pages via the API: `curl -X POST http://localhost:8081/api/crawl/cleanup`
 
 ## Database Schema
 

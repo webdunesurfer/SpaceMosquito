@@ -2,7 +2,9 @@ package scraper
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"net/http"
 	"strings"
 	"sync"
 	"time"
@@ -107,23 +109,8 @@ func (s *Scraper) LaunchBrowser() error {
 	return nil
 }
 
-
-// waitForPage waits for the page to load, respecting context timeout.
-// Skips MustWaitStable() as Confluence SPA pages have constant background JS/AJAX calls
-// that prevent the page from ever truly "stabilizing".
-func waitForPage(ctx context.Context, page *rod.Page) error {
-	done := make(chan struct{})
-	go func() {
-		defer func() { recover() }()
-		page.MustWaitLoad()
-		close(done)
-	}()
-	select {
-	case <-done:
-		return nil
-	case <-ctx.Done():
-		return ctx.Err()
-	}
+func (s *Scraper) Browser() *rod.Browser {
+	return s.browser
 }
 
 // SetupContextWithSession injects cookies from a session into the browser.
@@ -191,17 +178,20 @@ func (s *Scraper) CrawlSpace(spaceURL string, sess *session.Session) error {
 
 	s.log.Infow("crawl started",
 		"space_url", spaceURL,
+		"flavor", sess.Flavor,
 		"session_captured_at", sess.CapturedAt)
 
-	if err := s.SetupContextWithSession(sess); err != nil {
-		return fmt.Errorf("setup context: %w", err)
-	}
-	defer s.CloseBrowser()
+	// Context is needed for DB operations
+	s.ctx, s.cancel = context.WithCancel(context.Background())
+	defer s.cancel()
 
-	pageInfo, err := s.discoverSpace(spaceURL)
+	pageInfo, err := s.discoverSpace(spaceURL, sess)
 	if err != nil {
 		return fmt.Errorf("discover space: %w", err)
 	}
+
+	// Close browser if it was opened for fallback
+	defer s.CloseBrowser()
 
 	if s.log.Enabled() {
 		s.log.Infow("space discovery complete",
@@ -221,15 +211,7 @@ func (s *Scraper) CrawlSpace(spaceURL string, sess *session.Session) error {
 			"space_id", spaceID)
 	}
 
-	// Build discovered set from space root pages
-	discovered := make(map[int]bool)
-	for _, pg := range pageInfo.Pages {
-		discovered[pg.ConfluenceID] = true
-	}
-
-	// Queue-based crawl with per-page timeout (ScrapePage handles timeout internally)
-	for i := 0; i < len(pageInfo.Pages); i++ {
-		pg := pageInfo.Pages[i]
+	for i, pg := range pageInfo.Pages {
 		s.log.Infow("crawling page",
 			"space_key", pageInfo.SpaceKey,
 			"page_index", i+1,
@@ -237,24 +219,44 @@ func (s *Scraper) CrawlSpace(spaceURL string, sess *session.Session) error {
 			"page_id", pg.ConfluenceID,
 			"title", pg.Title)
 
-		newChildren, scrapeErr := s.ScrapePage(pg, pageInfo.SpaceKey, pageInfo.SpaceURL, discovered)
-		if scrapeErr != nil {
-			s.log.Errorw("page scrape failed",
-				"space_key", pageInfo.SpaceKey,
-				"page_id", pg.ConfluenceID,
-				"title", pg.Title,
-				"error", scrapeErr)
-			s.mu.Lock()
-			s.stats.FailedPages++
-			s.mu.Unlock()
-			continue
+		// Try API scraping first
+		err := s.ScrapePageAPI(pg, pageInfo.SpaceKey, pageInfo.SpaceURL, sess)
+		if err != nil {
+			if s.log.Enabled() {
+				s.log.Warnw("API page content extraction failed, FALLING BACK to browser", 
+					"page_id", pg.ConfluenceID, "title", pg.Title, "error", err)
+			}
+
+			// Fallback to browser
+			if s.browser == nil {
+				if err := s.LaunchBrowser(); err != nil {
+					s.log.Errorw("failed to launch browser for fallback", "error", err)
+					s.mu.Lock()
+					s.stats.FailedPages++
+					s.mu.Unlock()
+					continue
+				}
+				if err := s.SetupContextWithSession(sess); err != nil {
+					s.log.Errorw("failed to setup browser context", "error", err)
+					s.mu.Lock()
+					s.stats.FailedPages++
+					s.mu.Unlock()
+					continue
+				}
+			}
+
+			if err := s.ScrapePage(pg, pageInfo.SpaceKey, pageInfo.SpaceURL); err != nil {
+				s.log.Errorw("browser page scrape failed",
+					"space_key", pageInfo.SpaceKey,
+					"page_id", pg.ConfluenceID,
+					"title", pg.Title,
+					"error", err)
+				s.mu.Lock()
+				s.stats.FailedPages++
+				s.mu.Unlock()
+				continue
+			}
 		}
-		if len(newChildren) > 0 {
-			s.log.Infow("discovered child pages in sidebar",
-				"parent_page", pg.Title,
-				"new_children", len(newChildren))
-		}
-		pageInfo.Pages = append(pageInfo.Pages, newChildren...)
 
 		s.mu.Lock()
 		s.stats.TotalPages++
@@ -276,72 +278,92 @@ func (s *Scraper) CrawlSpace(spaceURL string, sess *session.Session) error {
 	return nil
 }
 
-// ScrapePage scrapes a single page and saves it.
-func (s *Scraper) ScrapePage(pg *Page, spaceKey, spaceURL string, discovered map[int]bool) ([]*Page, error) {
-	ctx, cancel := context.WithTimeout(s.ctx, 60*time.Second)
-	defer cancel()
-	return s.scrapePageInternal(ctx, pg, spaceKey, spaceURL, discovered)
-}
-
-// scrapePageInternal scrapes a single page using the given context (allows timeout cancellation).
-func (s *Scraper) scrapePageInternal(ctx context.Context, pg *Page, spaceKey, spaceURL string, discovered map[int]bool) ([]*Page, error) {
+// ScrapePageAPI fetches page content using the REST API.
+func (s *Scraper) ScrapePageAPI(pg *Page, spaceKey, spaceURL string, sess *session.Session) error {
 	baseURL := extractConfluenceBaseURL(spaceURL)
-
-	page := s.browser.MustPage(pg.URL)
-	page.Timeout(30 * time.Second)
-
-	if err := waitForPage(ctx, page); err != nil {
-		return nil, fmt.Errorf("waiting for page: %w", err)
+	
+	var apiURL string
+	if sess.Flavor == session.FlavorCloud {
+		apiURL = fmt.Sprintf("%s/wiki/rest/api/content/%d?expand=body.storage,version,ancestors", baseURL, pg.ConfluenceID)
+	} else {
+		apiURL = fmt.Sprintf("%s/rest/api/content/%d?expand=body.storage,version,ancestors", baseURL, pg.ConfluenceID)
 	}
 
-	var scrapeErr error
-	var html string
-
-	type htmlResult struct {
-		html string
-		err  error
-	}
-	htmlCh := make(chan htmlResult, 1)
-	go func() { h, e := page.HTML(); htmlCh <- htmlResult{h, e} }()
-	select {
-	case <-ctx.Done():
-		return nil, fmt.Errorf("page html timed out")
-	case res := <-htmlCh:
-		html = res.html
-		if res.err != nil {
-			scrapeErr = fmt.Errorf("get html: %w", res.err)
-		}
+	req, err := http.NewRequest("GET", apiURL, nil)
+	if err != nil {
+		return err
 	}
 
-	pg.RawHTML = html
+	for k, v := range sess.AsHeaders() {
+		req.Header.Set(k, v)
+	}
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("API request failed with status %d", resp.StatusCode)
+	}
+
+	var result struct {
+		ID    string `json:"id"`
+		Title string `json:"title"`
+		Body  struct {
+			Storage struct {
+				Value string `json:"value"`
+			} `json:"storage"`
+		} `json:"body"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return err
+	}
+
+	storageHTML := result.Body.Storage.Value
+	if storageHTML == "" {
+		return fmt.Errorf("empty storage body")
+	}
+
+	pg.RawHTML = storageHTML
 
 	if s.log.Enabled() {
-		s.log.Debugw("page content captured",
+		s.log.Debugw("page content captured via API",
 			"url", pg.URL,
-			"html_size", len(html))
+			"html_size", len(storageHTML))
 	}
 
-	cleanHTML, images, attachments, err := s.extractContent(html, pg.Title, baseURL)
+	// Process content (asset downloads etc still use the scraper's logic)
+	cleanHTML, images, attachments, err := s.extractContent(storageHTML, pg.Title, baseURL)
 	if err != nil {
-		return nil, fmt.Errorf("extract content: %w", err)
+		return fmt.Errorf("extract content: %w", err)
 	}
 
 	pg.CleanHTML = cleanHTML
 	pg.Images = images
 	pg.Attachments = attachments
 
+	// Save to disk and DB (shared logic with browser scraping)
+	return s.savePageMetadata(pg, spaceKey, spaceURL)
+}
+
+// savePageMetadata saves the scraped page to disk and database.
+func (s *Scraper) savePageMetadata(pg *Page, spaceKey, spaceURL string) error {
 	dir, err := s.storage.MakePageDir(spaceKey, pg.Title)
 	if err != nil {
-		return nil, fmt.Errorf("make page dir: %w", err)
+		return fmt.Errorf("make page dir: %w", err)
 	}
 	pg.FileDir = dir
 
-	if err := s.storage.SaveHTML(dir, cleanHTML); err != nil {
-		return nil, fmt.Errorf("save clean html: %w", err)
+	if err := s.storage.SaveHTML(dir, pg.CleanHTML); err != nil {
+		return fmt.Errorf("save clean html: %w", err)
 	}
 	pg.HTMLPath = dir + "/index.html"
 
-	if err := s.storage.SaveRawHTML(dir, html); err != nil {
+	if err := s.storage.SaveRawHTML(dir, pg.RawHTML); err != nil {
 		s.log.Warnw("save raw html failed",
 			"page_id", pg.ConfluenceID,
 			"title", pg.Title,
@@ -356,33 +378,33 @@ func (s *Scraper) scrapePageInternal(ctx context.Context, pg *Page, spaceKey, sp
 		Author:        "",
 		CreatedAt:     time.Now(),
 		UpdatedAt:     time.Now(),
-		Images:        images,
-		Attachments:   attachments,
+		Images:        pg.Images,
+		Attachments:   pg.Attachments,
 		SavedAt:       time.Now(),
 	}
 	if pg.ParentID != nil {
 		meta.ParentTitle = ""
 	}
 	if err := s.storage.SaveMetadata(dir, meta); err != nil {
-		return nil, fmt.Errorf("save metadata: %w", err)
+		return fmt.Errorf("save metadata: %w", err)
 	}
 	pg.MetadataPath = dir + "/metadata.json"
 
 	var space *db.Space
-	space, err = s.db.GetSpaceByKey(ctx, spaceKey)
+	space, err = s.db.GetSpaceByKey(context.Background(), spaceKey)
 	if err != nil {
 		s.log.Infow("space not found, auto-creating", "space_key", spaceKey)
-		spaceURL := spaceURL
-		if spaceURL == "" {
-			spaceURL = "https://example.atlassian.net/wiki/spaces/" + spaceKey
+		sURL := spaceURL
+		if sURL == "" {
+			sURL = "https://example.atlassian.net/wiki/spaces/" + spaceKey
 		}
-		spaceID, err := s.db.CreateSpace(context.Background(), spaceKey, spaceKey, spaceURL)
+		spaceID, err := s.db.CreateSpace(context.Background(), spaceKey, spaceKey, sURL)
 		if err != nil {
 			s.log.Warnw("failed to auto-create space, skipping db save",
 				"space_key", spaceKey, "error", err)
-			return nil, nil
+			return nil
 		}
-		space = &db.Space{ID: spaceID, Key: spaceKey, Name: spaceKey, URL: spaceURL}
+		space = &db.Space{ID: spaceID, Key: spaceKey, Name: spaceKey, URL: sURL}
 	}
 
 	var parentID *int
@@ -391,34 +413,62 @@ func (s *Scraper) scrapePageInternal(ctx context.Context, pg *Page, spaceKey, sp
 	}
 
 	dbPage := &db.Page{
-		SpaceID:              space.ID,
-		ConfluenceID:         pg.ConfluenceID,
-		Title:                pg.Title,
-		ParentConfluenceID:   parentID,
-		Content:              extractTextFromHTML(cleanHTML),
-		HTMLPath:             dir + "/index.html",
-		RawHTMLPath:          dir + "/raw.html",
-		MetadataPath:         dir + "/metadata.json",
-		FileDir:              dir,
+		SpaceID:            space.ID,
+		ConfluenceID:       pg.ConfluenceID,
+		Title:              pg.Title,
+		ParentConfluenceID: parentID,
+		Content:            extractTextFromHTML(pg.CleanHTML),
+		HTMLPath:           dir + "/index.html",
+		RawHTMLPath:        dir + "/raw.html",
+		MetadataPath:       dir + "/metadata.json",
+		FileDir:            dir,
 	}
 
-	if err := s.db.UpsertPage(ctx, dbPage); err != nil {
+	if err := s.db.UpsertPage(s.ctx, dbPage); err != nil {
 		s.log.Warnw("save page to db failed",
 			"page_id", pg.ConfluenceID,
 			"title", pg.Title,
 			"error", err)
 	}
 
-	if err := s.db.UpdateSpaceLastCrawled(ctx, spaceKey); err != nil {
+	if err := s.db.UpdateSpaceLastCrawled(s.ctx, spaceKey); err != nil {
 		s.log.Warnw("failed to update space last crawled",
 			"space_key", spaceKey,
 			"error", err)
 	}
 
-	// Discover child pages from the sidebar DOM for recursive crawling
-	if scrapeErr == nil {
-		return s.discoverChildPages(page, pg.ConfluenceID, spaceKey, spaceURL, discovered), nil
+	return nil
+}
+
+// ScrapePage scrapes a single page using a headless browser (legacy fallback).
+func (s *Scraper) ScrapePage(pg *Page, spaceKey, spaceURL string) error {
+	baseURL := extractConfluenceBaseURL(spaceURL)
+
+	page := s.browser.MustPage(pg.URL)
+	page = page.MustWaitStable().MustWaitLoad()
+	page.Timeout(30 * time.Second)
+
+	html, err := page.HTML()
+	if err != nil {
+		return fmt.Errorf("get html: %w", err)
 	}
 
-	return nil, scrapeErr
+	pg.RawHTML = html
+
+	if s.log.Enabled() {
+		s.log.Debugw("page content captured via browser",
+			"url", pg.URL,
+			"html_size", len(html))
+	}
+
+	cleanHTML, images, attachments, err := s.extractContent(html, pg.Title, baseURL)
+	if err != nil {
+		return fmt.Errorf("extract content: %w", err)
+	}
+
+	pg.CleanHTML = cleanHTML
+	pg.Images = images
+	pg.Attachments = attachments
+
+	return s.savePageMetadata(pg, spaceKey, spaceURL)
 }

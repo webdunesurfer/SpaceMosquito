@@ -2,14 +2,21 @@ package scraper
 
 import (
 	"fmt"
+	"net/url"
+	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/PuerkitoBio/goquery"
 	"github.com/vkh/spacemosquito/internal/storage"
 )
 
-
+const (
+	maxRetries = 3
+	retryDelay = 2 * time.Second
+	rateLimit  = 5 * time.Second
+)
 
 // extractContent parses raw HTML, strips chrome, rewrites URLs, and downloads assets.
 func (s *Scraper) extractContent(rawHTML, pageTitle, baseURL string) (string, []storage.AssetRef, []storage.AssetRef, error) {
@@ -126,7 +133,15 @@ func (s *Scraper) processImages(doc *goquery.Document, baseURL string) ([]storag
 			strings.Contains(src, "confluence-attachments") ||
 			strings.Contains(src, "/plugins/attachments") {
 
-			localPath, _ := s.downloadAsset(src, basePath, baseURL)
+			localPath, err := s.downloadAsset(src, basePath, baseURL)
+			if err != nil {
+				if s.log.Enabled() {
+					s.log.Warnw("failed to download image",
+						"url", src,
+						"error", err)
+				}
+				return
+			}
 
 			assets = append(assets, storage.AssetRef{
 				OriginalURL: src,
@@ -137,7 +152,7 @@ func (s *Scraper) processImages(doc *goquery.Document, baseURL string) ([]storag
 			img.SetAttr("src", localPath)
 
 			if s.log.Enabled() {
-				s.log.Debugw("image asset processed",
+				s.log.Debugw("image downloaded and rewritten",
 					"url", src,
 					"local", localPath)
 			}
@@ -157,7 +172,15 @@ func (s *Scraper) processAttachments(doc *goquery.Document, baseURL string) ([]s
 			return
 		}
 
-		localPath, _ := s.downloadAsset(href, basePath, baseURL)
+		localPath, err := s.downloadAsset(href, basePath, baseURL)
+		if err != nil {
+			if s.log.Enabled() {
+				s.log.Warnw("failed to download attachment",
+					"url", href,
+					"error", err)
+			}
+			return
+		}
 
 		assets = append(assets, storage.AssetRef{
 			OriginalURL: href,
@@ -167,7 +190,7 @@ func (s *Scraper) processAttachments(doc *goquery.Document, baseURL string) ([]s
 		link.SetAttr("href", localPath)
 
 		if s.log.Enabled() {
-			s.log.Debugw("attachment processed",
+			s.log.Debugw("attachment downloaded and rewritten",
 				"url", href,
 				"local", localPath)
 		}
@@ -177,10 +200,67 @@ func (s *Scraper) processAttachments(doc *goquery.Document, baseURL string) ([]s
 }
 
 func (s *Scraper) downloadAsset(rawURL, basePath, baseURL string) (string, error) {
-	// Asset downloading is temporarily disabled (HTTP 202 from Atlassian CDN)
-	// TODO: implement asset download via go-rod browser context for authenticated access
-	// For now, keep the original URL so images/attachments are accessible in a browser session
-	return rawURL, nil
+	// Rate limiting
+	time.Sleep(rateLimit)
+
+	// Resolve relative URLs to absolute
+	if strings.HasPrefix(rawURL, "/") && !strings.HasPrefix(rawURL, "//") && baseURL != "" {
+		rawURL = baseURL + rawURL
+	}
+
+	// Retry logic with exponential backoff
+	var lastErr error
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		if attempt > 0 {
+			retryDuration := time.Duration(attempt) * retryDelay
+			if s.log.Enabled() {
+				s.log.Warnw("retrying asset download",
+					"url", rawURL,
+					"attempt", attempt+1,
+					"max_retries", maxRetries,
+					"retry_delay_ms", retryDuration.Milliseconds())
+			}
+			time.Sleep(retryDuration)
+		}
+
+		// Determine destination dir
+		destDir := filepath.Join("assets", "images")
+		if strings.Contains(rawURL, "/download/attachments/") {
+			destDir = filepath.Join("assets", "attachments")
+		}
+
+		// Use the asset downloader to get the local path
+		localFile, err := s.assets.Download(destDir, rawURL)
+		if err != nil {
+			lastErr = err
+			if s.log.Enabled() {
+				s.log.Warnw("asset download attempt failed",
+					"url", rawURL,
+					"attempt", attempt+1,
+					"error", err)
+			}
+			continue
+		}
+
+		// Build the local path reference for HTML rewriting
+		filename := filepath.Base(localFile)
+		localPath := filepath.Join(basePath, filename)
+
+		// Update stats
+		if strings.Contains(rawURL, "/download/attachments/") {
+			s.mu.Lock()
+			s.stats.AttachmentsDownloaded++
+			s.mu.Unlock()
+		} else {
+			s.mu.Lock()
+			s.stats.ImagesDownloaded++
+			s.mu.Unlock()
+		}
+
+		return localPath, nil
+	}
+
+	return "", fmt.Errorf("failed to download asset after %d retries: %w", maxRetries, lastErr)
 }
 
 func (s *Scraper) rewriteInternalLinks(doc *goquery.Document) {
@@ -211,35 +291,17 @@ func (s *Scraper) cleanupEmptyElements(doc *goquery.Document) {
 	doc.Find("div:empty, span:empty").Remove()
 }
 
-func extractConfluenceBaseURL(url string) string {
-	if url == "" {
+func extractConfluenceBaseURL(urlStr string) string {
+	if urlStr == "" {
 		return ""
 	}
 
-	url = strings.TrimRight(url, "/")
-
-	if strings.Contains(url, "atlassian.net/wiki/") {
-		parts := strings.Split(url, "/wiki/")
-		if len(parts) > 0 {
-			return parts[0]
-		}
+	u, err := url.Parse(urlStr)
+	if err != nil {
+		return ""
 	}
 
-	if strings.Contains(url, "/wiki/") {
-		parts := strings.Split(url, "/wiki/")
-		if len(parts) > 0 {
-			return parts[0]
-		}
-	}
-
-	if strings.Contains(url, "/confluence/") {
-		parts := strings.Split(url, "/confluence/")
-		if len(parts) > 0 {
-			return parts[0]
-		}
-	}
-
-	return url
+	return fmt.Sprintf("%s://%s", u.Scheme, u.Host)
 }
 
 // extractTextFromHTML extracts plain text from cleaned HTML for embedding.

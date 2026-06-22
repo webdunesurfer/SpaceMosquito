@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"regexp"
 	"strings"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/PuerkitoBio/goquery"
 	"github.com/go-rod/rod"
+	"github.com/vkh/spacemosquito/internal/session"
 )
 
 // SpaceInfo holds discovered metadata about a Confluence space.
@@ -21,8 +23,139 @@ type SpaceInfo struct {
 	Pages     []*Page
 }
 
-// discoverSpace navigates to the space root and discovers all pages via sidebar parsing.
-func (s *Scraper) discoverSpace(spaceURL string) (*SpaceInfo, error) {
+// discoverSpace attempts API discovery first, falls back to sidebar parsing if needed.
+func (s *Scraper) discoverSpace(spaceURL string, sess *session.Session) (*SpaceInfo, error) {
+	// Try API discovery first
+	info, err := s.discoverSpaceAPI(spaceURL, sess)
+	if err == nil && len(info.Pages) > 0 {
+		if s.log.Enabled() {
+			s.log.Infow("API discovery successful", "space_key", info.SpaceKey, "pages", len(info.Pages))
+		}
+		return info, nil
+	}
+
+	if s.log.Enabled() {
+		s.log.Warnw("API space discovery failed, FALLING BACK to browser scraping", 
+			"space_url", spaceURL, 
+			"error", err)
+	}
+
+	if s.browser == nil {
+		if err := s.LaunchBrowser(); err != nil {
+			return nil, fmt.Errorf("failed to launch browser for fallback: %w", err)
+		}
+		if err := s.SetupContextWithSession(sess); err != nil {
+			return nil, fmt.Errorf("failed to setup browser context: %w", err)
+		}
+	}
+
+	return s.discoverSpaceWeb(spaceURL)
+}
+
+func (s *Scraper) discoverSpaceAPI(spaceURL string, sess *session.Session) (*SpaceInfo, error) {
+	spaceKey := session.GetSpaceKeyFromURL(spaceURL)
+	if spaceKey == "" {
+		return nil, fmt.Errorf("could not extract space key from %s", spaceURL)
+	}
+
+	rootURL := extractConfluenceBaseURL(spaceURL)
+	headers := sess.AsHeaders()
+
+	pages, err := s.fetchPageListAPI(rootURL, spaceKey, headers, sess.Flavor)
+	if err != nil {
+		return nil, err
+	}
+
+	return &SpaceInfo{
+		SpaceKey:  spaceKey,
+		SpaceName: spaceKey, // API doesn't easily give space name without another call
+		SpaceURL:  spaceURL,
+		Pages:     pages,
+	}, nil
+}
+
+func (s *Scraper) fetchPageListAPI(rootURL, spaceKey string, headers map[string]string, flavor session.SessionFlavor) ([]*Page, error) {
+	var allPages []*Page
+	limit := 50
+	start := 0
+
+	for {
+		var apiURL string
+		if flavor == session.FlavorCloud {
+			// Cloud V1 API
+			apiURL = fmt.Sprintf("%s/wiki/rest/api/space/%s/content/page?limit=%d&start=%d", rootURL, spaceKey, limit, start)
+		} else {
+			// Server/DC API
+			apiURL = fmt.Sprintf("%s/rest/api/content?spaceKey=%s&type=page&limit=%d&start=%d", rootURL, spaceKey, limit, start)
+		}
+
+		req, err := http.NewRequest("GET", apiURL, nil)
+		if err != nil {
+			return nil, err
+		}
+
+		for k, v := range headers {
+			req.Header.Set(k, v)
+		}
+
+		client := &http.Client{Timeout: 30 * time.Second}
+		resp, err := client.Do(req)
+		if err != nil {
+			return nil, err
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			return nil, fmt.Errorf("API request failed with status %d", resp.StatusCode)
+		}
+
+		var result struct {
+			Results []struct {
+				ID     string `json:"id"`
+				Title  string `json:"title"`
+				Links struct {
+					Self  string `json:"self"`
+					Webui string `json:"webui"`
+				} `json:"_links"`
+			} `json:"results"`
+			Size int `json:"size"`
+		}
+
+		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+			return nil, err
+		}
+
+		if len(result.Results) == 0 {
+			break
+		}
+
+		for _, r := range result.Results {
+			var id int
+			fmt.Sscanf(r.ID, "%d", &id)
+
+			url := r.Links.Webui
+			if !strings.HasPrefix(url, "http") {
+				url = rootURL + url
+			}
+
+			allPages = append(allPages, &Page{
+				ConfluenceID: id,
+				Title:        r.Title,
+				URL:          url,
+			})
+		}
+
+		if len(result.Results) < limit {
+			break
+		}
+		start += len(result.Results)
+	}
+
+	return allPages, nil
+}
+
+// discoverSpaceWeb navigates to the space root and discovers all pages via sidebar parsing.
+func (s *Scraper) discoverSpaceWeb(spaceURL string) (*SpaceInfo, error) {
 	if s.log.Enabled() {
 		s.log.Infow("navigating to space", "url", spaceURL)
 	}

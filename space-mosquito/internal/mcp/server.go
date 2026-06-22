@@ -4,15 +4,16 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/vkh/spacemosquito/internal/config"
 	"github.com/vkh/spacemosquito/internal/db"
 	"github.com/vkh/spacemosquito/internal/session"
 	"github.com/vkh/spacemosquito/pkg/logging"
-	"github.com/google/uuid"
 )
 
 type Server struct {
@@ -23,15 +24,13 @@ type Server struct {
 	sessions   map[string]*ClientSession
 	mu         sync.RWMutex
 	sessionTTL time.Duration
-	server     *http.Server
 }
 
 type ClientSession struct {
 	ID        string
 	CreatedAt time.Time
 	LastUsed  time.Time
-	Writer    http.ResponseWriter
-	Flusher   http.Flusher
+	SendChan  chan []byte
 	Done      chan struct{}
 }
 
@@ -46,7 +45,7 @@ type MCPResponse struct {
 	JSONRPC string      `json:"jsonrpc"`
 	Result  interface{} `json:"result,omitempty"`
 	Error   *MCPError   `json:"error,omitempty"`
-	ID      interface{} `json:"id,omitempty"`
+	ID      interface{}     `json:"id,omitempty"`
 }
 
 type MCPError struct {
@@ -56,10 +55,12 @@ type MCPError struct {
 }
 
 type Tool struct {
-	Name        string           `json:"name"`
-	Description string           `json:"description"`
-	InputSchema json.RawMessage  `json:"inputSchema"`
+	Name        string          `json:"name"`
+	Description string          `json:"description"`
+	InputSchema json.RawMessage `json:"inputSchema"`
 }
+
+var ServerInstance *Server
 
 func New(db *db.DB, store *session.Store, cfg *config.Config, log logging.Sugar) *Server {
 	sessionTTL := time.Duration(cfg.MCP.Timeout) * time.Second
@@ -82,19 +83,6 @@ func New(db *db.DB, store *session.Store, cfg *config.Config, log logging.Sugar)
 	return server
 }
 
-func (s *Server) HandleRequest(w http.ResponseWriter, r *http.Request) {
-	switch r.Method {
-	case http.MethodPost:
-		s.handleSessionInit(w, r)
-	default:
-		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
-	}
-}
-
-func (s *Server) HandleSessionRequest(w http.ResponseWriter, r *http.Request, sessionID string) {
-	s.handleSessionRequest(w, r, sessionID)
-}
-
 func (s *Server) cleanupSessions() {
 	ticker := time.NewTicker(5 * time.Minute)
 	defer ticker.Stop()
@@ -107,7 +95,7 @@ func (s *Server) cleanupSessions() {
 				close(session.Done)
 				delete(s.sessions, id)
 				if s.log.Enabled() {
-					s.log.Infow("session cleaned up", "session_id", id, "age_minutes", now.Sub(session.CreatedAt).Minutes())
+					s.log.Infow("session cleaned up", "session_id", id)
 				}
 			}
 		}
@@ -115,25 +103,19 @@ func (s *Server) cleanupSessions() {
 	}
 }
 
-var ServerInstance *Server
-
-func (s *Server) handleSessionInit(w http.ResponseWriter, r *http.Request) {
-	var req MCPRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request"})
+func (s *Server) HandleRequest(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 		return
 	}
 
-	if req.Method != "initialize" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "expected initialize method"})
-		return
-	}
-
+	// 1. Establish SSE Connection (Standard MCP)
 	sessionID := uuid.New().String()
 	session := &ClientSession{
 		ID:        sessionID,
 		CreatedAt: time.Now(),
 		LastUsed:  time.Now(),
+		SendChan:  make(chan []byte, 50),
 		Done:      make(chan struct{}),
 	}
 
@@ -142,23 +124,55 @@ func (s *Server) handleSessionInit(w http.ResponseWriter, r *http.Request) {
 	s.mu.Unlock()
 
 	if s.log.Enabled() {
-		s.log.Infow("MCP session created", "session_id", sessionID)
+		s.log.Infow("MCP SSE connection established", "session_id", sessionID)
 	}
 
-	response := &MCPResponse{
-		JSONRPC: "2.0",
-		Result: map[string]interface{}{
-			"session_id": sessionID,
-			"server":     "SpaceMosquito MCP",
-			"version":    "1.0.0",
-		},
-		ID: req.ID,
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
+		return
 	}
 
-	writeJSON(w, http.StatusOK, response)
+	// 2. Emit the endpoint event so the client knows where to POST messages
+	endpointURL := fmt.Sprintf("/mcp/session/%s", sessionID)
+
+	fmt.Fprintf(w, "event: endpoint\ndata: %s\n\n", endpointURL)
+	flusher.Flush()
+
+	// 3. Keep connection alive and forward messages
+	ticker := time.NewTicker(15 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-session.Done:
+			return
+		case <-r.Context().Done():
+			s.mu.Lock()
+			delete(s.sessions, sessionID)
+			s.mu.Unlock()
+			return
+		case msg := <-session.SendChan:
+			fmt.Fprintf(w, "event: message\ndata: %s\n\n", string(msg))
+			flusher.Flush()
+		case <-ticker.C:
+			fmt.Fprintf(w, ": heartbeat\n\n")
+			flusher.Flush()
+		}
+	}
 }
 
-func (s *Server) handleSessionRequest(w http.ResponseWriter, r *http.Request, sessionID string) {
+func (s *Server) HandleSessionRequest(w http.ResponseWriter, r *http.Request, sessionID string) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "POST required"})
+		return
+	}
+
 	s.mu.RLock()
 	session, exists := s.sessions[sessionID]
 	s.mu.RUnlock()
@@ -170,74 +184,45 @@ func (s *Server) handleSessionRequest(w http.ResponseWriter, r *http.Request, se
 
 	session.LastUsed = time.Now()
 
-	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("X-Session-ID", sessionID)
-
-	flusher, _ := w.(http.Flusher)
-
-	session.Writer = w
-	session.Flusher = flusher
-
-	s.log.Infow("MCP session request", "session_id", sessionID, "method", r.Method)
-
-	switch r.Method {
-	case http.MethodGet:
-		s.handleSessionStream(w, r, session)
-	case http.MethodPost:
-		s.handleSessionMessage(w, r, session)
-	default:
-		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+	// MCP Spec: HTTP POST must return 202 Accepted immediately
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "failed to read body"})
+		return
 	}
+	defer r.Body.Close()
+
+	w.WriteHeader(http.StatusAccepted)
+
+	// Process asynchronously and send response via SSE channel
+	go s.processMessage(session, body)
 }
 
-func (s *Server) handleSessionStream(w http.ResponseWriter, r *http.Request, session *ClientSession) {
-	// SSE stream for real-time notifications
-	s.log.Debugw("SSE stream started", "session_id", session.ID)
-
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-
-	flusher := w.(http.Flusher)
-
-	ticker := time.NewTicker(30 * time.Second)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-session.Done:
-			s.log.Debugw("SSE stream closed by client", "session_id", session.ID)
-			return
-		case <-r.Context().Done():
-			s.log.Debugw("SSE stream closed by server", "session_id", session.ID)
-			return
-		case <-ticker.C:
-			event := map[string]string{
-				"event": "heartbeat",
-				"data":  `{"status":"ok"}`,
-			}
-			data, _ := json.Marshal(event)
-			fmt.Fprintf(w, "data: %s\n\n", data)
-			flusher.Flush()
-		}
-	}
-}
-
-func (s *Server) handleSessionMessage(w http.ResponseWriter, r *http.Request, session *ClientSession) {
+func (s *Server) processMessage(session *ClientSession, body []byte) {
 	var req MCPRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := json.Unmarshal(body, &req); err != nil {
 		s.sendError(session, req.ID, -32700, "parse error", "invalid JSON")
 		return
 	}
 
 	if s.log.Enabled() {
-		s.log.Infow("MCP request",
-			"session_id", session.ID,
-			"method", req.Method,
-			"id", req.ID)
+		s.log.Infow("MCP request received", "session_id", session.ID, "method", req.Method)
 	}
 
 	switch req.Method {
+	case "initialize":
+		s.sendResponse(session, req.ID, map[string]interface{}{
+			"protocolVersion": "2024-11-05",
+			"capabilities": map[string]interface{}{
+				"tools": map[string]interface{}{},
+			},
+			"serverInfo": map[string]interface{}{
+				"name":    "SpaceMosquito",
+				"version": "1.0.0",
+			},
+		})
+	case "notifications/initialized":
+		// Just an ack from client, no response needed
 	case "tools/list":
 		s.handleToolsList(session, req.ID)
 	case "tools/call":
@@ -259,8 +244,7 @@ func (s *Server) handleToolsList(session *ClientSession, id interface{}) {
 				"properties": {
 					"query": {"type": "string", "description": "Search query"},
 					"space": {"type": "string", "description": "Optional space key to filter"},
-					"limit": {"type": "integer", "description": "Max results (default 10)"},
-					"min_score": {"type": "number", "description": "Minimum similarity score (0-1)"}
+					"limit": {"type": "integer", "description": "Max results (default 10)"}
 				},
 				"required": ["query"]
 			}`),
@@ -303,10 +287,6 @@ func (s *Server) handleToolsList(session *ClientSession, id interface{}) {
 	s.sendResponse(session, id, map[string]interface{}{
 		"tools": tools,
 	})
-
-	if s.log.Enabled() {
-		s.log.Infow("tools list sent", "session_id", session.ID, "tool_count", len(tools))
-	}
 }
 
 func (s *Server) handleToolsCall(session *ClientSession, params json.RawMessage, id interface{}) {
@@ -316,9 +296,9 @@ func (s *Server) handleToolsCall(session *ClientSession, params json.RawMessage,
 		return
 	}
 
-	toolName, ok := callParams["tool_name"].(string)
+	toolName, ok := callParams["name"].(string)
 	if !ok {
-		s.sendError(session, id, -32602, "invalid params", "tool_name is required")
+		s.sendError(session, id, -32602, "invalid params", "tool name is required")
 		return
 	}
 
@@ -346,7 +326,6 @@ func (s *Server) handleToolsCall(session *ClientSession, params json.RawMessage,
 	}
 
 	duration := time.Since(start)
-
 	if s.log.Enabled() {
 		s.log.Infow("tool executed",
 			"session_id", session.ID,
@@ -356,13 +335,20 @@ func (s *Server) handleToolsCall(session *ClientSession, params json.RawMessage,
 	}
 
 	if err != nil {
-		s.sendError(session, id, -32000, "tool error", err.Error())
+		s.sendResponse(session, id, map[string]interface{}{
+			"content": []map[string]interface{}{
+				{"type": "text", "text": fmt.Sprintf("Error: %v", err)},
+			},
+			"isError": true,
+		})
 		return
 	}
 
+	// Format result specifically for MCP standard
+	resultStr, _ := json.MarshalIndent(result, "", "  ")
 	s.sendResponse(session, id, map[string]interface{}{
-		"content": []map[string]string{
-			{"type": "text", "text": fmt.Sprintf("%v", result)},
+		"content": []map[string]interface{}{
+			{"type": "text", "text": string(resultStr)},
 		},
 	})
 }
@@ -383,21 +369,14 @@ func (s *Server) toolSearch(args map[string]interface{}) (interface{}, error) {
 	if err != nil {
 		return nil, fmt.Errorf("search failed: %w", err)
 	}
-
 	if results == nil {
 		results = []db.SearchResult{}
 	}
-
 	return results, nil
 }
 
 func (s *Server) toolListSpaces() (interface{}, error) {
-	spaces, err := s.db.ListSpaces(context.Background())
-	if err != nil {
-		return nil, fmt.Errorf("list spaces failed: %w", err)
-	}
-
-	return spaces, nil
+	return s.db.ListSpaces(context.Background())
 }
 
 func (s *Server) toolListSpace(args map[string]interface{}) (interface{}, error) {
@@ -405,18 +384,11 @@ func (s *Server) toolListSpace(args map[string]interface{}) (interface{}, error)
 	if !ok || spaceKey == "" {
 		return nil, fmt.Errorf("space_key is required")
 	}
-
 	limit := 50
 	if l, ok := args["limit"].(float64); ok {
 		limit = int(l)
 	}
-
-	pages, err := s.db.ListPages(context.Background(), spaceKey, limit)
-	if err != nil {
-		return nil, fmt.Errorf("list pages failed: %w", err)
-	}
-
-	return pages, nil
+	return s.db.ListPages(context.Background(), spaceKey, limit)
 }
 
 func (s *Server) toolGetPage(args map[string]interface{}) (interface{}, error) {
@@ -424,18 +396,11 @@ func (s *Server) toolGetPage(args map[string]interface{}) (interface{}, error) {
 	if !ok || spaceKey == "" {
 		return nil, fmt.Errorf("space_key is required")
 	}
-
 	pageIDFloat, ok := args["page_id"].(float64)
 	if !ok {
 		return nil, fmt.Errorf("page_id is required")
 	}
-
-	page, err := s.db.GetPage(context.Background(), spaceKey, int(pageIDFloat))
-	if err != nil {
-		return nil, fmt.Errorf("get page failed: %w", err)
-	}
-
-	return page, nil
+	return s.db.GetPage(context.Background(), spaceKey, int(pageIDFloat))
 }
 
 func (s *Server) sendResponse(session *ClientSession, id interface{}, result interface{}) {
@@ -444,17 +409,8 @@ func (s *Server) sendResponse(session *ClientSession, id interface{}, result int
 		Result:  result,
 		ID:      id,
 	}
-
-	data, err := json.Marshal(response)
-	if err != nil {
-		s.log.Errorw("failed to marshal response", "error", err)
-		return
-	}
-
-	fmt.Fprintf(session.Writer, "data: %s\n\n", string(data))
-	if session.Flusher != nil {
-		session.Flusher.Flush()
-	}
+	data, _ := json.Marshal(response)
+	session.SendChan <- data
 }
 
 func (s *Server) sendError(session *ClientSession, id interface{}, code int, message, data string) {
@@ -465,14 +421,10 @@ func (s *Server) sendError(session *ClientSession, id interface{}, code int, mes
 			Message: message,
 			Data:    data,
 		},
-		ID: id,
+		ID:      id,
 	}
-
 	dataJSON, _ := json.Marshal(response)
-	fmt.Fprintf(session.Writer, "data: %s\n\n", string(dataJSON))
-	if session.Flusher != nil {
-		session.Flusher.Flush()
-	}
+	session.SendChan <- dataJSON
 }
 
 func writeJSON(w http.ResponseWriter, status int, data interface{}) {

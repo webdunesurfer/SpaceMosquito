@@ -395,13 +395,32 @@ func (s *Scheduler) runIncremental(ctx context.Context, jobID, spaceKey, spaceUR
 			Level:        0,
 		}
 
-		if _, err := scr.ScrapePage(pg, spaceKey, spaceURL, nil); err != nil {
-			s.log.Warnw("failed to scrape page",
-				"job_id", jobID,
-				"page_id", page.ConfluenceID,
-				"title", page.Title,
-				"error", err)
-			continue
+		// Try API scraping first
+		err := scr.ScrapePageAPI(pg, spaceKey, spaceURL, sess)
+		if err != nil {
+			s.log.Warnw("API page scrape failed, falling back to browser", 
+				"job_id", jobID, "page_id", page.ConfluenceID, "error", err)
+
+			// Fallback to browser
+			if scr.Browser() == nil {
+				if err := scr.LaunchBrowser(); err != nil {
+					s.log.Errorw("failed to launch browser for fallback", "error", err)
+					continue
+				}
+				if err := scr.SetupContextWithSession(sess); err != nil {
+					s.log.Errorw("failed to setup browser context", "error", err)
+					continue
+				}
+			}
+
+			if err := scr.ScrapePage(pg, spaceKey, spaceURL); err != nil {
+				s.log.Warnw("browser page scrape failed",
+					"job_id", jobID,
+					"page_id", page.ConfluenceID,
+					"title", page.Title,
+					"error", err)
+				continue
+			}
 		}
 
 		changed++

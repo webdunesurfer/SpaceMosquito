@@ -67,6 +67,12 @@ func (rw *responseWriter) WriteHeader(status int) {
 	rw.ResponseWriter.WriteHeader(status)
 }
 
+func (rw *responseWriter) Flush() {
+	if f, ok := rw.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
 type createSessionRequest struct {
 	ConfluenceURL string           `json:"confluence_url"`
 	Cookies       []session.Cookie `json:"cookies"`

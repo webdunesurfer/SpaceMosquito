@@ -241,11 +241,6 @@ func (r *CrawlRunner) Run(ctx context.Context, job *CrawlJob) error {
 		r.log,
 	)
 
-	if err := scraper.LaunchBrowser(); err != nil {
-		return fmt.Errorf("launch browser: %w", err)
-	}
-	defer scraper.CloseBrowser()
-
 	// Load session
 	encKey := r.manager.cfg.Session.EncryptionKey
 	if encKey == "" {
@@ -257,21 +252,12 @@ func (r *CrawlRunner) Run(ctx context.Context, job *CrawlJob) error {
 		return fmt.Errorf("load session: %w", err)
 	}
 
-	if err := scraper.SetupContextWithSession(sess); err != nil {
-		return fmt.Errorf("setup session: %w", err)
-	}
-
 	// Discover and crawl
-	pageInfo, err := scraper.discoverSpace(job.SpaceURL)
+	pageInfo, err := scraper.discoverSpace(job.SpaceURL, sess)
 	if err != nil {
 		return fmt.Errorf("discover space: %w", err)
 	}
 
-	// Build discovered set from space root pages
-	discovered := make(map[int]bool)
-	for _, pg := range pageInfo.Pages {
-		discovered[pg.ConfluenceID] = true
-	}
 	job.TotalPages = len(pageInfo.Pages)
 	now := time.Now()
 	job.UpdatedAt = now
@@ -280,6 +266,7 @@ func (r *CrawlRunner) Run(ctx context.Context, job *CrawlJob) error {
 			"job_id", job.ID,
 			"total_pages", job.TotalPages)
 	}
+
 	for i := 0; i < len(pageInfo.Pages); i++ {
 		select {
 		case <-ctx.Done():
@@ -288,31 +275,42 @@ func (r *CrawlRunner) Run(ctx context.Context, job *CrawlJob) error {
 		}
 
 		pg := pageInfo.Pages[i]
-		newChildren, scrapeErr := scraper.ScrapePage(pg, pageInfo.SpaceKey, pageInfo.SpaceURL, discovered)
-		if scrapeErr != nil {
-			r.manager.mu.Lock()
-			job.Failed++
-			r.manager.mu.Unlock()
+		
+		// Try API scraping first
+		err := scraper.ScrapePageAPI(pg, pageInfo.SpaceKey, pageInfo.SpaceURL, sess)
+		if err != nil {
 			if r.log.Enabled() {
-				r.log.Errorw("page scrape failed",
-					"job_id", job.ID,
-					"page_id", pg.ConfluenceID,
-					"error", scrapeErr)
+				r.log.Warnw("API page scrape failed, falling back to browser", 
+					"job_id", job.ID, "page_id", pg.ConfluenceID, "error", err)
 			}
-			continue
-		}
-		if len(newChildren) > 0 {
-			pageInfo.Pages = append(pageInfo.Pages, newChildren...)
-			job.TotalPages = len(pageInfo.Pages)
-			r.manager.mu.Lock()
-			job.UpdatedAt = time.Now()
-			r.manager.mu.Unlock()
-			if r.log.Enabled() {
-				r.log.Infow("discovered child pages",
-					"job_id", job.ID,
-					"parent", pg.Title,
-					"new_children", len(newChildren),
-					"new_total", job.TotalPages)
+			
+			// Fallback to browser
+			if scraper.browser == nil {
+				if err := scraper.LaunchBrowser(); err != nil {
+					r.manager.mu.Lock()
+					job.Failed++
+					r.manager.mu.Unlock()
+					continue
+				}
+				if err := scraper.SetupContextWithSession(sess); err != nil {
+					r.manager.mu.Lock()
+					job.Failed++
+					r.manager.mu.Unlock()
+					continue
+				}
+			}
+			
+			if err := scraper.ScrapePage(pg, pageInfo.SpaceKey, pageInfo.SpaceURL); err != nil {
+				r.manager.mu.Lock()
+				job.Failed++
+				r.manager.mu.Unlock()
+				if r.log.Enabled() {
+					r.log.Errorw("browser page scrape failed",
+						"job_id", job.ID,
+						"page_id", pg.ConfluenceID,
+						"error", err)
+				}
+				continue
 			}
 		}
 

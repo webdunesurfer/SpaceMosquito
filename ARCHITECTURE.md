@@ -29,8 +29,7 @@ SpaceMosquito is a Confluence space scraper, indexer, and search engine with aut
 │  ┌──────────────────────┐    ┌───────────────────────────────┐  │
 │  │   app (Go Backend)   │    │     PostgreSQL + pgvector     │  │
 │  │                      │    │                               │  │
-│  │  HTTP API  :8080     │    │  ┌──────────┐  ┌──────────┐  │  │
-│  │  MCP/SSE :8081       │◄───┤  │  spaces  │  │  pages   │  │  │
+│  │  HTTP API/MCP :8081  │◄───┤  │  spaces  │  │  pages   │  │  │
 │  │                      │    │  │          │  │  +fts     │  │  │
 │  │  Cron Scheduler      │    │  │  crawl   │  │          │  │  │
 │  │  Headless Scraper    │    │  │  jobs    │  │          │  │  │
@@ -51,8 +50,7 @@ SpaceMosquito is a Confluence space scraper, indexer, and search engine with aut
 
 ### `cmd/server/main.go` — HTTP API + MCP Server
 
-- Starts the HTTP API server on port 8080
-- Starts the MCP (SSE) server on port 8081
+- Starts the unified server on port **8081** (API, Search, and MCP SSE)
 - Initializes the cron scheduler
 - Initializes the headless scraper (go-rod)
 - Loads session from encrypted file
@@ -267,7 +265,7 @@ Key details:
 ### Firefox Extension
 
 - Runs on host (not in Docker)
-- Communicates with Docker backend via `http://localhost:8080`
+- Communicates with Docker backend via `http://localhost:8081`
 - Loaded as temporary add-on via `about:debugging`
 - Built via webpack → `firefox-extension/dist/`
 
