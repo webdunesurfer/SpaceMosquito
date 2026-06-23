@@ -240,6 +240,9 @@ func (r *CrawlRunner) Run(ctx context.Context, job *CrawlJob) error {
 		r.manager.assets,
 		r.log,
 	)
+	
+	// Initialize context for the scraper to prevent nil pointer dereferences in DB calls
+	scraper.ctx = ctx
 
 	// Load session
 	encKey := r.manager.cfg.Session.EncryptionKey
@@ -275,6 +278,24 @@ func (r *CrawlRunner) Run(ctx context.Context, job *CrawlJob) error {
 		}
 
 		pg := pageInfo.Pages[i]
+
+		// Check if page needs scraping (Incremental logic)
+		if pg.Version > 0 {
+			existingPage, err := scraper.db.GetPage(ctx, pageInfo.SpaceKey, pg.ConfluenceID)
+			if err == nil && existingPage.Version >= pg.Version {
+				if r.log.Enabled() {
+					r.log.Infow("skipping unchanged page", "job_id", job.ID, "page_id", pg.ConfluenceID, "version", pg.Version)
+				}
+				r.manager.mu.Lock()
+				job.Completed++
+				if job.TotalPages > 0 {
+					job.Progress = int(float64(job.Completed) / float64(job.TotalPages) * 100)
+				}
+				job.UpdatedAt = time.Now()
+				r.manager.mu.Unlock()
+				continue
+			}
+		}
 		
 		// Try API scraping first
 		err := scraper.ScrapePageAPI(pg, pageInfo.SpaceKey, pageInfo.SpaceURL, sess)

@@ -1,0 +1,1 @@
+ALTER TABLE pages ADD COLUMN version INT DEFAULT 0;

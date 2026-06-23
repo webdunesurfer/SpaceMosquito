@@ -21,26 +21,28 @@ import (
 
 // Page represents a discovered Confluence page in the tree.
 type Page struct {
-	ConfluenceID       int              `json:"confluence_id"`
-	Title              string           `json:"title"`
-	URL                string           `json:"url"`
-	ParentID           *int             `json:"parent_id,omitempty"`
-	Level              int              `json:"level"`
-	Content            string           `json:"content,omitempty"`
-	CleanHTML          string           `json:"clean_html,omitempty"`
-	RawHTML            string           `json:"raw_html,omitempty"`
-	Images             []storage.AssetRef
-	Attachments        []storage.AssetRef
-	FileDir            string           `json:"file_dir,omitempty"`
-	HTMLPath           string           `json:"html_path,omitempty"`
-	RawHTMLPath        string           `json:"raw_html_path,omitempty"`
-	MetadataPath       string           `json:"metadata_path,omitempty"`
+	ConfluenceID int    `json:"confluence_id"`
+	Version      int    `json:"version"`
+	Title        string `json:"title"`
+	URL          string `json:"url"`
+	ParentID     *int   `json:"parent_id,omitempty"`
+	Level        int    `json:"level"`
+	Content      string `json:"content,omitempty"`
+	CleanHTML    string `json:"clean_html,omitempty"`
+	RawHTML      string `json:"raw_html,omitempty"`
+	Images       []storage.AssetRef
+	Attachments  []storage.AssetRef
+	FileDir      string `json:"file_dir,omitempty"`
+	HTMLPath     string `json:"html_path,omitempty"`
+	RawHTMLPath  string `json:"raw_html_path,omitempty"`
+	MetadataPath string `json:"metadata_path,omitempty"`
 }
 
 // CrawlStats tracks crawl progress.
 type CrawlStats struct {
 	TotalPages            int
 	SkippedPages          int
+	SkippedUnchanged      int
 	FailedPages           int
 	ImagesDownloaded      int
 	AttachmentsDownloaded int
@@ -217,13 +219,29 @@ func (s *Scraper) CrawlSpace(spaceURL string, sess *session.Session) error {
 			"page_index", i+1,
 			"page_total", len(pageInfo.Pages),
 			"page_id", pg.ConfluenceID,
+			"version", pg.Version,
 			"title", pg.Title)
+
+		// Check if page needs scraping
+		if pg.Version > 0 {
+			existingPage, err := s.db.GetPage(s.ctx, pageInfo.SpaceKey, pg.ConfluenceID)
+			if err == nil && existingPage.Version >= pg.Version {
+				if s.log.Enabled() {
+					s.log.Infow("skipping unchanged page", "page_id", pg.ConfluenceID, "version", pg.Version)
+				}
+				s.mu.Lock()
+				s.stats.SkippedUnchanged++
+				s.stats.TotalPages++ // Count as processed
+				s.mu.Unlock()
+				continue
+			}
+		}
 
 		// Try API scraping first
 		err := s.ScrapePageAPI(pg, pageInfo.SpaceKey, pageInfo.SpaceURL, sess)
 		if err != nil {
 			if s.log.Enabled() {
-				s.log.Warnw("API page content extraction failed, FALLING BACK to browser", 
+				s.log.Warnw("API page content extraction failed, FALLING BACK to browser",
 					"page_id", pg.ConfluenceID, "title", pg.Title, "error", err)
 			}
 
@@ -269,11 +287,25 @@ func (s *Scraper) CrawlSpace(spaceURL string, sess *session.Session) error {
 			"space_key", pageInfo.SpaceKey,
 			"pages_crawled", s.stats.TotalPages,
 			"pages_skipped", s.stats.SkippedPages,
+			"pages_skipped_unchanged", s.stats.SkippedUnchanged,
 			"pages_failed", s.stats.FailedPages,
 			"images_downloaded", s.stats.ImagesDownloaded,
 			"attachments_downloaded", s.stats.AttachmentsDownloaded,
 			"duration", duration.Round(time.Millisecond))
 	}
+
+	// Stale page sweep logic (Disabled for now, implement later as a manual action)
+	/*
+		if s.log.Enabled() {
+			s.log.Infow("sweeping stale pages deleted from Confluence", "space_key", pageInfo.SpaceKey)
+		}
+		deletedCount, err := s.db.DeleteStalePages(s.ctx, spaceID, crawlStart)
+		if err != nil {
+			s.log.Warnw("failed to sweep stale pages", "space_key", pageInfo.SpaceKey, "error", err)
+		} else if deletedCount > 0 && s.log.Enabled() {
+			s.log.Infow("stale pages swept", "space_key", pageInfo.SpaceKey, "deleted_count", deletedCount)
+		}
+	*/
 
 	return nil
 }
@@ -281,7 +313,7 @@ func (s *Scraper) CrawlSpace(spaceURL string, sess *session.Session) error {
 // ScrapePageAPI fetches page content using the REST API.
 func (s *Scraper) ScrapePageAPI(pg *Page, spaceKey, spaceURL string, sess *session.Session) error {
 	baseURL := extractConfluenceBaseURL(spaceURL)
-	
+
 	var apiURL string
 	if sess.Flavor == session.FlavorCloud {
 		apiURL = fmt.Sprintf("%s/wiki/rest/api/content/%d?expand=body.storage,version,ancestors", baseURL, pg.ConfluenceID)
@@ -415,6 +447,7 @@ func (s *Scraper) savePageMetadata(pg *Page, spaceKey, spaceURL string) error {
 	dbPage := &db.Page{
 		SpaceID:            space.ID,
 		ConfluenceID:       pg.ConfluenceID,
+		Version:            pg.Version,
 		Title:              pg.Title,
 		ParentConfluenceID: parentID,
 		Content:            extractTextFromHTML(pg.CleanHTML),

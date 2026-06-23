@@ -83,10 +83,10 @@ func (s *Scraper) fetchPageListAPI(rootURL, spaceKey string, headers map[string]
 		var apiURL string
 		if flavor == session.FlavorCloud {
 			// Cloud V1 API
-			apiURL = fmt.Sprintf("%s/wiki/rest/api/space/%s/content/page?limit=%d&start=%d", rootURL, spaceKey, limit, start)
+			apiURL = fmt.Sprintf("%s/wiki/rest/api/space/%s/content/page?limit=%d&start=%d&expand=version", rootURL, spaceKey, limit, start)
 		} else {
 			// Server/DC API
-			apiURL = fmt.Sprintf("%s/rest/api/content?spaceKey=%s&type=page&limit=%d&start=%d", rootURL, spaceKey, limit, start)
+			apiURL = fmt.Sprintf("%s/rest/api/content?spaceKey=%s&type=page&limit=%d&start=%d&expand=version", rootURL, spaceKey, limit, start)
 		}
 
 		req, err := http.NewRequest("GET", apiURL, nil)
@@ -111,8 +111,11 @@ func (s *Scraper) fetchPageListAPI(rootURL, spaceKey string, headers map[string]
 
 		var result struct {
 			Results []struct {
-				ID     string `json:"id"`
-				Title  string `json:"title"`
+				ID      string `json:"id"`
+				Title   string `json:"title"`
+				Version struct {
+					Number int `json:"number"`
+				} `json:"version"`
 				Links struct {
 					Self  string `json:"self"`
 					Webui string `json:"webui"`
@@ -140,6 +143,7 @@ func (s *Scraper) fetchPageListAPI(rootURL, spaceKey string, headers map[string]
 
 			allPages = append(allPages, &Page{
 				ConfluenceID: id,
+				Version:      r.Version.Number,
 				Title:        r.Title,
 				URL:          url,
 			})

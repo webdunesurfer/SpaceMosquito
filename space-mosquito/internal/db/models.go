@@ -22,6 +22,7 @@ type Page struct {
 	ID                uuid.UUID     `db:"id"`
 	SpaceID           uuid.UUID     `db:"space_id"`
 	ConfluenceID      int           `db:"confluence_id"`
+	Version           int           `db:"version"`
 	Title             string        `db:"title"`
 	ParentConfluenceID *int         `db:"parent_confluence_id"`
 	Content           string        `db:"content"`
@@ -124,9 +125,10 @@ func (d *DB) ListSpaces(ctx context.Context) ([]Space, error) {
 
 func (d *DB) UpsertPage(ctx context.Context, page *Page) error {
 	_, err := d.pool.Exec(ctx,
-		`INSERT INTO pages (space_id, confluence_id, title, parent_confluence_id, content, html_path, raw_html_path, metadata_path, file_dir, updated_at)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
+		`INSERT INTO pages (space_id, confluence_id, version, title, parent_confluence_id, content, html_path, raw_html_path, metadata_path, file_dir, updated_at)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())
 		 ON CONFLICT (space_id, confluence_id) DO UPDATE SET
+		   version=EXCLUDED.version,
 		   title=EXCLUDED.title,
 		   parent_confluence_id=EXCLUDED.parent_confluence_id,
 		   content=EXCLUDED.content,
@@ -135,7 +137,7 @@ func (d *DB) UpsertPage(ctx context.Context, page *Page) error {
 		   metadata_path=EXCLUDED.metadata_path,
 		   file_dir=EXCLUDED.file_dir,
 		   updated_at=NOW()`,
-		page.SpaceID, page.ConfluenceID, page.Title, page.ParentConfluenceID,
+		page.SpaceID, page.ConfluenceID, page.Version, page.Title, page.ParentConfluenceID,
 		page.Content, page.HTMLPath, page.RawHTMLPath, page.MetadataPath, page.FileDir,
 	)
 	if err != nil {
@@ -161,14 +163,14 @@ func (d *DB) UpsertPage(ctx context.Context, page *Page) error {
 func (d *DB) GetPage(ctx context.Context, spaceKey string, pageID int) (*Page, error) {
 	var p Page
 	err := d.pool.QueryRow(ctx,
-		`SELECT p.id, p.space_id, p.confluence_id, p.title, p.parent_confluence_id,
+		`SELECT p.id, p.space_id, p.confluence_id, p.version, p.title, p.parent_confluence_id,
 		        p.content, p.html_path, p.raw_html_path, p.metadata_path, p.file_dir,
 		        p.created_at, p.updated_at
 		 FROM pages p
 		 JOIN spaces s ON s.id = p.space_id
 		 WHERE s.key = $1 AND p.confluence_id = $2`,
 		spaceKey, pageID,
-	).Scan(&p.ID, &p.SpaceID, &p.ConfluenceID, &p.Title, &p.ParentConfluenceID,
+	).Scan(&p.ID, &p.SpaceID, &p.ConfluenceID, &p.Version, &p.Title, &p.ParentConfluenceID,
 		&p.Content, &p.HTMLPath, &p.RawHTMLPath, &p.MetadataPath, &p.FileDir,
 		&p.CreatedAt, &p.UpdatedAt)
 	if err != nil {
@@ -194,7 +196,7 @@ func (d *DB) ListPages(ctx context.Context, spaceKey string, limit int) ([]Page,
 		limit = 100
 	}
 	rows, err := d.pool.Query(ctx,
-		`SELECT p.id, p.space_id, p.confluence_id, p.title, p.parent_confluence_id,
+		`SELECT p.id, p.space_id, p.confluence_id, p.version, p.title, p.parent_confluence_id,
 		        p.content, p.html_path, p.raw_html_path, p.metadata_path, p.file_dir,
 		        p.created_at, p.updated_at
 		 FROM pages p
@@ -215,7 +217,7 @@ func (d *DB) ListPages(ctx context.Context, spaceKey string, limit int) ([]Page,
 	var pages []Page
 	for rows.Next() {
 		var p Page
-		if err := rows.Scan(&p.ID, &p.SpaceID, &p.ConfluenceID, &p.Title, &p.ParentConfluenceID,
+		if err := rows.Scan(&p.ID, &p.SpaceID, &p.ConfluenceID, &p.Version, &p.Title, &p.ParentConfluenceID,
 			&p.Content, &p.HTMLPath, &p.RawHTMLPath, &p.MetadataPath, &p.FileDir,
 			&p.CreatedAt, &p.UpdatedAt); err != nil {
 			if d.log.Enabled() {
@@ -430,6 +432,20 @@ func (d *DB) IndexAllPageContents(ctx context.Context) error {
 		d.log.Infow("all page contents indexed", "indexed", count)
 	}
 	return nil
+}
+
+func (d *DB) DeleteStalePages(ctx context.Context, spaceID uuid.UUID, crawlStart time.Time) (int64, error) {
+	result, err := d.pool.Exec(ctx,
+		`DELETE FROM pages WHERE space_id = $1 AND updated_at < $2`,
+		spaceID, crawlStart,
+	)
+	if err != nil {
+		if d.log.Enabled() {
+			d.log.Errorw("delete stale pages failed", "space_id", spaceID, "error", err)
+		}
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 func (d *DB) SearchPages(ctx context.Context, query string, spaceKey string, limit int) ([]SearchResult, error) {

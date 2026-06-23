@@ -212,22 +212,20 @@ func (s *Store) Delete() error {
 		return nil
 	}
 
-	backupPath := s.filePath + ".bak"
-	if err := os.Rename(s.filePath, backupPath); err != nil {
+	// In Docker, we can't easily remove/rename a volume-mounted file.
+	// We truncate it instead to clear the sensitive data.
+	if err := os.Truncate(s.filePath, 0); err != nil {
 		if os.IsNotExist(err) {
-			if s.log.Enabled() {
-				s.log.Info("session delete: file already gone")
-			}
 			return nil
 		}
 		if s.log.Enabled() {
-			s.log.Errorw("session delete failed: rename to .bak", "path", s.filePath, "error", err)
+			s.log.Errorw("session delete failed: truncate", "path", s.filePath, "error", err)
 		}
-		return fmt.Errorf("failed to remove session file %s: %w", s.filePath, err)
+		return fmt.Errorf("failed to clear session file %s: %w", s.filePath, err)
 	}
 
 	if s.log.Enabled() {
-		s.log.Infow("session deleted", "path", s.filePath)
+		s.log.Infow("session cleared (truncated)", "path", s.filePath)
 	}
 	return nil
 }
