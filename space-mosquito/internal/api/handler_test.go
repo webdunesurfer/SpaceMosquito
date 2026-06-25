@@ -1,0 +1,283 @@
+package api
+
+import (
+	"bytes"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+
+	"github.com/vkh/spacemosquito/internal/config"
+	"github.com/vkh/spacemosquito/internal/scraper"
+	"github.com/vkh/spacemosquito/internal/session"
+	"github.com/vkh/spacemosquito/pkg/logger"
+	"github.com/vkh/spacemosquito/pkg/logging"
+)
+
+func testLogger(t *testing.T) logging.Sugar {
+	t.Helper()
+	zl, err := logger.NewProduction(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return logging.New("api", zl)
+}
+
+func testConfig(key string) *config.Config {
+	return &config.Config{
+		Session: config.SessionConfig{
+			EncryptionKey: key,
+			FilePath:      "",
+		},
+		MCP: config.MCPConfig{Timeout: 10},
+	}
+}
+
+func TestCORSMiddleware(t *testing.T) {
+	called := false
+	handler := CORSMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		w.WriteHeader(http.StatusOK)
+	}), logging.Sugar{})
+
+	t.Run("OPTIONS preflight", func(t *testing.T) {
+		called = false
+		req := httptest.NewRequest(http.MethodOptions, "/", nil)
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		if called {
+			t.Fatal("inner handler should not run for OPTIONS")
+		}
+		if rec.Code != http.StatusNoContent {
+			t.Errorf("status = %d", rec.Code)
+		}
+		if rec.Header().Get("Access-Control-Allow-Origin") != "*" {
+			t.Error("missing CORS header")
+		}
+	})
+
+	t.Run("GET passes through", func(t *testing.T) {
+		called = false
+		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		if !called {
+			t.Fatal("inner handler should run")
+		}
+		if rec.Header().Get("Access-Control-Allow-Methods") == "" {
+			t.Error("missing Allow-Methods header")
+		}
+	})
+}
+
+func TestLoggingMiddleware_smoke(t *testing.T) {
+	zl, err := logger.NewProduction(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := LoggingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusTeapot)
+	}), logging.New("http", zl))
+
+	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusTeapot {
+		t.Errorf("status = %d", rec.Code)
+	}
+}
+
+func TestHandler_CreateSession_validation(t *testing.T) {
+	store := session.NewStore(t.TempDir()+"/session.enc", logging.Sugar{})
+	h := New(store, testConfig("12345678901234567890123456789012"), testLogger(t))
+
+	tests := []struct {
+		name       string
+		method     string
+		body       string
+		wantStatus int
+	}{
+		{"bad json", http.MethodPost, "{", http.StatusBadRequest},
+		{"missing url", http.MethodPost, `{"cookies":[{"name":"a","value":"b"}]}`, http.StatusBadRequest},
+		{"no cookies", http.MethodPost, `{"confluence_url":"https://x.atlassian.net"}`, http.StatusBadRequest},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(tc.method, "/api/session", strings.NewReader(tc.body))
+			rec := httptest.NewRecorder()
+			h.CreateSession(rec, req)
+			if rec.Code != tc.wantStatus {
+				t.Errorf("status = %d, want %d, body = %s", rec.Code, tc.wantStatus, rec.Body.String())
+			}
+		})
+	}
+}
+
+func TestHandler_CreateSession_missingEncryptionKey(t *testing.T) {
+	store := session.NewStore(t.TempDir()+"/session.enc", logging.Sugar{})
+	h := New(store, testConfig(""), testLogger(t))
+
+	body := `{"confluence_url":"https://x.atlassian.net","cookies":[{"name":"a","value":"b"}]}`
+	req := httptest.NewRequest(http.MethodPost, "/api/session", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+	h.CreateSession(rec, req)
+	if rec.Code != http.StatusInternalServerError {
+		t.Errorf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestHandler_DeleteSession_noSession(t *testing.T) {
+	store := session.NewStore(t.TempDir()+"/session.enc", logging.Sugar{})
+	h := New(store, testConfig("12345678901234567890123456789012"), testLogger(t))
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/session", nil)
+	rec := httptest.NewRecorder()
+	h.DeleteSession(rec, req)
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("status = %d", rec.Code)
+	}
+}
+
+func TestSearchHandler_validation(t *testing.T) {
+	h := NewSearchHandler(nil, nil, testConfig(""), testLogger(t))
+
+	t.Run("missing q", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/api/search", nil)
+		rec := httptest.NewRecorder()
+		h.Search(rec, req)
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("status = %d", rec.Code)
+		}
+	})
+
+	t.Run("method not allowed", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodPost, "/api/search?q=x", nil)
+		rec := httptest.NewRecorder()
+		h.Search(rec, req)
+		if rec.Code != http.StatusMethodNotAllowed {
+			t.Errorf("status = %d", rec.Code)
+		}
+	})
+
+	t.Run("reindex page_id without space", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodPost, "/api/search/reindex?page_id=1", nil)
+		rec := httptest.NewRecorder()
+		h.Reindex(rec, req)
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("status = %d", rec.Code)
+		}
+	})
+}
+
+func TestCrawlHandler_validation(t *testing.T) {
+	mgr := scraper.NewJobManager(testConfig(""), nil, nil, nil, nil, testLogger(t))
+	h := NewCrawlHandler(mgr, testConfig(""), testLogger(t))
+
+	t.Run("create missing space_url", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodPost, "/api/crawl", strings.NewReader(`{}`))
+		rec := httptest.NewRecorder()
+		h.Create(rec, req)
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("status = %d", rec.Code)
+		}
+	})
+
+	t.Run("create bad json", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodPost, "/api/crawl", strings.NewReader("{"))
+		rec := httptest.NewRecorder()
+		h.Create(rec, req)
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("status = %d", rec.Code)
+		}
+	})
+
+	t.Run("status missing id", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/api/crawl/status", nil)
+		rec := httptest.NewRecorder()
+		h.Status(rec, req)
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("status = %d", rec.Code)
+		}
+	})
+
+	t.Run("status unknown job", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/api/crawl/status?id=missing", nil)
+		rec := httptest.NewRecorder()
+		h.Status(rec, req)
+		if rec.Code != http.StatusNotFound {
+			t.Errorf("status = %d", rec.Code)
+		}
+	})
+
+	t.Run("cancel missing id", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodPost, "/api/crawl/cancel", nil)
+		rec := httptest.NewRecorder()
+		h.Cancel(rec, req)
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("status = %d", rec.Code)
+		}
+	})
+
+	t.Run("create method not allowed", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/api/crawl", nil)
+		rec := httptest.NewRecorder()
+		h.Create(rec, req)
+		if rec.Code != http.StatusMethodNotAllowed {
+			t.Errorf("status = %d", rec.Code)
+		}
+	})
+}
+
+func TestSpacesHandler_validation(t *testing.T) {
+	h := SpacesHandler(nil, testLogger(t))
+
+	t.Run("POST invalid json", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodPost, "/api/spaces", strings.NewReader("{"))
+		rec := httptest.NewRecorder()
+		h(rec, req)
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("status = %d", rec.Code)
+		}
+	})
+
+	t.Run("POST missing url", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodPost, "/api/spaces", strings.NewReader(`{}`))
+		rec := httptest.NewRecorder()
+		h(rec, req)
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("status = %d", rec.Code)
+		}
+	})
+
+	t.Run("POST invalid confluence url", func(t *testing.T) {
+		body, _ := json.Marshal(map[string]string{"url": "https://example.com/no-space"})
+		req := httptest.NewRequest(http.MethodPost, "/api/spaces", bytes.NewReader(body))
+		rec := httptest.NewRecorder()
+		h(rec, req)
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("status = %d, body=%s", rec.Code, rec.Body.String())
+		}
+	})
+
+	t.Run("unsupported method", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodDelete, "/api/spaces", nil)
+		rec := httptest.NewRecorder()
+		h(rec, req)
+		if rec.Code != http.StatusMethodNotAllowed {
+			t.Errorf("status = %d", rec.Code)
+		}
+	})
+}
+
+func TestSpaceByIDHandler_validation(t *testing.T) {
+	h := SpaceByIDHandler(nil, logging.Sugar{})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/spaces/", nil)
+	rec := httptest.NewRecorder()
+	h(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("status = %d", rec.Code)
+	}
+}

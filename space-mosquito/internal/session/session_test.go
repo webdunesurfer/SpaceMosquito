@@ -104,8 +104,10 @@ func TestStore_Delete(t *testing.T) {
 		t.Fatalf("Delete failed: %v", err)
 	}
 
-	if store.HasSession() {
-		t.Fatal("expected no session after delete")
+	// Delete truncates the file (Docker volume compatibility); file may still exist.
+	_, err := store.Load(testKey)
+	if err == nil {
+		t.Fatal("expected error loading session after delete")
 	}
 
 	if err := store.Delete(); err != nil {
