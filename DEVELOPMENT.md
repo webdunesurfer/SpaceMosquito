@@ -1,5 +1,9 @@
 # Development
 
+## Ground rules
+
+- Breaking changes in API are acceptable.
+
 ## Local Development & Build
 
 ```sh

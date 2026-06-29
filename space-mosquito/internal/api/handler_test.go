@@ -161,8 +161,8 @@ func TestSearchHandler_validation(t *testing.T) {
 		}
 	})
 
-	t.Run("reindex page_id without space", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodPost, "/api/search/reindex?page_id=1", nil)
+	t.Run("reindex confluence_id without space_key", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodPost, "/api/search/reindex?confluence_id=1", nil)
 		rec := httptest.NewRecorder()
 		h.Reindex(rec, req)
 		if rec.Code != http.StatusBadRequest {

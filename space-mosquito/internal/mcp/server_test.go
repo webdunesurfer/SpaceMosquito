@@ -1,10 +1,14 @@
 package mcp
 
 import (
+	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/vkh/spacemosquito/internal/config"
+	"github.com/vkh/spacemosquito/internal/db"
 	"github.com/vkh/spacemosquito/pkg/logging"
 )
 
@@ -22,7 +26,16 @@ func testServer() *Server {
 		sessions:   make(map[string]*ClientSession),
 		log:        logging.Sugar{},
 		sessionTTL: time.Hour,
+		cfg:        &config.Config{},
 	}
+}
+
+type fakePageStore struct {
+	getPage func(ctx context.Context, spaceKey string, confluenceID int) (*db.Page, error)
+}
+
+func (f fakePageStore) GetPage(ctx context.Context, spaceKey string, confluenceID int) (*db.Page, error) {
+	return f.getPage(ctx, spaceKey, confluenceID)
 }
 
 func readResponse(t *testing.T, ch <-chan []byte) MCPResponse {
@@ -139,7 +152,7 @@ func TestHandleToolsCall_validation(t *testing.T) {
 		}
 	})
 
-	t.Run("confluence_get_page missing page_id", func(t *testing.T) {
+	t.Run("confluence_get_page missing confluence_id", func(t *testing.T) {
 		body, _ := json.Marshal(map[string]interface{}{
 			"name":      "confluence_get_page",
 			"arguments": map[string]interface{}{"space_key": "PROJ"},
@@ -149,6 +162,46 @@ func TestHandleToolsCall_validation(t *testing.T) {
 		result := resp.Result.(map[string]interface{})
 		if result["isError"] != true {
 			t.Fatalf("expected tool error, got %+v", resp.Result)
+		}
+	})
+
+	t.Run("confluence_get_page success", func(t *testing.T) {
+		srv := testServer()
+		srv.cfg = &config.Config{}
+		srv.pages = fakePageStore{
+			getPage: func(ctx context.Context, spaceKey string, id int) (*db.Page, error) {
+				if spaceKey != "PROJ" || id != 42 {
+					t.Errorf("GetPage(%q, %d)", spaceKey, id)
+				}
+				return &db.Page{
+					ConfluenceID: 42,
+					Title:        "Hello",
+					Version:      1,
+					Content:      "world",
+				}, nil
+			},
+		}
+		sess := testSession(t)
+
+		body, _ := json.Marshal(map[string]interface{}{
+			"name": "confluence_get_page",
+			"arguments": map[string]interface{}{
+				"space_key":     "PROJ",
+				"confluence_id": float64(42),
+			},
+		})
+		srv.handleToolsCall(sess, body, 15)
+		resp := readResponse(t, sess.SendChan)
+		if resp.Error != nil {
+			t.Fatalf("unexpected rpc error: %+v", resp.Error)
+		}
+		result := resp.Result.(map[string]interface{})
+		if result["isError"] == true {
+			t.Fatalf("expected success, got %+v", result)
+		}
+		text := result["content"].([]interface{})[0].(map[string]interface{})["text"].(string)
+		if !strings.Contains(text, `"confluence_id": 42`) {
+			t.Errorf("expected confluence_id in response, got %s", text)
 		}
 	})
 

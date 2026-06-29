@@ -6,6 +6,7 @@ import (
 
 	"github.com/vkh/spacemosquito/internal/config"
 	"github.com/vkh/spacemosquito/internal/db"
+	"github.com/vkh/spacemosquito/internal/search"
 	"github.com/vkh/spacemosquito/internal/session"
 	"github.com/vkh/spacemosquito/pkg/logging"
 )
@@ -38,7 +39,7 @@ func (h *SearchHandler) Search(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	spaceKey := r.URL.Query().Get("space")
+	spaceKey := r.URL.Query().Get("space_key")
 	limitStr := r.URL.Query().Get("limit")
 	limit := 10
 	if limitStr != "" {
@@ -58,10 +59,12 @@ func (h *SearchHandler) Search(w http.ResponseWriter, r *http.Request) {
 		results = []db.SearchResult{}
 	}
 
+	hits := search.ToSearchHits(results, h.cfg.MCP.ExposeInternalIDs)
+
 	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"query":  query,
-		"count":  len(results),
-		"results": results,
+		"query":   query,
+		"count":   len(hits),
+		"results": hits,
 	})
 }
 
@@ -71,19 +74,19 @@ func (h *SearchHandler) Reindex(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	pageIDStr := r.URL.Query().Get("page_id")
-	if pageIDStr != "" {
-		pageID, err := strconv.Atoi(pageIDStr)
+	confluenceIDStr := r.URL.Query().Get("confluence_id")
+	if confluenceIDStr != "" {
+		confluenceID, err := strconv.Atoi(confluenceIDStr)
 		if err != nil {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid page_id"})
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid confluence_id"})
 			return
 		}
-		spaceKey := r.URL.Query().Get("space")
+		spaceKey := r.URL.Query().Get("space_key")
 		if spaceKey == "" {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "space parameter is required with page_id"})
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "space_key is required with confluence_id"})
 			return
 		}
-		if err := h.db.IndexPageContent(r.Context(), spaceKey, pageID); err != nil {
+		if err := h.db.IndexPageContent(r.Context(), spaceKey, confluenceID); err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 			return
 		}

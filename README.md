@@ -412,8 +412,8 @@ go run ./cmd/server
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/api/search?q=<query>&space=<key>` | Search pages (BM25/lexical) |
-| POST | `/api/search/reindex` | Rebuild FTS indexes |
+| GET | `/api/search?q=<query>&space_key=<key>` | Search pages (BM25/lexical) |
+| POST | `/api/search/reindex` | Rebuild FTS indexes (all pages, or `?space_key=&confluence_id=` for one) |
 | GET | `/api/search/stats` | Index statistics |
 
 ### Crawl

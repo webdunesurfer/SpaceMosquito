@@ -274,7 +274,7 @@ Use `httptest.NewRecorder` and stub/mock dependencies.
 | `Handler.SessionStatus` | No session / valid session states |
 | `Handler.ValidateSession` | Delegates to session validation |
 | `SearchHandler.Search` | Missing `q` → 400; valid query → 200 JSON |
-| `SearchHandler.Reindex` | POST only; `page_id` without `space` → 400 |
+| `SearchHandler.Reindex` | POST only; `confluence_id` without `space_key` → 400 |
 | `CrawlHandler.Create` | Missing `space_url` → 400; creates job |
 | `CrawlHandler.Status` | Missing `job_id` → 400; unknown job → 404 |
 | `CrawlHandler.Cancel` | Valid cancel / invalid state |

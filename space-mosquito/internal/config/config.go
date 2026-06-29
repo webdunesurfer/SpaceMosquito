@@ -59,9 +59,10 @@ type BGEConfig struct {
 }
 
 type MCPConfig struct {
-	Port     int    `yaml:"port"`
-	Host     string `yaml:"host"`
-	Timeout  int    `yaml:"session_timeout"`
+	Port               int    `yaml:"port"`
+	Host               string `yaml:"host"`
+	Timeout            int    `yaml:"session_timeout"`
+	ExposeInternalIDs  bool   `yaml:"expose_internal_ids"`
 }
 
 type CronConfig struct {

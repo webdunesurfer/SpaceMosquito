@@ -12,6 +12,7 @@ import (
 	"github.com/vkh/spacemosquito/internal/app"
 	"github.com/vkh/spacemosquito/internal/config"
 	"github.com/vkh/spacemosquito/internal/db"
+	"github.com/vkh/spacemosquito/internal/search"
 	"github.com/vkh/spacemosquito/internal/session"
 	"github.com/vkh/spacemosquito/internal/scraper"
 	"github.com/vkh/spacemosquito/internal/storage"
@@ -284,14 +285,16 @@ func runSearch(cfg *config.Config, query, spaceKey string, log *zap.Logger) {
 		return
 	}
 
+	hits := search.ToSearchHits(results, cfg.MCP.ExposeInternalIDs)
+
 	fmt.Printf("\n=== Search Results for '%s' ===\n", query)
 	if spaceKey != "" {
 		fmt.Printf("Space: %s\n", spaceKey)
 	}
-	fmt.Printf("Total: %d results\n\n", len(results))
+	fmt.Printf("Total: %d results\n\n", len(hits))
 
-	for i, r := range results {
-		fmt.Printf("%d. %s (Space: %s)\n", i+1, r.Title, r.SpaceKey)
+	for i, r := range hits {
+		fmt.Printf("%d. %s (Space: %s, ID: %d)\n", i+1, r.Title, r.SpaceKey, r.ConfluenceID)
 		fmt.Printf("   Similarity: %.4f\n", r.Similarity)
 		if r.Excerpt != "" {
 			excerpt := r.Excerpt

@@ -25,6 +25,7 @@ mcp:
   port: 8081
   host: "0.0.0.0"
   session_timeout: 3600
+  expose_internal_ids: false
 
 cron:
   full_crawl:

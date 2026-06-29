@@ -5,6 +5,8 @@ Here are the problems I hit, in order of impact:
 ---
 1. confluence_get_page requires integer ConfluenceID, but confluence_search returns UUIDs
 
+**Status: fixed** — see `DOCS/task-mcp-confluence-id.md`. Search and get_page both use `confluence_id` + `space_key`.
+
 This was the biggest blocker. The search tool gives you an internal UUID (PageID), but confluence_get_page takes an integer (page_id). There's no way to go from a search result directly to the full page content — you have to separately discover the integer ID. These should use the same ID system, or confluence_get_page should also accept the UUID.
 
 Fix: Accept the UUID from search results as page_id in confluence_get_page. Or add ConfluenceID to search results so you can bridge the two.

@@ -42,12 +42,13 @@ type PageEmbedding struct {
 }
 
 type SearchResult struct {
-	PageID     uuid.UUID `db:"page_id"`
-	SpaceKey   string    `db:"space_key"`
-	Title      string    `db:"title"`
-	Excerpt    string    `db:"excerpt"`
-	Similarity float64   `db:"similarity"`
-	FilePath   string    `db:"file_path"`
+	ConfluenceID int       `db:"confluence_id"`
+	SpaceKey     string    `db:"space_key"`
+	Title        string    `db:"title"`
+	Excerpt      string    `db:"excerpt"`
+	Similarity   float64   `db:"similarity"`
+	FilePath     string    `db:"file_path"`
+	InternalID   uuid.UUID `db:"internal_id"`
 }
 
 type PageStats struct {
@@ -294,10 +295,11 @@ func (d *DB) SearchEmbeddings(ctx context.Context, queryEmbedding []float32, spa
 	}
 
 	query := `
-		SELECT p.id AS page_id, s.key AS space_key, p.title,
+		SELECT p.confluence_id, s.key AS space_key, p.title,
 		       p.content,
 		       (pe.embedding <-> $1::vector) AS similarity,
-		       p.html_path AS file_path
+		       p.html_path AS file_path,
+		       p.id AS internal_id
 		FROM page_embeddings pe
 		JOIN pages p ON p.id = pe.page_id
 		JOIN spaces s ON s.id = p.space_id
@@ -333,7 +335,7 @@ func (d *DB) SearchEmbeddings(ctx context.Context, queryEmbedding []float32, spa
 	var results []SearchResult
 	for rows.Next() {
 		var r SearchResult
-		if err := rows.Scan(&r.PageID, &r.SpaceKey, &r.Title, &r.Excerpt, &r.Similarity, &r.FilePath); err != nil {
+		if err := rows.Scan(&r.ConfluenceID, &r.SpaceKey, &r.Title, &r.Excerpt, &r.Similarity, &r.FilePath, &r.InternalID); err != nil {
 			if d.log.Enabled() {
 				d.log.Errorw("search embeddings: scan error", "error", err)
 			}
@@ -462,10 +464,11 @@ func (d *DB) SearchPages(ctx context.Context, query string, spaceKey string, lim
 	}
 
 	baseQuery := `
-		SELECT p.id AS page_id, s.key AS space_key, p.title,
+		SELECT p.confluence_id, s.key AS space_key, p.title,
 		       LEFT(p.content, 200) AS excerpt,
 		       ts_rank(p.content_vector, plainto_tsquery('english', $1)) AS similarity,
-		       p.html_path AS file_path
+		       p.html_path AS file_path,
+		       p.id AS internal_id
 		FROM pages p
 		JOIN spaces s ON s.id = p.space_id
 		WHERE p.content_vector @@ plainto_tsquery('english', $1)
@@ -501,7 +504,7 @@ func (d *DB) SearchPages(ctx context.Context, query string, spaceKey string, lim
 	var results []SearchResult
 	for rows.Next() {
 		var r SearchResult
-		if err := rows.Scan(&r.PageID, &r.SpaceKey, &r.Title, &r.Excerpt, &r.Similarity, &r.FilePath); err != nil {
+		if err := rows.Scan(&r.ConfluenceID, &r.SpaceKey, &r.Title, &r.Excerpt, &r.Similarity, &r.FilePath, &r.InternalID); err != nil {
 			if d.log.Enabled() {
 				d.log.Errorw("search pages: scan error", "error", err)
 			}

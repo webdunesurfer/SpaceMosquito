@@ -177,15 +177,20 @@ export class ApiClient {
     });
   }
 
-  // MCP Search
+  // Search
   async searchPages(query: string, spaceKey?: string): Promise<{
-    page_id: string;
-    space_key: string;
-    title: string;
-    excerpt: string;
-    similarity: number;
-    file_path: string;
-  }[]> {
+    query: string;
+    count: number;
+    results: {
+      confluence_id: number;
+      space_key: string;
+      title: string;
+      excerpt: string;
+      similarity: number;
+      file_path?: string;
+      internal_id?: string;
+    }[];
+  }> {
     const params = new URLSearchParams({ q: query });
     if (spaceKey) params.set('space_key', spaceKey);
     return this.request(`/api/search?${params.toString()}`);

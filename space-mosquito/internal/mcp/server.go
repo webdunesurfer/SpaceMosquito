@@ -12,12 +12,14 @@ import (
 	"github.com/google/uuid"
 	"github.com/vkh/spacemosquito/internal/config"
 	"github.com/vkh/spacemosquito/internal/db"
+	"github.com/vkh/spacemosquito/internal/search"
 	"github.com/vkh/spacemosquito/internal/session"
 	"github.com/vkh/spacemosquito/pkg/logging"
 )
 
 type Server struct {
 	db         *db.DB
+	pages      pageStore
 	store      *session.Store
 	cfg        *config.Config
 	log        logging.Sugar
@@ -238,7 +240,7 @@ func (s *Server) handleToolsList(session *ClientSession, id interface{}) {
 	tools := []Tool{
 		{
 			Name:        "confluence_search",
-			Description: "Search Confluence pages using BM25/FTS lexical search",
+			Description: "Search Confluence pages using BM25/FTS lexical search. Results include confluence_id for use with confluence_get_page.",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {
@@ -272,14 +274,14 @@ func (s *Server) handleToolsList(session *ClientSession, id interface{}) {
 		},
 		{
 			Name:        "confluence_get_page",
-			Description: "Get a specific page by space key and page ID",
+			Description: "Get a Confluence page by space key and confluence_id (from search results or page URL)",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {
 					"space_key": {"type": "string", "description": "Space key"},
-					"page_id": {"type": "integer", "description": "Confluence page ID"}
+					"confluence_id": {"type": "integer", "description": "Confluence page ID"}
 				},
-				"required": ["space_key", "page_id"]
+				"required": ["space_key", "confluence_id"]
 			}`),
 		},
 	}
@@ -372,7 +374,7 @@ func (s *Server) toolSearch(args map[string]interface{}) (interface{}, error) {
 	if results == nil {
 		results = []db.SearchResult{}
 	}
-	return results, nil
+	return search.ToSearchHits(results, s.cfg.MCP.ExposeInternalIDs), nil
 }
 
 func (s *Server) toolListSpaces() (interface{}, error) {
@@ -392,15 +394,16 @@ func (s *Server) toolListSpace(args map[string]interface{}) (interface{}, error)
 }
 
 func (s *Server) toolGetPage(args map[string]interface{}) (interface{}, error) {
-	spaceKey, ok := args["space_key"].(string)
-	if !ok || spaceKey == "" {
-		return nil, fmt.Errorf("space_key is required")
+	spaceKey, confluenceID, err := parseGetPageArgs(args)
+	if err != nil {
+		return nil, err
 	}
-	pageIDFloat, ok := args["page_id"].(float64)
-	if !ok {
-		return nil, fmt.Errorf("page_id is required")
+	page, err := s.pageStore().GetPage(context.Background(), spaceKey, confluenceID)
+	if err != nil {
+		return nil, fmt.Errorf("page not found: %w", err)
 	}
-	return s.db.GetPage(context.Background(), spaceKey, int(pageIDFloat))
+	detail := search.ToPageDetail(page, spaceKey, s.cfg.MCP.ExposeInternalIDs)
+	return detail, nil
 }
 
 func (s *Server) sendResponse(session *ClientSession, id interface{}, result interface{}) {
