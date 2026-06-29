@@ -56,8 +56,8 @@ Example (illustrative):
 {
   "confluence_id": 12345,
   "space_key": "PROJ",
-  "title": "Stampcard Filtering Logics",
-  "excerpt": "...when <b>stampcard</b> balance drops below threshold the filter applies <b>logic</b> from section 3.2...",
+  "title": "Invoice Filtering Logics",
+  "excerpt": "...when <b>invoice</b> balance drops below threshold the filter applies <b>logic</b> from section 3.2...",
   "similarity": 0.42
 }
 ```

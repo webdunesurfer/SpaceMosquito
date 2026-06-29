@@ -38,7 +38,7 @@ Fix: Add a fields parameter or a lightweight mode (titles_only: true) that retur
 ---
 5. No way to fetch a page by title or by internal UUID directly
 
-If I know the title ("Stampcard Filtering Logics") or the UUID from a search result, I still can't fetch the page. I'm forced to go through the integer ConfluenceID, which is the hardest thing to know.
+If I know the title ("Invoice Filtering Logics") or the UUID from a search result, I still can't fetch the page. I'm forced to go through the integer ConfluenceID, which is the hardest thing to know.
 
 Fix: Add confluence_get_page_by_title(space_key, title) or make confluence_get_page accept the UUID.
 

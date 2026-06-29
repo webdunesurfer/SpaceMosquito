@@ -93,10 +93,10 @@ Example response:
 {
   "confluence_id": 12345,
   "space_key": "PROJ",
-  "title": "Stampcard Filtering Logics",
+  "title": "Invoice Filtering Logics",
   "excerpt": "…",
   "similarity": 0.42,
-  "file_path": "saved/PROJ/Stampcard…/index.html"
+  "file_path": "saved/PROJ/Invoice…/index.html"
 }
 ```
 
