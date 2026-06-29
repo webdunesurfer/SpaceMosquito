@@ -297,11 +297,7 @@ func runSearch(cfg *config.Config, query, spaceKey string, log *zap.Logger) {
 		fmt.Printf("%d. %s (Space: %s, ID: %d)\n", i+1, r.Title, r.SpaceKey, r.ConfluenceID)
 		fmt.Printf("   Similarity: %.4f\n", r.Similarity)
 		if r.Excerpt != "" {
-			excerpt := r.Excerpt
-			if len(excerpt) > 150 {
-				excerpt = excerpt[:150] + "..."
-			}
-			fmt.Printf("   Excerpt: %s\n", excerpt)
+			fmt.Printf("   Excerpt: %s\n", r.Excerpt)
 		}
 		fmt.Println()
 	}

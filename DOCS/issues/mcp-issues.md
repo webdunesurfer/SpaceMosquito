@@ -14,6 +14,8 @@ Fix: Accept the UUID from search results as page_id in confluence_get_page. Or a
 ---
 2. confluence_search excerpts are too short and always from the page start
 
+**Status: fixed** — see `DOCS/task-mcp-search-excerpts.md`. Excerpts use `ts_headline` centered on query matches (~400 chars).
+
 Every excerpt was ~200 chars and always showed the top of the page, regardless of what I queried. A BM25 search should return a snippet centered around the matching terms. This made it impossible to read different parts of a long page
 through multiple queries.
 
@@ -43,6 +45,7 @@ Fix: Add confluence_get_page_by_title(space_key, title) or make confluence_get_p
 ---
 Summary priority
 
+```
 ┌─────────────┬──────────────────────────────────────────────────────────────────────────────┐
 │  Priority   │                                    Change                                    │
 ├─────────────┼──────────────────────────────────────────────────────────────────────────────┤
@@ -56,3 +59,4 @@ Summary priority
 ├─────────────┼──────────────────────────────────────────────────────────────────────────────┤
 │ 🟢 Nice     │ confluence_get_page_by_title shortcut                                        │
 └─────────────┴──────────────────────────────────────────────────────────────────────────────┘
+```

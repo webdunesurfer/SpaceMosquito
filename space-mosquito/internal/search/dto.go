@@ -40,7 +40,7 @@ func ToSearchHits(results []db.SearchResult, exposeInternalIDs bool) []SearchHit
 			ConfluenceID: r.ConfluenceID,
 			SpaceKey:     r.SpaceKey,
 			Title:        r.Title,
-			Excerpt:      r.Excerpt,
+			Excerpt:      NormalizeExcerpt(r.Excerpt, DefaultExcerptMaxRunes),
 			Similarity:   r.Similarity,
 			FilePath:     r.FilePath,
 		}

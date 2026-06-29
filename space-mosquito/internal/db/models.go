@@ -465,7 +465,12 @@ func (d *DB) SearchPages(ctx context.Context, query string, spaceKey string, lim
 
 	baseQuery := `
 		SELECT p.confluence_id, s.key AS space_key, p.title,
-		       LEFT(p.content, 200) AS excerpt,
+		       ts_headline(
+		         'english',
+		         coalesce(p.title, '') || E'\n\n' || coalesce(p.content, ''),
+		         plainto_tsquery('english', $1),
+		         'MaxFragments=1, MaxWords=60, MinWords=20, ShortWord=3'
+		       ) AS excerpt,
 		       ts_rank(p.content_vector, plainto_tsquery('english', $1)) AS similarity,
 		       p.html_path AS file_path,
 		       p.id AS internal_id

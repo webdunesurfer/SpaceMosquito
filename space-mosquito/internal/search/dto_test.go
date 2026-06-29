@@ -56,6 +56,22 @@ func TestToSearchHits_empty(t *testing.T) {
 	}
 }
 
+func TestToSearchHits_normalizesExcerpt(t *testing.T) {
+	results := []db.SearchResult{{
+		ConfluenceID: 1,
+		SpaceKey:     "PROJ",
+		Title:        "T",
+		Excerpt:      "intro <b>keyword</b> tail",
+	}}
+	hits := ToSearchHits(results, false)
+	if strings.Contains(hits[0].Excerpt, "<b>") {
+		t.Errorf("excerpt not normalized: %q", hits[0].Excerpt)
+	}
+	if !strings.Contains(hits[0].Excerpt, "keyword") {
+		t.Errorf("excerpt missing term: %q", hits[0].Excerpt)
+	}
+}
+
 func TestToPageDetail(t *testing.T) {
 	pageID := uuid.MustParse("550e8400-e29b-41d4-a716-446655440000")
 	page := &db.Page{
