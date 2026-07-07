@@ -24,12 +24,16 @@ Fix: Return excerpts centered on the matched text, not always the page beginning
 ---
 3. confluence_list_space has no pagination (no offset)
 
+**Status: fixed** — see `DOCS/task-mcp-list-space-pagination.md`. Cursor pagination via `after_confluence_id`; `ListSpaceResult` wrapper; REST `GET /api/spaces/{key}/pages`.
+
 The space has hundreds of pages. With only a limit parameter and no offset, the only way to reach pages beyond position N is to request a huge limit, which produces a multi-megabyte result that overflows the context window.
 
 Fix: Add an offset (or cursor) parameter. Even better: since the space is sorted by ConfluenceID, add after_id so you can paginate with after_id: 545917120.
 
 ---
 4. confluence_list_space returns full page content for every result
+
+**Status: fixed** — see `DOCS/task-mcp-list-space-summaries.md`. Default summary rows (no content); opt-in `include_content` (max limit 50).
 
 Each entry in the list includes the entire Content field. For a 500-page space that's ~1.5MB just to g most of which I didn't need.
 

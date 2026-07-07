@@ -34,6 +34,17 @@ type Page struct {
 	UpdatedAt         time.Time     `db:"updated_at"`
 }
 
+// PageSummary is a lightweight page row for list-space APIs (no content or paths).
+type PageSummary struct {
+	ID                 uuid.UUID `db:"id"`
+	ConfluenceID       int       `db:"confluence_id"`
+	Version            int       `db:"version"`
+	Title              string    `db:"title"`
+	ParentConfluenceID *int      `db:"parent_confluence_id"`
+	CreatedAt          time.Time `db:"created_at"`
+	UpdatedAt          time.Time `db:"updated_at"`
+}
+
 type PageEmbedding struct {
 	ID        uuid.UUID   `db:"id"`
 	PageID    uuid.UUID   `db:"page_id"`
@@ -192,21 +203,27 @@ func (d *DB) GetPage(ctx context.Context, spaceKey string, pageID int) (*Page, e
 	return &p, nil
 }
 
-func (d *DB) ListPages(ctx context.Context, spaceKey string, limit int) ([]Page, error) {
+func (d *DB) ListPages(ctx context.Context, spaceKey string, limit int, afterConfluenceID *int) ([]Page, error) {
 	if limit == 0 {
 		limit = 100
 	}
-	rows, err := d.pool.Query(ctx,
-		`SELECT p.id, p.space_id, p.confluence_id, p.version, p.title, p.parent_confluence_id,
+	query := `SELECT p.id, p.space_id, p.confluence_id, p.version, p.title, p.parent_confluence_id,
 		        p.content, p.html_path, p.raw_html_path, p.metadata_path, p.file_dir,
 		        p.created_at, p.updated_at
 		 FROM pages p
 		 JOIN spaces s ON s.id = p.space_id
-		 WHERE s.key = $1
-		 ORDER BY p.confluence_id
-		 LIMIT $2`,
-		spaceKey, limit,
-	)
+		 WHERE s.key = $1`
+	args := []interface{}{spaceKey}
+	argNum := 2
+	if afterConfluenceID != nil {
+		query += fmt.Sprintf(" AND p.confluence_id > $%d", argNum)
+		args = append(args, *afterConfluenceID)
+		argNum++
+	}
+	query += fmt.Sprintf(" ORDER BY p.confluence_id ASC LIMIT $%d", argNum)
+	args = append(args, limit)
+
+	rows, err := d.pool.Query(ctx, query, args...)
 	if err != nil {
 		if d.log.Enabled() {
 			d.log.Errorw("list pages failed", "space_key", spaceKey, "error", err)
@@ -232,6 +249,52 @@ func (d *DB) ListPages(ctx context.Context, spaceKey string, limit int) ([]Page,
 		d.log.Infow("pages listed", "space_key", spaceKey, "count", len(pages))
 	}
 	return pages, nil
+}
+
+func (d *DB) ListPageSummaries(ctx context.Context, spaceKey string, limit int, afterConfluenceID *int) ([]PageSummary, error) {
+	if limit == 0 {
+		limit = 100
+	}
+	query := `SELECT p.id, p.confluence_id, p.version, p.title, p.parent_confluence_id,
+		        p.created_at, p.updated_at
+		 FROM pages p
+		 JOIN spaces s ON s.id = p.space_id
+		 WHERE s.key = $1`
+	args := []interface{}{spaceKey}
+	argNum := 2
+	if afterConfluenceID != nil {
+		query += fmt.Sprintf(" AND p.confluence_id > $%d", argNum)
+		args = append(args, *afterConfluenceID)
+		argNum++
+	}
+	query += fmt.Sprintf(" ORDER BY p.confluence_id ASC LIMIT $%d", argNum)
+	args = append(args, limit)
+
+	rows, err := d.pool.Query(ctx, query, args...)
+	if err != nil {
+		if d.log.Enabled() {
+			d.log.Errorw("list page summaries failed", "space_key", spaceKey, "error", err)
+		}
+		return nil, err
+	}
+	defer rows.Close()
+
+	var summaries []PageSummary
+	for rows.Next() {
+		var s PageSummary
+		if err := rows.Scan(&s.ID, &s.ConfluenceID, &s.Version, &s.Title, &s.ParentConfluenceID,
+			&s.CreatedAt, &s.UpdatedAt); err != nil {
+			if d.log.Enabled() {
+				d.log.Errorw("list page summaries: scan error", "error", err)
+			}
+			return nil, err
+		}
+		summaries = append(summaries, s)
+	}
+	if d.log.Enabled() {
+		d.log.Infow("page summaries listed", "space_key", spaceKey, "count", len(summaries))
+	}
+	return summaries, nil
 }
 
 func (d *DB) CreateEmbedding(ctx context.Context, pageID uuid.UUID, embedding []float32) error {

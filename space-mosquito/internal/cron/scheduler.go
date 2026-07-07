@@ -337,7 +337,7 @@ func (s *Scheduler) runIncremental(ctx context.Context, jobID, spaceKey, spaceUR
 		return
 	}
 
-	pages, err := s.db.ListPages(ctx, spaceKey, 0)
+	pages, err := s.db.ListPages(ctx, spaceKey, 0, nil)
 	if err != nil {
 		s.log.Errorw("failed to list pages", "job_id", jobID, "error", err)
 		return

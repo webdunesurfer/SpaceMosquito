@@ -281,3 +281,46 @@ func TestSpaceByIDHandler_validation(t *testing.T) {
 		t.Errorf("status = %d", rec.Code)
 	}
 }
+
+func TestSpacePagesHandler_validation(t *testing.T) {
+	h := SpacePagesHandler(nil, testConfig(""), testLogger(t))
+
+	t.Run("missing space key", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/api/spaces//pages", nil)
+		rec := httptest.NewRecorder()
+		h(rec, req)
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("status = %d", rec.Code)
+		}
+	})
+
+	t.Run("invalid limit", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/api/spaces/PROJ/pages?limit=bad", nil)
+		req.SetPathValue("key", "PROJ")
+		rec := httptest.NewRecorder()
+		h(rec, req)
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("status = %d", rec.Code)
+		}
+	})
+
+	t.Run("invalid include_content", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/api/spaces/PROJ/pages?include_content=bad", nil)
+		req.SetPathValue("key", "PROJ")
+		rec := httptest.NewRecorder()
+		h(rec, req)
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("status = %d", rec.Code)
+		}
+	})
+
+	t.Run("method not allowed", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodPost, "/api/spaces/PROJ/pages", nil)
+		req.SetPathValue("key", "PROJ")
+		rec := httptest.NewRecorder()
+		h(rec, req)
+		if rec.Code != http.StatusMethodNotAllowed {
+			t.Errorf("status = %d", rec.Code)
+		}
+	})
+}

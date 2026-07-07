@@ -142,7 +142,7 @@ func (h *spaceByIDHandler) getStatus(w http.ResponseWriter, r *http.Request, spa
 		return
 	}
 
-	pages, _ := h.db.ListPages(ctx, spaceKey, 0)
+	pages, _ := h.db.ListPages(ctx, spaceKey, 0, nil)
 
 	var lastCrawledStr string
 	if space.LastCrawled != nil {

@@ -262,12 +262,14 @@ func (s *Server) handleToolsList(session *ClientSession, id interface{}) {
 		},
 		{
 			Name:        "confluence_list_space",
-			Description: "List pages in a specific space",
+			Description: "List pages in a specific space with cursor pagination. Returns summary rows by default (no content). Use next_after_confluence_id from the response as after_confluence_id for the next page.",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {
 					"space_key": {"type": "string", "description": "Space key"},
-					"limit": {"type": "integer", "description": "Max results (default 50)"}
+					"limit": {"type": "integer", "description": "Max results per page (default 50, max 200; max 50 when include_content is true)"},
+					"after_confluence_id": {"type": "integer", "description": "Return pages with Confluence ID greater than this (exclusive). Omit for first page."},
+					"include_content": {"type": "boolean", "description": "Include full page content in each row (default false). Prefer confluence_get_page for reading."}
 				},
 				"required": ["space_key"]
 			}`),
@@ -382,15 +384,24 @@ func (s *Server) toolListSpaces() (interface{}, error) {
 }
 
 func (s *Server) toolListSpace(args map[string]interface{}) (interface{}, error) {
-	spaceKey, ok := args["space_key"].(string)
-	if !ok || spaceKey == "" {
-		return nil, fmt.Errorf("space_key is required")
+	parsed, err := parseListSpaceArgs(args)
+	if err != nil {
+		return nil, err
 	}
-	limit := 50
-	if l, ok := args["limit"].(float64); ok {
-		limit = int(l)
+	ctx := context.Background()
+	expose := s.cfg.MCP.ExposeInternalIDs
+	if parsed.IncludeContent {
+		pages, err := s.db.ListPages(ctx, parsed.SpaceKey, parsed.Limit+1, parsed.AfterConfluenceID)
+		if err != nil {
+			return nil, fmt.Errorf("list pages failed: %w", err)
+		}
+		return search.BuildListSpaceResultFromPages(parsed.SpaceKey, pages, parsed.Limit, expose), nil
 	}
-	return s.db.ListPages(context.Background(), spaceKey, limit)
+	summaries, err := s.db.ListPageSummaries(ctx, parsed.SpaceKey, parsed.Limit+1, parsed.AfterConfluenceID)
+	if err != nil {
+		return nil, fmt.Errorf("list pages failed: %w", err)
+	}
+	return search.BuildListSpaceResultFromSummaries(parsed.SpaceKey, summaries, parsed.Limit, expose), nil
 }
 
 func (s *Server) toolGetPage(args map[string]interface{}) (interface{}, error) {

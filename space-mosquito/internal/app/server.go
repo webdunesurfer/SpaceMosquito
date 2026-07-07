@@ -142,6 +142,7 @@ func setupComponents(cfg *config.Config, log *zap.Logger) (*serverComponents, er
 	mux.HandleFunc("POST /api/spaces", api.SpacesHandler(database, logging.New("spaces", log)))
 	mux.HandleFunc("GET /api/spaces/{key}", api.SpaceByIDHandler(database, logging.New("spaces", log)))
 	mux.HandleFunc("DELETE /api/spaces/{key}", api.SpaceByIDHandler(database, logging.New("spaces", log)))
+	mux.HandleFunc("GET /api/spaces/{key}/pages", api.SpacePagesHandler(database, cfg, logging.New("spaces", log)))
 
 	return &serverComponents{
 		database:        database,
