@@ -65,6 +65,7 @@ spacemosquito search "your query" SPACEKEY
 | Command | Description |
 |---------|-------------|
 | `init` | Create data directory, config, migrations |
+| `bootstrap import-saved` | Rebuild SQLite catalog from existing `saved/` files |
 | `serve` | Start API + MCP server |
 | `crawl <url>` | Crawl a Confluence space |
 | `search <query>` | Full-text search |
@@ -72,6 +73,49 @@ spacemosquito search "your query" SPACEKEY
 | `version` | Print build version |
 
 Run `spacemosquito` with no arguments for the full command list.
+
+## Migrate from Docker (import saved files)
+
+If you already crawled with Docker, you can reuse the `saved/` bind-mount instead of recrawling. Copy your saved pages into the dockerless data directory, then import:
+
+```sh
+# 1. Initialize dockerless layout (creates ~/.spacemosquito and SQLite DB)
+spacemosquito init
+
+# 2. Copy your existing crawl artifacts (example: from Docker volume mount)
+cp -R /path/to/docker/saved/* ~/.spacemosquito/saved/
+
+# 3. Import metadata + HTML into SQLite and rebuild FTS
+spacemosquito bootstrap import-saved
+
+# 4. Verify and serve
+spacemosquito stats
+spacemosquito search "your query"
+spacemosquito serve
+```
+
+Useful flags:
+
+```sh
+# Import from a non-default location
+spacemosquito bootstrap import-saved --from /path/to/saved
+
+# DB already has pages (re-import)
+spacemosquito bootstrap import-saved --force
+
+# Scan and report only (no DB writes)
+spacemosquito bootstrap import-saved --dry-run
+```
+
+You can also run import during init:
+
+```sh
+spacemosquito init --bootstrap-mode=import_saved --from ~/.spacemosquito/saved
+```
+
+Import writes a machine-readable report to `~/.spacemosquito/reports/bootstrap-import-<timestamp>.json`.
+
+**Note:** This imports from on-disk `saved/` files only. It does not read directly from PostgreSQL. If you only have a Postgres volume and no `saved/` tree, use `recrawl` instead.
 
 ## Environment
 

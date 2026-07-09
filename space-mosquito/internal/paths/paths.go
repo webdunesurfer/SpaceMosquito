@@ -126,6 +126,15 @@ func ResolveBrowser() (string, error) {
 	return filepath.Join(dir, "browser"), nil
 }
 
+// ResolveReports returns the bootstrap/report output directory.
+func ResolveReports() (string, error) {
+	dir, err := ResolveDataDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "reports"), nil
+}
+
 // ResolveMigrations returns the migrations root directory.
 func ResolveMigrations() (string, error) {
 	if path := os.Getenv(EnvMigrationsDir); path != "" {

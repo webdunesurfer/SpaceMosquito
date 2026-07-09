@@ -7,9 +7,11 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/vkh/spacemosquito/internal/app"
+	"github.com/vkh/spacemosquito/internal/bootstrap"
 	"github.com/vkh/spacemosquito/internal/config"
 	"github.com/vkh/spacemosquito/internal/datastore"
 	"github.com/vkh/spacemosquito/internal/paths"
@@ -67,6 +69,18 @@ func Run(args []string) int {
 	}
 
 	switch cmd {
+	case "bootstrap":
+		if len(args) < 3 {
+			fmt.Fprintln(os.Stderr, "usage: spacemosquito bootstrap import-saved [--from PATH] [--force] [--dry-run]")
+			return 1
+		}
+		switch args[2] {
+		case "import-saved":
+			runBootstrapImportSaved(cfg, args[3:], log)
+		default:
+			fmt.Fprintf(os.Stderr, "unknown bootstrap subcommand: %s\n", args[2])
+			return 1
+		}
 	case "migrate-down":
 		runMigrateDown(cfg, log)
 	case "save":
@@ -128,6 +142,10 @@ func runInit(args []string, log *zap.Logger) {
 	encKey := fs.String("encryption-key", "", "session encryption key (auto-generated if omitted)")
 	force := fs.Bool("force-config", false, "overwrite existing config.yaml")
 	downloadBrowser := fs.Bool("download-browser", false, "pre-download Chromium into the data directory")
+	bootstrapMode := fs.String("bootstrap-mode", "recrawl", "bootstrap mode: recrawl | import_saved")
+	bootstrapFrom := fs.String("from", "", "saved directory to import from when bootstrap-mode=import_saved")
+	bootstrapForce := fs.Bool("bootstrap-force", false, "allow import into a non-empty database")
+	bootstrapDryRun := fs.Bool("bootstrap-dry-run", false, "scan/import report only without DB writes")
 	_ = fs.Parse(args)
 
 	result, err := paths.InitWorkspace(paths.InitOptions{
@@ -169,6 +187,46 @@ func runInit(args []string, log *zap.Logger) {
 		}
 	}
 
+	mode := strings.TrimSpace(*bootstrapMode)
+	if mode == "" {
+		mode = "recrawl"
+	}
+	switch mode {
+	case "recrawl":
+		// no-op bootstrap path
+	case "import_saved":
+		from := strings.TrimSpace(*bootstrapFrom)
+		if from == "" {
+			from = cfg.Storage.BasePath
+		}
+		reportDir, err := paths.ResolveReports()
+		if err != nil {
+			sugar.Errorw("resolve reports directory failed", "error", err)
+			os.Exit(1)
+		}
+		database, err := datastore.Open(cfg, log)
+		if err != nil {
+			sugar.Errorw("database open failed", "error", err)
+			os.Exit(1)
+		}
+		defer database.Close()
+		report, err := bootstrap.ImportSaved(context.Background(), database, bootstrap.Options{
+			FromDir:   from,
+			ReportDir: reportDir,
+			Force:     *bootstrapForce,
+			DryRun:    *bootstrapDryRun,
+		}, sugar)
+		if err != nil {
+			sugar.Errorw("bootstrap import-saved failed", "error", err)
+			os.Exit(1)
+		}
+		fmt.Printf("Bootstrap import-saved complete: pages=%d spaces=%d skipped=%d errors=%d\n",
+			report.ImportedPages, report.ImportedSpaces, len(report.Skipped), len(report.Errors))
+	default:
+		fmt.Fprintf(os.Stderr, "invalid --bootstrap-mode: %q (expected recrawl or import_saved)\n", mode)
+		os.Exit(1)
+	}
+
 	fmt.Printf("Data directory: %s\n", result.DataDir)
 	fmt.Printf("Config:         %s\n", result.ConfigPath)
 	if result.ConfigCreated {
@@ -182,6 +240,51 @@ func runInit(args []string, log *zap.Logger) {
 	}
 	fmt.Println()
 	fmt.Println("Init complete. Run the Firefox extension, then: spacemosquito serve")
+}
+
+func runBootstrapImportSaved(cfg *config.Config, args []string, log *zap.Logger) {
+	fs := flag.NewFlagSet("bootstrap import-saved", flag.ExitOnError)
+	from := fs.String("from", "", "directory containing saved pages (default config.storage.base_path)")
+	force := fs.Bool("force", false, "allow import into non-empty database")
+	dryRun := fs.Bool("dry-run", false, "scan and report only")
+	_ = fs.Parse(args)
+
+	sugar := logging.New("bootstrap", log)
+	fromDir := strings.TrimSpace(*from)
+	if fromDir == "" {
+		fromDir = cfg.Storage.BasePath
+	}
+	reportDir, err := paths.ResolveReports()
+	if err != nil {
+		sugar.Errorw("resolve reports directory failed", "error", err)
+		os.Exit(1)
+	}
+
+	database, err := datastore.Open(cfg, log)
+	if err != nil {
+		sugar.Errorw("database open failed", "error", err)
+		os.Exit(1)
+	}
+	defer database.Close()
+
+	report, err := bootstrap.ImportSaved(context.Background(), database, bootstrap.Options{
+		FromDir:   fromDir,
+		ReportDir: reportDir,
+		Force:     *force,
+		DryRun:    *dryRun,
+	}, sugar)
+	if err != nil {
+		sugar.Errorw("import-saved failed", "error", err)
+		os.Exit(1)
+	}
+
+	fmt.Printf("Import complete from %s\n", report.From)
+	fmt.Printf("Scanned: %d\n", report.ScannedFiles)
+	fmt.Printf("Imported pages: %d\n", report.ImportedPages)
+	fmt.Printf("Imported spaces: %d\n", report.ImportedSpaces)
+	fmt.Printf("Deduplicated: %d\n", report.Deduplicated)
+	fmt.Printf("Skipped: %d\n", len(report.Skipped))
+	fmt.Printf("Errors: %d\n", len(report.Errors))
 }
 
 func runMigrateDown(cfg *config.Config, log *zap.Logger) {
@@ -481,6 +584,14 @@ func printUsage() {
 	fmt.Println("    --data-dir <path>         Data directory (default ~/.spacemosquito)")
 	fmt.Println("    --encryption-key <key>    Session key (auto-generated if omitted)")
 	fmt.Println("    --download-browser        Pre-download Chromium for offline use")
+	fmt.Println("    --bootstrap-mode <mode>   Bootstrap mode: recrawl | import_saved")
+	fmt.Println("    --from <path>             Saved path for import_saved mode")
+	fmt.Println("    --bootstrap-force         Allow import into non-empty DB")
+	fmt.Println("    --bootstrap-dry-run       Scan/report only for import_saved mode")
+	fmt.Println("  bootstrap import-saved      Import pages from saved/ into DB")
+	fmt.Println("    --from <path>             Saved directory (default config storage path)")
+	fmt.Println("    --force                   Allow import into non-empty DB")
+	fmt.Println("    --dry-run                 Scan and report only")
 	fmt.Println("  migrate-down   Rollback last migration")
 	fmt.Println("  save <url>     Save a Confluence page")
 	fmt.Println("  crawl <url>    Crawl a full Confluence space")
