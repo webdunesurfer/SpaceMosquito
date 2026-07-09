@@ -13,6 +13,7 @@ import (
 	"github.com/PuerkitoBio/goquery"
 	"github.com/go-rod/rod"
 	"github.com/vkh/spacemosquito/internal/session"
+	"path/filepath"
 )
 
 // SpaceInfo holds discovered metadata about a Confluence space.
@@ -35,8 +36,8 @@ func (s *Scraper) discoverSpace(spaceURL string, sess *session.Session) (*SpaceI
 	}
 
 	if s.log.Enabled() {
-		s.log.Warnw("API space discovery failed, FALLING BACK to browser scraping", 
-			"space_url", spaceURL, 
+		s.log.Warnw("API space discovery failed, FALLING BACK to browser scraping",
+			"space_url", spaceURL,
 			"error", err)
 	}
 
@@ -187,7 +188,7 @@ func (s *Scraper) discoverSpaceWeb(spaceURL string) (*SpaceInfo, error) {
 			s.log.Errorw("page load timeout, taking screenshot for debug", "timeout", 60*time.Second)
 		}
 		// Take a screenshot for debugging
-		page.MustScreenshot("/tmp/confluence_timeout.png")
+		page.MustScreenshot(filepath.Join(os.TempDir(), "confluence_timeout.png"))
 		return nil, fmt.Errorf("page load timeout after 60s")
 	}
 
@@ -236,15 +237,20 @@ func (s *Scraper) discoverSpaceWeb(spaceURL string) (*SpaceInfo, error) {
 	}
 
 	// Save HTML for debugging
-	if err := os.WriteFile("/tmp/confluence_debug.html", []byte(html), 0644); err == nil {
+	debugDir := s.cfg.Storage.BasePath
+	if debugDir == "" {
+		debugDir = os.TempDir()
+	}
+	debugPath := filepath.Join(debugDir, ".debug.html")
+	if err := os.WriteFile(debugPath, []byte(html), 0644); err == nil {
 		if s.log.Enabled() {
-			s.log.Debugw("saved debug html", "path", "/tmp/confluence_debug.html", "size", len(html))
+			s.log.Debugw("saved debug html", "path", debugPath, "size", len(html))
 		}
 	}
-	// Also save to bind-mount for inspection
-	if err := os.WriteFile("/app/saved/.debug.html", []byte(html), 0644); err == nil {
+	timeoutDebug := filepath.Join(os.TempDir(), "confluence_debug.html")
+	if err := os.WriteFile(timeoutDebug, []byte(html), 0644); err == nil {
 		if s.log.Enabled() {
-			s.log.Debugw("saved debug html to bind-mount", "path", "/app/saved/.debug.html")
+			s.log.Debugw("saved debug html", "path", timeoutDebug, "size", len(html))
 		}
 	}
 
@@ -265,8 +271,6 @@ func (s *Scraper) discoverSpaceWeb(spaceURL string) (*SpaceInfo, error) {
 			"space_key", spaceInfo.SpaceKey,
 			"space_name", spaceInfo.SpaceName)
 	}
-
-
 
 	// Try rod's Element API first for dynamic content
 	pages := s.findPagesByRod(page, spaceInfo.SpaceKey, spaceURL)
@@ -316,7 +320,6 @@ func (s *Scraper) discoverSpaceWeb(spaceURL string) (*SpaceInfo, error) {
 
 	return spaceInfo, nil
 }
-
 
 // findPagesByRod uses rod's Element API to find page links in the rendered DOM.
 func (s *Scraper) findPagesByRod(page *rod.Page, spaceKey, spaceURL string) []*Page {
@@ -384,7 +387,7 @@ func (s *Scraper) findPagesByRod(page *rod.Page, spaceKey, spaceURL string) []*P
 
 func (s *Scraper) extractSpaceKey(doc *goquery.Document, spaceURL string) string {
 	// Try extracting from space key element
-	doc.Find("#space-heading, .aui-navgroup-label, [data-testid="+
+	doc.Find("#space-heading, .aui-navgroup-label, [data-testid=" +
 		"sidebar.navigation.space-name]").Each(func(i int, s *goquery.Selection) {
 		text := s.Text()
 		if len(text) > 0 {

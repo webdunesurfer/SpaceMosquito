@@ -8,20 +8,20 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/vkh/spacemosquito/internal/config"
-	"github.com/vkh/spacemosquito/internal/db"
 	"github.com/vkh/spacemosquito/internal/session"
 	"github.com/vkh/spacemosquito/internal/storage"
+	"github.com/vkh/spacemosquito/internal/store"
 	"github.com/vkh/spacemosquito/pkg/logging"
 )
 
 type JobStatus string
 
 const (
-	JobStatusPending    JobStatus = "pending"
-	JobStatusRunning    JobStatus = "running"
-	JobStatusCompleted  JobStatus = "completed"
-	JobStatusFailed     JobStatus = "failed"
-	JobStatusCancelled  JobStatus = "cancelled"
+	JobStatusPending   JobStatus = "pending"
+	JobStatusRunning   JobStatus = "running"
+	JobStatusCompleted JobStatus = "completed"
+	JobStatusFailed    JobStatus = "failed"
+	JobStatusCancelled JobStatus = "cancelled"
 )
 
 type CrawlJob struct {
@@ -49,14 +49,14 @@ type JobSnapshot struct {
 }
 
 type CrawlJobManager struct {
-	jobs   map[string]*CrawlJob
-	mu     sync.RWMutex
-	log    logging.Sugar
-	cfg    *config.Config
-	db     *db.DB
-	store  *session.Store
+	jobs    map[string]*CrawlJob
+	mu      sync.RWMutex
+	log     logging.Sugar
+	cfg     *config.Config
+	db      store.Store
+	store   *session.Store
 	storage *storage.Writer
-	assets *storage.AssetDownloader
+	assets  *storage.AssetDownloader
 }
 
 type CrawlRunner struct {
@@ -64,15 +64,15 @@ type CrawlRunner struct {
 	log     logging.Sugar
 }
 
-func NewJobManager(cfg *config.Config, db *db.DB, store *session.Store, storageWriter *storage.Writer, assetDownloader *storage.AssetDownloader, log logging.Sugar) *CrawlJobManager {
+func NewJobManager(cfg *config.Config, database store.Store, store *session.Store, storageWriter *storage.Writer, assetDownloader *storage.AssetDownloader, log logging.Sugar) *CrawlJobManager {
 	return &CrawlJobManager{
-		jobs:      make(map[string]*CrawlJob),
-		log:       log,
-		cfg:       cfg,
-		db:        db,
-		store:     store,
-		storage:   storageWriter,
-		assets:    assetDownloader,
+		jobs:    make(map[string]*CrawlJob),
+		log:     log,
+		cfg:     cfg,
+		db:      database,
+		store:   store,
+		storage: storageWriter,
+		assets:  assetDownloader,
 	}
 }
 
@@ -240,7 +240,7 @@ func (r *CrawlRunner) Run(ctx context.Context, job *CrawlJob) error {
 		r.manager.assets,
 		r.log,
 	)
-	
+
 	// Initialize context for the scraper to prevent nil pointer dereferences in DB calls
 	scraper.ctx = ctx
 
@@ -296,15 +296,15 @@ func (r *CrawlRunner) Run(ctx context.Context, job *CrawlJob) error {
 				continue
 			}
 		}
-		
+
 		// Try API scraping first
 		err := scraper.ScrapePageAPI(pg, pageInfo.SpaceKey, pageInfo.SpaceURL, sess)
 		if err != nil {
 			if r.log.Enabled() {
-				r.log.Warnw("API page scrape failed, falling back to browser", 
+				r.log.Warnw("API page scrape failed, falling back to browser",
 					"job_id", job.ID, "page_id", pg.ConfluenceID, "error", err)
 			}
-			
+
 			// Fallback to browser
 			if scraper.browser == nil {
 				if err := scraper.LaunchBrowser(); err != nil {
@@ -320,7 +320,7 @@ func (r *CrawlRunner) Run(ctx context.Context, job *CrawlJob) error {
 					continue
 				}
 			}
-			
+
 			if err := scraper.ScrapePage(pg, pageInfo.SpaceKey, pageInfo.SpaceURL); err != nil {
 				r.manager.mu.Lock()
 				job.Failed++

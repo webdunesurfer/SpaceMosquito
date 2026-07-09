@@ -5,9 +5,6 @@ import (
 	"fmt"
 	"time"
 
-	_ "github.com/golang-migrate/migrate/v4/database/postgres"
-	"github.com/golang-migrate/migrate/v4"
-	_ "github.com/golang-migrate/migrate/v4/source/file"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/vkh/spacemosquito/internal/config"
 	"github.com/vkh/spacemosquito/pkg/logging"
@@ -44,7 +41,7 @@ func New(cfg *config.DatabaseConfig, log *zap.Logger) (*DB, error) {
 		return nil, fmt.Errorf("ping db: %w", err)
 	}
 
-	log.Info("connected to database", zap.String("host", cfg.Host))
+	log.Info("connected to database", zap.String("host", cfg.Host), zap.String("driver", "postgres"))
 
 	return &DB{
 		pool: pool,
@@ -70,58 +67,4 @@ func (d *DB) UpdateSpaceLastCrawled(ctx context.Context, spaceKey string) error 
 		time.Now(), spaceKey,
 	)
 	return err
-}
-
-func MigrateUp(migrationsPath, dsn string, log logging.Sugar) error {
-	if log.Enabled() {
-		log.Infow("running migrations", "path", migrationsPath)
-	}
-
-	m, err := migrate.New("file://"+migrationsPath, dsn)
-	if err != nil {
-		if log.Enabled() {
-			log.Errorw("create migrator failed", "error", err)
-		}
-		return fmt.Errorf("create migrator: %w", err)
-	}
-	defer m.Close()
-
-	if err := m.Up(); err != nil && err != migrate.ErrNoChange {
-		if log.Enabled() {
-			log.Errorw("migrate up failed", "error", err)
-		}
-		return fmt.Errorf("migrate up: %w", err)
-	}
-
-	if log.Enabled() {
-		log.Info("migrations complete")
-	}
-	return nil
-}
-
-func MigrateDown(migrationsPath, dsn string, log logging.Sugar) error {
-	if log.Enabled() {
-		log.Infow("rolling back migration", "path", migrationsPath)
-	}
-
-	m, err := migrate.New("file://"+migrationsPath, dsn)
-	if err != nil {
-		if log.Enabled() {
-			log.Errorw("create migrator failed", "error", err)
-		}
-		return fmt.Errorf("create migrator: %w", err)
-	}
-	defer m.Close()
-
-	if err := m.Steps(-1); err != nil && err != migrate.ErrNilVersion {
-		if log.Enabled() {
-			log.Errorw("migrate down failed", "error", err)
-		}
-		return fmt.Errorf("migrate down: %w", err)
-	}
-
-	if log.Enabled() {
-		log.Info("migration rolled back")
-	}
-	return nil
 }

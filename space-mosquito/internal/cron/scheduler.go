@@ -8,10 +8,10 @@ import (
 
 	"github.com/go-co-op/gocron/v2"
 	"github.com/vkh/spacemosquito/internal/config"
-	"github.com/vkh/spacemosquito/internal/db"
 	"github.com/vkh/spacemosquito/internal/scraper"
 	"github.com/vkh/spacemosquito/internal/session"
 	"github.com/vkh/spacemosquito/internal/storage"
+	"github.com/vkh/spacemosquito/internal/store"
 	"github.com/vkh/spacemosquito/pkg/logging"
 )
 
@@ -23,7 +23,7 @@ type Scheduler struct {
 	log       logging.Sugar
 	cfg       *config.Config
 	man       *Manager
-	db        *db.DB
+	db        store.Store
 	store     *session.Store
 	storage   *storage.Writer
 	assets    *storage.AssetDownloader
@@ -41,21 +41,21 @@ type JobInfo struct {
 func NewScheduler(
 	cfg *config.Config,
 	man *Manager,
-	database *db.DB,
+	database store.Store,
 	store *session.Store,
 	storageWriter *storage.Writer,
 	assetDownloader *storage.AssetDownloader,
 	log logging.Sugar,
 ) *Scheduler {
 	return &Scheduler{
-		jobs:      make(map[string]gocron.Job),
-		log:       log,
-		cfg:       cfg,
-		man:       man,
-		db:        database,
-		store:     store,
-		storage:   storageWriter,
-		assets:    assetDownloader,
+		jobs:    make(map[string]gocron.Job),
+		log:     log,
+		cfg:     cfg,
+		man:     man,
+		db:      database,
+		store:   store,
+		storage: storageWriter,
+		assets:  assetDownloader,
 	}
 }
 
@@ -106,7 +106,9 @@ func (s *Scheduler) Restart(ctx context.Context) error {
 
 // Stop gracefully shuts down the scheduler.
 func (s *Scheduler) Stop() {
-	s.scheduler.Shutdown()
+	if s.scheduler != nil {
+		s.scheduler.Shutdown()
+	}
 	s.log.Info("cron scheduler stopped")
 }
 
@@ -280,16 +282,7 @@ func (s *Scheduler) runFullCrawl(ctx context.Context, jobID, spaceKey, spaceURL 
 	}
 
 	scr := scraper.New(s.cfg, s.db, s.storage, s.assets, s.log)
-	if err := scr.LaunchBrowser(); err != nil {
-		s.log.Errorw("failed to launch browser", "job_id", jobID, "error", err)
-		return
-	}
 	defer scr.CloseBrowser()
-
-	if err := scr.SetupContextWithSession(sess); err != nil {
-		s.log.Errorw("failed to setup session", "job_id", jobID, "error", err)
-		return
-	}
 
 	done := make(chan struct{})
 	var crawlErr error
@@ -349,16 +342,7 @@ func (s *Scheduler) runIncremental(ctx context.Context, jobID, spaceKey, spaceUR
 	}
 
 	scr := scraper.New(s.cfg, s.db, s.storage, s.assets, s.log)
-	if err := scr.LaunchBrowser(); err != nil {
-		s.log.Errorw("failed to launch browser", "job_id", jobID, "error", err)
-		return
-	}
 	defer scr.CloseBrowser()
-
-	if err := scr.SetupContextWithSession(sess); err != nil {
-		s.log.Errorw("failed to setup session", "job_id", jobID, "error", err)
-		return
-	}
 
 	changed := 0
 	skipped := 0
@@ -398,7 +382,7 @@ func (s *Scheduler) runIncremental(ctx context.Context, jobID, spaceKey, spaceUR
 		// Try API scraping first
 		err := scr.ScrapePageAPI(pg, spaceKey, spaceURL, sess)
 		if err != nil {
-			s.log.Warnw("API page scrape failed, falling back to browser", 
+			s.log.Warnw("API page scrape failed, falling back to browser",
 				"job_id", jobID, "page_id", page.ConfluenceID, "error", err)
 
 			// Fallback to browser

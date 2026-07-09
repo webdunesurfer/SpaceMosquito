@@ -1,28 +1,12 @@
 package main
 
 import (
-	"context"
 	"os"
-	"os/signal"
-	"syscall"
 
-	"github.com/vkh/spacemosquito/internal/app"
+	"github.com/vkh/spacemosquito/internal/cliapp"
 )
 
 func main() {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-	defer signal.Stop(sigChan)
-
-	go func() {
-		<-sigChan
-		cancel()
-	}()
-
-	if err := app.Run(ctx); err != nil {
-		os.Exit(1)
-	}
+	args := append([]string{os.Args[0], "serve"}, os.Args[1:]...)
+	os.Exit(cliapp.Run(args))
 }

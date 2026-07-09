@@ -10,12 +10,12 @@ import (
 	"time"
 
 	"github.com/go-rod/rod"
-	"github.com/go-rod/rod/lib/launcher"
 	"github.com/go-rod/rod/lib/proto"
 	"github.com/vkh/spacemosquito/internal/config"
 	"github.com/vkh/spacemosquito/internal/db"
 	"github.com/vkh/spacemosquito/internal/session"
 	"github.com/vkh/spacemosquito/internal/storage"
+	"github.com/vkh/spacemosquito/internal/store"
 	"github.com/vkh/spacemosquito/pkg/logging"
 )
 
@@ -54,7 +54,7 @@ type Scraper struct {
 	ctx     context.Context
 	cancel  context.CancelFunc
 	cfg     *config.Config
-	db      *db.DB
+	db      store.Store
 	storage *storage.Writer
 	assets  *storage.AssetDownloader
 	log     logging.Sugar
@@ -65,7 +65,7 @@ type Scraper struct {
 // New creates a new Scraper with the given config and dependencies.
 func New(
 	cfg *config.Config,
-	database *db.DB,
+	database store.Store,
 	storageWriter *storage.Writer,
 	assetDownloader *storage.AssetDownloader,
 	log logging.Sugar,
@@ -79,35 +79,36 @@ func New(
 	}
 }
 
-// LaunchBrowser creates a rod browser instance with Chromium headless.
+// LaunchBrowser creates a rod browser instance with Chromium headless (lazy, idempotent).
 func (s *Scraper) LaunchBrowser() error {
-	if s.log.Enabled() {
-		s.log.Info("initializing rod with Chromium")
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.browser != nil {
+		return nil
 	}
 
-	url, err := launcher.New().
-		Bin("/usr/bin/chromium").
-		Headless(true).
-		NoSandbox(true).
-		Set("disable-gpu", "").
-		Set("disable-dev-shm-usage", "").
-		Set("disable-gpu-sandbox", "").
-		Set("disable-setuid-sandbox", "").
-		Set("disable-seccomp-filter-sandbox", "").
-		Set("disable-features", "VizDisplayCompositor,TranslateUI,BlinkGenPropertyTrees").
-		Set("user-agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36").
-		Launch()
+	bin, source, err := resolveChromiumBin(s.cfg, s.log)
+	if err != nil {
+		return err
+	}
+	if s.log.Enabled() {
+		s.log.Infow("launching Chromium", "source", source, "bin", bin)
+	}
+
+	url, err := buildLauncher(bin).Launch()
 	if err != nil {
 		return fmt.Errorf("launch chromium: %w", err)
 	}
 
 	s.browser = rod.New().ControlURL(url).MustConnect()
-	s.ctx, s.cancel = context.WithCancel(context.Background())
+	if s.ctx == nil || s.cancel == nil {
+		s.ctx, s.cancel = context.WithCancel(context.Background())
+	}
 
 	if s.log.Enabled() {
 		s.log.Info("rod browser created", "control_url", url)
 	}
-
 	return nil
 }
 

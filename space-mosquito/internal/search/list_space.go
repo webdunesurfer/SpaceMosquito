@@ -10,9 +10,9 @@ import (
 )
 
 const (
-	ListSpaceDefaultLimit         = 50
-	ListSpaceMaxLimit             = 200
-	ListSpaceMaxLimitWithContent  = 50
+	ListSpaceDefaultLimit        = 50
+	ListSpaceMaxLimit            = 200
+	ListSpaceMaxLimitWithContent = 50
 )
 
 // ListSpaceOptions holds parsed list-space request parameters.

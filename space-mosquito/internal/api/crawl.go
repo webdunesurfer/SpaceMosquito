@@ -61,9 +61,9 @@ func (h *CrawlHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}()
 
 	writeJSON(w, http.StatusAccepted, map[string]interface{}{
-		"message":  "crawl job created",
-		"job_id":   job.ID,
-		"status":   job.Status,
+		"message":   "crawl job created",
+		"job_id":    job.ID,
+		"status":    job.Status,
 		"space_url": job.SpaceURL,
 	})
 }

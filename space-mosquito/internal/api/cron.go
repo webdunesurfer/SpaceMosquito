@@ -61,16 +61,16 @@ func (h *CronAPIHandler) ConfigGet(w http.ResponseWriter, r *http.Request) {
 
 	result := map[string]interface{}{
 		"yaml_full_crawl": map[string]interface{}{
-			"enabled":    h.cfg.Cron.FullCrawl != nil && h.cfg.Cron.FullCrawl.Enabled,
-			"interval":   h.cfg.Cron.FullCrawl.Interval,
-			"spaces":     h.cfg.Cron.FullCrawl.Spaces,
+			"enabled":      h.cfg.Cron.FullCrawl != nil && h.cfg.Cron.FullCrawl.Enabled,
+			"interval":     h.cfg.Cron.FullCrawl.Interval,
+			"spaces":       h.cfg.Cron.FullCrawl.Spaces,
 			"max_duration": h.cfg.Cron.FullCrawl.MaxDuration,
 		},
 		"yaml_incremental": map[string]interface{}{
-			"enabled":    h.cfg.Cron.Incremental != nil && h.cfg.Cron.Incremental.Enabled,
-			"interval":   h.cfg.Cron.Incremental.Interval,
-			"detection":  h.cfg.Cron.Incremental.Detection,
-			"spaces":     h.cfg.Cron.Incremental.Spaces,
+			"enabled":      h.cfg.Cron.Incremental != nil && h.cfg.Cron.Incremental.Enabled,
+			"interval":     h.cfg.Cron.Incremental.Interval,
+			"detection":    h.cfg.Cron.Incremental.Detection,
+			"spaces":       h.cfg.Cron.Incremental.Spaces,
 			"max_duration": h.cfg.Cron.Incremental.MaxDuration,
 		},
 		"per_space_overrides": overrides,
@@ -225,14 +225,14 @@ func (h *CronSpaceHandler) Delete(w http.ResponseWriter, r *http.Request) {
 
 // SpaceCronConfig returns the per-space cron config.
 type SpaceCronConfig struct {
-	SpaceKey        string    `json:"space_key"`
-	SpaceURL        string    `json:"space_url"`
-	FullCrawl       bool      `json:"full_crawl_enabled"`
-	FullCrawlInterval string  `json:"full_crawl_interval"`
-	IncrCrawl       bool      `json:"incr_crawl_enabled"`
-	IncrCrawlInterval string  `json:"incr_crawl_interval"`
-	Detection       string    `json:"detection"`
-	Updated         time.Time `json:"updated"`
+	SpaceKey          string    `json:"space_key"`
+	SpaceURL          string    `json:"space_url"`
+	FullCrawl         bool      `json:"full_crawl_enabled"`
+	FullCrawlInterval string    `json:"full_crawl_interval"`
+	IncrCrawl         bool      `json:"incr_crawl_enabled"`
+	IncrCrawlInterval string    `json:"incr_crawl_interval"`
+	Detection         string    `json:"detection"`
+	Updated           time.Time `json:"updated"`
 }
 
 // ConfigGet returns the per-space cron config for a given space.
@@ -246,9 +246,9 @@ func (h *CronSpaceHandler) ConfigGet(w http.ResponseWriter, r *http.Request) {
 	ov := h.manager.GetOverride(spaceKey)
 	if ov == nil {
 		writeJSON(w, http.StatusOK, map[string]interface{}{
-			"space_key":           spaceKey,
-			"full_crawl_enabled":  false,
-			"incr_crawl_enabled":  false,
+			"space_key":          spaceKey,
+			"full_crawl_enabled": false,
+			"incr_crawl_enabled": false,
 		})
 		return
 	}

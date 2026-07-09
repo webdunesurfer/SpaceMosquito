@@ -5,20 +5,20 @@ import (
 	"strconv"
 
 	"github.com/vkh/spacemosquito/internal/config"
-	"github.com/vkh/spacemosquito/internal/db"
 	"github.com/vkh/spacemosquito/internal/search"
 	"github.com/vkh/spacemosquito/internal/session"
+	"github.com/vkh/spacemosquito/internal/store"
 	"github.com/vkh/spacemosquito/pkg/logging"
 )
 
 type SearchHandler struct {
-	db     *db.DB
-	store  *session.Store
-	cfg    *config.Config
-	log    logging.Sugar
+	db    store.Store
+	store *session.Store
+	cfg   *config.Config
+	log   logging.Sugar
 }
 
-func NewSearchHandler(database *db.DB, store *session.Store, cfg *config.Config, log logging.Sugar) *SearchHandler {
+func NewSearchHandler(database store.Store, store *session.Store, cfg *config.Config, log logging.Sugar) *SearchHandler {
 	return &SearchHandler{
 		db:    database,
 		store: store,
@@ -56,7 +56,7 @@ func (h *SearchHandler) Search(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if results == nil {
-		results = []db.SearchResult{}
+		results = []store.SearchResult{}
 	}
 
 	hits := search.ToSearchHits(results, h.cfg.MCP.ExposeInternalIDs)

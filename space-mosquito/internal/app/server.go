@@ -12,11 +12,13 @@ import (
 	"github.com/vkh/spacemosquito/internal/api"
 	"github.com/vkh/spacemosquito/internal/config"
 	"github.com/vkh/spacemosquito/internal/cron"
-	"github.com/vkh/spacemosquito/internal/db"
+	"github.com/vkh/spacemosquito/internal/datastore"
 	"github.com/vkh/spacemosquito/internal/mcp"
-	"github.com/vkh/spacemosquito/internal/session"
+	"github.com/vkh/spacemosquito/internal/paths"
 	"github.com/vkh/spacemosquito/internal/scraper"
+	"github.com/vkh/spacemosquito/internal/session"
 	"github.com/vkh/spacemosquito/internal/storage"
+	"github.com/vkh/spacemosquito/internal/store"
 	"github.com/vkh/spacemosquito/pkg/logger"
 	"github.com/vkh/spacemosquito/pkg/logging"
 	"go.uber.org/zap"
@@ -30,22 +32,24 @@ func New() (*zap.Logger, *config.Config, error) {
 
 	log.Info("initializing SpaceMosquito")
 
-	cfgPath := os.Getenv("CONFIG_PATH")
-	if cfgPath == "" {
-		home, _ := os.UserConfigDir()
-		cfgPath = fmt.Sprintf("%s/spacemosquito/config.yaml", home)
+	cfgPath, err := paths.ResolveConfig()
+	if err != nil {
+		log.Fatal("failed to resolve config path", zap.Error(err))
 	}
 
 	cfg, err := config.Load(cfgPath)
 	if err != nil {
 		log.Fatal("failed to load config", zap.Error(err))
 	}
+	if err := paths.NormalizeConfig(cfg); err != nil {
+		log.Fatal("failed to normalize config paths", zap.Error(err))
+	}
 
 	return log, cfg, nil
 }
 
 type serverComponents struct {
-	database        *db.DB
+	database        store.Store
 	cfg             *config.Config
 	sessionStore    *session.Store
 	storageWriter   *storage.Writer
@@ -59,18 +63,19 @@ type serverComponents struct {
 }
 
 func setupComponents(cfg *config.Config, log *zap.Logger) (*serverComponents, error) {
-	database, err := db.New(&cfg.Database, log)
+	migrationsPath, err := paths.ResolveMigrations()
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve migrations path: %w", err)
+	}
+
+	sugar := logging.New("db", log)
+	if err := datastore.MigrateUp(cfg, migrationsPath, sugar); err != nil {
+		return nil, fmt.Errorf("failed to run migrations: %w", err)
+	}
+
+	database, err := datastore.Open(cfg, log)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to database: %w", err)
-	}
-
-	migrationsPath := "migrations"
-	if abs, err := os.Getwd(); err == nil {
-		migrationsPath = abs + "/migrations"
-	}
-
-	if err := db.MigrateUp(migrationsPath, database.Pool().Config().ConnString(), database.Log()); err != nil {
-		return nil, fmt.Errorf("failed to run migrations: %w", err)
 	}
 
 	sessionStore := session.NewStore(cfg.Session.FilePath, logging.New("session", log))
@@ -87,9 +92,9 @@ func setupComponents(cfg *config.Config, log *zap.Logger) (*serverComponents, er
 	mcpServer := mcp.New(database, sessionStore, cfg, logging.New("mcp", log))
 	mcp.ServerInstance = mcpServer
 
-	cronConfigPath := os.Getenv("CRON_CONFIG_PATH")
-	if cronConfigPath == "" {
-		cronConfigPath = "./cron-config.json"
+	cronConfigPath, err := paths.ResolveCronConfig()
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve cron config path: %w", err)
 	}
 	cronManager := cron.NewManager(cronConfigPath, logging.New("cron_config", log))
 
@@ -160,10 +165,6 @@ func setupComponents(cfg *config.Config, log *zap.Logger) (*serverComponents, er
 }
 
 func (c *serverComponents) Start(ctx context.Context) error {
-	if err := c.scraperInstance.LaunchBrowser(); err != nil {
-		c.log.Warn("failed to launch scraper browser", zap.Error(err))
-	}
-
 	if err := c.cronScheduler.Start(ctx); err != nil {
 		c.log.Warn("failed to start cron scheduler", zap.Error(err))
 	}

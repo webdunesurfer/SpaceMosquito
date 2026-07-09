@@ -11,13 +11,13 @@ import (
 
 // PerSpaceCronConfig holds per-space interval overrides stored on disk.
 type PerSpaceCronConfig struct {
-	SpaceKey        string `json:"space_key"`
-	SpaceURL        string `json:"space_url"`
-	FullCrawl       bool   `json:"full_crawl_enabled"`
+	SpaceKey          string `json:"space_key"`
+	SpaceURL          string `json:"space_url"`
+	FullCrawl         bool   `json:"full_crawl_enabled"`
 	FullCrawlInterval string `json:"full_crawl_interval"`
-	IncrCrawl       bool   `json:"incr_crawl_enabled"`
+	IncrCrawl         bool   `json:"incr_crawl_enabled"`
 	IncrCrawlInterval string `json:"incr_crawl_interval"`
-	Detection       string `json:"detection"`
+	Detection         string `json:"detection"`
 }
 
 type Manager struct {

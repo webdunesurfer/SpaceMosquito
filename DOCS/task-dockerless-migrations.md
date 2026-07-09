@@ -362,7 +362,7 @@ Add before or alongside implementation (see `DOCS/task-go-unit-tests.md` Tier 1)
 | `DOCS/epic-dockerless-mode.md` | Parent epic; Phase 1 storage abstraction |
 | `DOCS/task-go-unit-tests.md` | Contract + migration tests |
 | `ADR-009` | Update: dual-driver migration trees + embed |
-| `ADR-014` (proposed) | Dockerless distribution decision |
+| `ADR-014` | Dockerless distribution decision — **Accepted** |
 
 ## Suggested ADR Update (ADR-009 addendum)
 

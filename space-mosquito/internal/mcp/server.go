@@ -11,14 +11,14 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/vkh/spacemosquito/internal/config"
-	"github.com/vkh/spacemosquito/internal/db"
 	"github.com/vkh/spacemosquito/internal/search"
 	"github.com/vkh/spacemosquito/internal/session"
+	"github.com/vkh/spacemosquito/internal/store"
 	"github.com/vkh/spacemosquito/pkg/logging"
 )
 
 type Server struct {
-	db         *db.DB
+	db         store.Store
 	pages      pageStore
 	store      *session.Store
 	cfg        *config.Config
@@ -47,7 +47,7 @@ type MCPResponse struct {
 	JSONRPC string      `json:"jsonrpc"`
 	Result  interface{} `json:"result,omitempty"`
 	Error   *MCPError   `json:"error,omitempty"`
-	ID      interface{}     `json:"id,omitempty"`
+	ID      interface{} `json:"id,omitempty"`
 }
 
 type MCPError struct {
@@ -64,14 +64,14 @@ type Tool struct {
 
 var ServerInstance *Server
 
-func New(db *db.DB, store *session.Store, cfg *config.Config, log logging.Sugar) *Server {
+func New(database store.Store, store *session.Store, cfg *config.Config, log logging.Sugar) *Server {
 	sessionTTL := time.Duration(cfg.MCP.Timeout) * time.Second
 	if sessionTTL == 0 {
 		sessionTTL = 3600 * time.Second
 	}
 
 	server := &Server{
-		db:         db,
+		db:         database,
 		store:      store,
 		cfg:        cfg,
 		log:        log,
@@ -374,7 +374,7 @@ func (s *Server) toolSearch(args map[string]interface{}) (interface{}, error) {
 		return nil, fmt.Errorf("search failed: %w", err)
 	}
 	if results == nil {
-		results = []db.SearchResult{}
+		results = []store.SearchResult{}
 	}
 	return search.ToSearchHits(results, s.cfg.MCP.ExposeInternalIDs), nil
 }
@@ -435,7 +435,7 @@ func (s *Server) sendError(session *ClientSession, id interface{}, code int, mes
 			Message: message,
 			Data:    data,
 		},
-		ID:      id,
+		ID: id,
 	}
 	dataJSON, _ := json.Marshal(response)
 	session.SendChan <- dataJSON

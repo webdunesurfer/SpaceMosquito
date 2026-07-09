@@ -1,4 +1,7 @@
 #!/bin/bash
+# Manual smoke test against a running server (Docker or local serve).
+# For automated in-process REST + MCP coverage with seeded SQLite, see:
+#   go test -race -tags=integration ./internal/app/...
 set -e
 
 echo "============================================"

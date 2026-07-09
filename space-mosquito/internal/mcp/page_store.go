@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/vkh/spacemosquito/internal/db"
+	"github.com/vkh/spacemosquito/internal/store"
 )
 
 type pageStore interface {
@@ -11,11 +12,15 @@ type pageStore interface {
 }
 
 type dbPageStore struct {
-	db *db.DB
+	db store.Store
 }
 
 func (s dbPageStore) GetPage(ctx context.Context, spaceKey string, confluenceID int) (*db.Page, error) {
-	return s.db.GetPage(ctx, spaceKey, confluenceID)
+	page, err := s.db.GetPage(ctx, spaceKey, confluenceID)
+	if err != nil {
+		return nil, err
+	}
+	return page, nil
 }
 
 func (s *Server) pageStore() pageStore {

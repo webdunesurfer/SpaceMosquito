@@ -12,16 +12,16 @@ import (
 )
 
 type Metadata struct {
-	Title             string            `json:"title"`
-	ConfluenceURL     string            `json:"confluence_url"`
-	SpaceKey          string            `json:"space_key"`
-	ParentTitle       string            `json:"parent_title,omitempty"`
-	Author            string            `json:"author,omitempty"`
-	CreatedAt         time.Time         `json:"created_at"`
-	UpdatedAt         time.Time         `json:"updated_at"`
-	Images            []AssetRef        `json:"images,omitempty"`
-	Attachments       []AssetRef        `json:"attachments,omitempty"`
-	SavedAt           time.Time         `json:"saved_at"`
+	Title         string     `json:"title"`
+	ConfluenceURL string     `json:"confluence_url"`
+	SpaceKey      string     `json:"space_key"`
+	ParentTitle   string     `json:"parent_title,omitempty"`
+	Author        string     `json:"author,omitempty"`
+	CreatedAt     time.Time  `json:"created_at"`
+	UpdatedAt     time.Time  `json:"updated_at"`
+	Images        []AssetRef `json:"images,omitempty"`
+	Attachments   []AssetRef `json:"attachments,omitempty"`
+	SavedAt       time.Time  `json:"saved_at"`
 }
 
 type AssetRef struct {

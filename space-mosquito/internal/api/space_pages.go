@@ -5,19 +5,19 @@ import (
 	"net/http"
 
 	"github.com/vkh/spacemosquito/internal/config"
-	"github.com/vkh/spacemosquito/internal/db"
 	"github.com/vkh/spacemosquito/internal/search"
+	"github.com/vkh/spacemosquito/internal/store"
 	"github.com/vkh/spacemosquito/pkg/logging"
 )
 
 type spacePagesHandler struct {
 	log logging.Sugar
-	db  *db.DB
+	db  store.Store
 	cfg *config.Config
 }
 
 // SpacePagesHandler lists pages in a space with cursor pagination.
-func SpacePagesHandler(database *db.DB, cfg *config.Config, log logging.Sugar) http.HandlerFunc {
+func SpacePagesHandler(database store.Store, cfg *config.Config, log logging.Sugar) http.HandlerFunc {
 	return (&spacePagesHandler{log: log, db: database, cfg: cfg}).handle
 }
 

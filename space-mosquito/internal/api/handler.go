@@ -156,9 +156,9 @@ func (h *Handler) SessionStatus(w http.ResponseWriter, r *http.Request) {
 	if !h.store.HasSession() {
 		h.log.Debug("session status: no session stored")
 		writeJSON(w, http.StatusOK, map[string]interface{}{
-			"valid":  false,
+			"valid":   false,
 			"message": "no session stored",
-			"exists": false,
+			"exists":  false,
 		})
 		return
 	}
@@ -178,8 +178,8 @@ func (h *Handler) SessionStatus(w http.ResponseWriter, r *http.Request) {
 
 	maxAge := 24 * time.Hour
 	status := map[string]interface{}{
-		"exists": true,
-		"valid":  false,
+		"exists":  true,
+		"valid":   false,
 		"message": "session requires validation",
 	}
 

@@ -402,7 +402,7 @@ Run with `go test -tags=integration ./...` — not required for every PR, but va
 - [ ] `docker compose up` still works for developers using Postgres
 - [ ] `go test -race ./...` passes; contract tests run against SQLite
 - [ ] README documents both install paths
-- [ ] GitHub Release ships binaries for darwin/linux/windows amd64+arm64 (darwin)
+- [ ] GitHub Release ships binaries for darwin/linux/windows amd64+arm64 (darwin) — **deferred** (no formal release cadence in this epic; see Process #19)
 
 ---
 
@@ -441,9 +441,11 @@ Resolved:
 
 ### Process
 
-17. **ADR before or during implementation?** Write `ADR-014` before Phase 1, or after spike?
-18. **Epic sequencing vs unit tests epic?** `DOCS/task-go-unit-tests.md` Phase 0 is a hard prerequisite — confirm priority.
-19. **Versioning / release cadence?** Tag `v1.0.0-dockerless` or incremental `v0.x` releases per phase?
+Resolved:
+
+17. **ADR timing:** **Create ADR-014 first** (before Phase 1 implementation).
+18. **Epic sequencing vs unit tests:** **Unit tests first** — baseline Phase 0 from `DOCS/task-go-unit-tests.md` is **already done** (`go test -race ./...` + CI). Dockerless refactor still needs **new** tests as you go (SQLite store contract, migration tests, path resolver) — not a blocker to start Phase 1 after ADR.
+19. **Versioning / release cadence:** **No formal releasing** as part of this epic (no tagged release cadence / GitHub Release matrix deliverable).
 
 ---
 
@@ -457,12 +459,9 @@ Resolved:
 | `DOCS/task-incremental-scraper.md` | Version-based skip logic must pass contract tests |
 | `ADR-004` | Headless browser rationale — update for lazy/auto-download |
 | `ADR-009` | Migrations — extend for SQLite |
+| `ADR-014` | Dockerless SQLite distribution — **Accepted** |
 | `README.md` | Dual quick-start after epic |
 
 ## Suggested ADR
 
-**ADR-014: Dockerless Distribution with SQLite and Embedded Chromium**
-
-- Status: Proposed
-- Decision: Default install uses SQLite + rod auto-download; Docker/Postgres remains optional developer path
-- Record after remaining open questions are resolved
+**ADR-014: Dockerless Local Distribution** — **Accepted**. See [`ADR/014-dockerless-sqlite-distribution.md`](../ADR/014-dockerless-sqlite-distribution.md). Implementation detail in task docs, not the ADR.

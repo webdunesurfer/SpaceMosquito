@@ -13,18 +13,29 @@ type Config struct {
 	Database DatabaseConfig `yaml:"database"`
 	Storage  StorageConfig  `yaml:"storage"`
 	Session  SessionConfig  `yaml:"session"`
+	Browser  BrowserConfig  `yaml:"browser"`
 	Embedder EmbedderConfig `yaml:"embedder"`
 	MCP      MCPConfig      `yaml:"mcp"`
 	Cron     CronConfig     `yaml:"cron"`
 }
 
 type DatabaseConfig struct {
+	Driver   string `yaml:"driver"` // postgres | sqlite
+	Path     string `yaml:"path"`   // sqlite database file (relative to storage base parent)
 	Host     string `yaml:"host"`
 	Port     int    `yaml:"port"`
 	User     string `yaml:"user"`
 	Password string `yaml:"password"`
 	DBName   string `yaml:"dbname"`
 	SSLMode  string `yaml:"sslmode"`
+}
+
+// DriverName returns the configured driver, defaulting to postgres.
+func (c DatabaseConfig) DriverName() string {
+	if c.Driver == "" {
+		return "postgres"
+	}
+	return c.Driver
 }
 
 func (c DatabaseConfig) DSN() string {
@@ -43,10 +54,14 @@ type SessionConfig struct {
 	FilePath      string `yaml:"file_path"`
 }
 
+type BrowserConfig struct {
+	Path string `yaml:"path"` // optional; CHROMIUM_PATH env takes precedence
+}
+
 type EmbedderConfig struct {
-	Model  string           `yaml:"model"`
-	OpenAI *OpenAICConfig  `yaml:"openai"`
-	BGE    *BGEConfig      `yaml:"bge"`
+	Model  string         `yaml:"model"`
+	OpenAI *OpenAICConfig `yaml:"openai"`
+	BGE    *BGEConfig     `yaml:"bge"`
 }
 
 type OpenAICConfig struct {
@@ -59,10 +74,10 @@ type BGEConfig struct {
 }
 
 type MCPConfig struct {
-	Port               int    `yaml:"port"`
-	Host               string `yaml:"host"`
-	Timeout            int    `yaml:"session_timeout"`
-	ExposeInternalIDs  bool   `yaml:"expose_internal_ids"`
+	Port              int    `yaml:"port"`
+	Host              string `yaml:"host"`
+	Timeout           int    `yaml:"session_timeout"`
+	ExposeInternalIDs bool   `yaml:"expose_internal_ids"`
 }
 
 type CronConfig struct {
@@ -71,11 +86,11 @@ type CronConfig struct {
 }
 
 type CronJobConfig struct {
-	Enabled    bool     `yaml:"enabled"`
-	Interval   string   `yaml:"interval"`
-	Spaces     []string `yaml:"spaces"`
-	Detection  string   `yaml:"detection"`
-	MaxDuration string  `yaml:"max_duration"`
+	Enabled     bool     `yaml:"enabled"`
+	Interval    string   `yaml:"interval"`
+	Spaces      []string `yaml:"spaces"`
+	Detection   string   `yaml:"detection"`
+	MaxDuration string   `yaml:"max_duration"`
 }
 
 func Load(path string) (*Config, error) {

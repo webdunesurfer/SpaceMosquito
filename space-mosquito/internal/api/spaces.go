@@ -6,14 +6,14 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/vkh/spacemosquito/internal/db"
 	"github.com/vkh/spacemosquito/internal/session"
+	"github.com/vkh/spacemosquito/internal/store"
 	"github.com/vkh/spacemosquito/pkg/logging"
 )
 
 type spacesHandler struct {
 	log logging.Sugar
-	db  *db.DB
+	db  store.Store
 }
 
 type addSpaceRequest struct {
@@ -21,7 +21,7 @@ type addSpaceRequest struct {
 }
 
 // SpacesHandler handles space management endpoints.
-func SpacesHandler(db *db.DB, log logging.Sugar) http.HandlerFunc {
+func SpacesHandler(db store.Store, log logging.Sugar) http.HandlerFunc {
 	return (&spacesHandler{log: log, db: db}).handle
 }
 
@@ -47,12 +47,11 @@ func (h *spacesHandler) list(w http.ResponseWriter, r *http.Request) {
 
 	result := make([]map[string]interface{}, 0, len(spaces))
 	for _, s := range spaces {
-		var pageCount int
 		var lastCrawledStr string
 		if s.LastCrawled != nil {
 			lastCrawledStr = s.LastCrawled.Format(time.RFC3339)
 		}
-		err := h.db.Pool().QueryRow(ctx, "SELECT COUNT(*) FROM pages WHERE space_id = $1", s.ID).Scan(&pageCount)
+		pageCount, err := h.db.CountPagesBySpaceID(ctx, s.ID)
 		if err != nil {
 			h.log.Warnw("count pages failed", "space_key", s.Key, "error", err)
 			pageCount = 0
@@ -108,13 +107,13 @@ func (h *spacesHandler) add(w http.ResponseWriter, r *http.Request) {
 }
 
 // SpaceByIDHandler handles individual space endpoints.
-func SpaceByIDHandler(db *db.DB, log logging.Sugar) http.HandlerFunc {
+func SpaceByIDHandler(db store.Store, log logging.Sugar) http.HandlerFunc {
 	return (&spaceByIDHandler{log: log, db: db}).handle
 }
 
 type spaceByIDHandler struct {
 	log logging.Sugar
-	db  *db.DB
+	db  store.Store
 }
 
 func (h *spaceByIDHandler) handle(w http.ResponseWriter, r *http.Request) {
@@ -160,23 +159,12 @@ func (h *spaceByIDHandler) getStatus(w http.ResponseWriter, r *http.Request, spa
 
 func (h *spaceByIDHandler) delete(w http.ResponseWriter, r *http.Request, spaceKey string) {
 	ctx := context.Background()
-	space, err := h.db.GetSpaceByKey(ctx, spaceKey)
-	if err != nil {
+	if _, err := h.db.GetSpaceByKey(ctx, spaceKey); err != nil {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "space not found"})
 		return
 	}
 
-	// Delete all pages for this space
-	_, err = h.db.Pool().Exec(ctx, "DELETE FROM pages WHERE space_id = $1", space.ID)
-	if err != nil {
-		h.log.Errorw("delete pages failed", "space_key", spaceKey, "error", err)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to delete pages"})
-		return
-	}
-
-	// Delete the space
-	_, err = h.db.Pool().Exec(ctx, "DELETE FROM spaces WHERE id = $1", space.ID)
-	if err != nil {
+	if err := h.db.DeleteSpace(ctx, spaceKey); err != nil {
 		h.log.Errorw("delete space failed", "space_key", spaceKey, "error", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to delete space"})
 		return

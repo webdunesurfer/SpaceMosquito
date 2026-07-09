@@ -22,8 +22,8 @@ const (
 )
 
 type AssetDownloader struct {
-	client    *http.Client
-	log       logging.Sugar
+	client     *http.Client
+	log        logging.Sugar
 	maxRetries int
 	retryDelay time.Duration
 	rateLimit  time.Duration

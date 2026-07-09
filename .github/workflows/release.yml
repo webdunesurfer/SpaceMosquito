@@ -1,0 +1,97 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: space-mosquito
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: space-mosquito/go.mod
+          cache-dependency-path: space-mosquito/go.sum
+      - name: Run unit tests
+        run: go test -race ./...
+
+  build:
+    needs: test
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: darwin
+            goarch: arm64
+          - goos: darwin
+            goarch: amd64
+          - goos: linux
+            goarch: amd64
+          - goos: windows
+            goarch: amd64
+    defaults:
+      run:
+        working-directory: space-mosquito
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: space-mosquito/go.mod
+          cache-dependency-path: space-mosquito/go.sum
+
+      - name: Build binary
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          VERSION: ${{ github.ref_name }}
+        run: |
+          name="spacemosquito-${GOOS}-${GOARCH}"
+          if [ "$GOOS" = "windows" ]; then
+            name="${name}.exe"
+          fi
+          CGO_ENABLED=0 go build \
+            -ldflags "-s -w -X github.com/vkh/spacemosquito/internal/cliapp.Version=${VERSION}" \
+            -o "../dist/${name}" \
+            ./cmd/spacemosquito
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: spacemosquito-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/spacemosquito-*
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Generate checksums
+        working-directory: dist
+        run: |
+          sha256sum spacemosquito-* > SHA256SUMS || shasum -a 256 spacemosquito-* > SHA256SUMS
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/spacemosquito-*
+            dist/SHA256SUMS
+            README-dockerless.md
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
