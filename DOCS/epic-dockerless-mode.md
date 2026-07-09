@@ -410,28 +410,34 @@ Run with `go test -tags=integration ./...` — not required for every PR, but va
 
 ### Product & UX
 
-1. **Single binary vs server+cli?** Merge `cmd/server` and `cmd/cli` into one `spacemosquito` with subcommands (`serve`, `crawl`, `search`, `init`), or ship two binaries?
-2. **Portable mode?** Support `--data-dir ./data` next to the binary (USB stick / air-gapped) as a first-class option, or only `~/.spacemosquito` in v1?
-3. **Migration path for existing Docker users?** Export/import tool from Postgres → SQLite, or instruct fresh crawl?
-4. **First-run encryption key?** Auto-generate on `init` and display once, or require user to run `openssl rand`?
-5. **Extension distribution?** Continue sideload-only, or invest in store publishing as part of this epic?
+Resolved:
+
+1. **Single binary vs server+cli?** **Merge into one binary** (`spacemosquito`) with subcommands.
+2. **Portable mode?** **Yes** — support portable mode as first-class (`--data-dir ./data` and equivalent env/config path).
+3. **Migration path for existing Docker users?** **Add export/import tool** (in addition to recrawl option).
+4. **First-run encryption key?** **Auto-generate on `init` and display once**.
+5. **Extension distribution?** **Sideload only** for this epic (no store publishing).
 
 ### Technical
 
-6. **SQLite driver: CGO or pure Go?** `modernc.org/sqlite` simplifies cross-compile; `mattn/go-sqlite3` needs CGO per platform. Which for releases?
-7. **FTS5 tokenizer?** `porter` / `unicode61` / custom — how close must search ranking be to current Postgres `english` config?
-8. **Embed migrations vs ship `migrations/` folder?** Embedded is cleaner for releases; folder is easier for dev. Both?
-9. **Database interface location?** New `internal/store` package vs refactor `internal/db` in place?
-10. **Postgres support long-term?** Keep as optional `database.driver: postgres` indefinitely, or deprecate after dockerless ships?
-11. **Browser download in CI?** Cache rod browser in GitHub Actions for integration tests, or always mock/skip?
-12. **Windows specifics?** Code signing, service install, path to `%APPDATA%` — in scope for v1 or follow-up?
-13. **Linux arm64?** rod support is partial; ship binary or exclude from v1 matrix?
+Resolved:
+
+6. **SQLite driver:** use **`modernc.org/sqlite`** (pure Go).
+7. **FTS5 tokenizer:** pick one "good enough" default now and **abstract tokenizer selection in code/config** so it can be replaced later with minimal changes.
+8. **Migrations packaging:** **both** — embedded migrations for release binaries + file tree for dev/Docker workflows.
+9. **Database interface location:** introduce **`internal/store`** package.
+10. **Postgres support:** **keep Postgres for now** as optional mode.
+11. **Browser download in CI:** **mock/skip in standard CI** (real browser-download coverage can run in optional nightly/pre-release checks).
+12. **Windows specifics:** **follow-up** (not in v1 scope).
+13. **Linux arm64:** **exclude from v1 release matrix**.
 
 ### Auth & Scraping
 
-14. **API-only fallback policy?** If API fails and browser download fails (no network), show error and stop — or queue retry?
-15. **SSO validation fix** (`DOCS/task-validation-sso-fix.md`) — block dockerless release until done, or ship with known limitation?
-16. **Incremental `detection: dom`** — requires browser; disable in dockerless default config?
+Resolved:
+
+14. **API-only fallback policy:** retry browser fallback download/setup **2 extra times**, then return error and stop.
+15. **SSO validation fix** (`DOCS/task-validation-sso-fix.md`): **block this epic** until that task is fixed.
+16. **Incremental `detection: dom`:** keep supported; browser/Chromium is **lazy-loaded on first browser-required operation** and stored under the resolved local browser directory (data-dir relative, including portable mode).
 
 ### Process
 
@@ -459,4 +465,4 @@ Run with `go test -tags=integration ./...` — not required for every PR, but va
 
 - Status: Proposed
 - Decision: Default install uses SQLite + rod auto-download; Docker/Postgres remains optional developer path
-- Record after Open Questions 1, 6, 10 are resolved
+- Record after remaining open questions are resolved
