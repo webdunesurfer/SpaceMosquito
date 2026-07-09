@@ -4,10 +4,39 @@ Run SpaceMosquito locally without Docker. All state lives under `~/.spacemosquit
 
 ## Requirements
 
+- [Go](https://go.dev/dl/) 1.25+ (for building from source)
 - Confluence access via the **Pirate Mosquito** Firefox extension (sideload)
 - macOS, Linux, or Windows x64
 
 ## Install
+
+### From source (recommended for local development)
+
+```sh
+git clone https://github.com/vkh/spacemosquito.git
+cd spacemosquito/space-mosquito
+go build -o spacemosquito ./cmd/spacemosquito
+```
+
+Run from the repo (no install step):
+
+```sh
+./spacemosquito init
+./spacemosquito serve
+```
+
+Or install onto your `PATH`:
+
+```sh
+# macOS / Linux
+sudo mv spacemosquito /usr/local/bin/
+
+# Windows (PowerShell, from space-mosquito/)
+go build -o spacemosquito.exe ./cmd/spacemosquito
+# add the directory containing spacemosquito.exe to PATH
+```
+
+### Pre-built release (optional)
 
 1. Download the binary for your platform from [GitHub Releases](https://github.com/vkh/spacemosquito/releases).
 2. Verify the checksum against `SHA256SUMS` in the release assets.
