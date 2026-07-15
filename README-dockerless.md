@@ -84,10 +84,16 @@ Or trigger a crawl via MCP at `http://localhost:8081/mcp`.
 
 ## Search
 
+Multi-word queries match **all** terms (AND). Title matches rank above body-only hits. Default: 10 results.
+
 ```sh
 spacemosquito search "your query"
 spacemosquito search "your query" SPACEKEY
+spacemosquito search "your query" --limit 50
+spacemosquito search "your query" SPACEKEY --limit 50
 ```
+
+REST and MCP also accept `limit` (`GET /api/search?q=...&limit=50`, MCP `confluence_search` `limit` field).
 
 ## Get a page by Confluence ID
 
@@ -112,7 +118,7 @@ curl -s "http://localhost:8081/api/pages/42?space_key=TST"
 | `bootstrap import-saved` | Rebuild SQLite catalog from existing `saved/` files |
 | `serve` | Start API + MCP server |
 | `crawl <url>` | Crawl a Confluence space |
-| `search <query>` | Full-text search |
+| `search <query>` | Full-text search (`--limit N`; multi-word AND) |
 | `get-page <id>` | Get page by Confluence ID (optional space key) |
 | `stats` | Database statistics |
 | `version` | Print build version |

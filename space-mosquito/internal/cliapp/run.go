@@ -101,15 +101,13 @@ func Run(args []string) int {
 	case "reindex":
 		runReindex(cfg, log)
 	case "search":
-		if len(args) < 3 {
-			fmt.Fprintln(os.Stderr, "usage: spacemosquito search <query> [space-key]")
+		query, spaceKey, limit, err := parseSearchArgs(args[2:])
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			fmt.Fprintln(os.Stderr, "usage: spacemosquito search <query> [space-key] [--limit N]")
 			return 1
 		}
-		spaceKey := ""
-		if len(args) >= 4 {
-			spaceKey = args[3]
-		}
-		runSearch(cfg, args[2], spaceKey, log)
+		runSearch(cfg, query, spaceKey, limit, log)
 	case "get-page":
 		if len(args) < 3 {
 			fmt.Fprintln(os.Stderr, "usage: spacemosquito get-page <confluence_id> [space_key]")
@@ -470,7 +468,39 @@ func runReindex(cfg *config.Config, log *zap.Logger) {
 	fmt.Println("All pages reindexed successfully")
 }
 
-func runSearch(cfg *config.Config, query, spaceKey string, log *zap.Logger) {
+func parseSearchArgs(args []string) (query, spaceKey string, limit int, err error) {
+	limit = 10
+	var positional []string
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--limit":
+			if i+1 >= len(args) {
+				return "", "", 0, fmt.Errorf("--limit requires a value")
+			}
+			n, parseErr := strconv.Atoi(args[i+1])
+			if parseErr != nil || n <= 0 {
+				return "", "", 0, fmt.Errorf("invalid --limit value %q", args[i+1])
+			}
+			limit = n
+			i++
+		default:
+			positional = append(positional, args[i])
+		}
+	}
+	if len(positional) < 1 {
+		return "", "", 0, fmt.Errorf("missing search query")
+	}
+	return positional[0], optionalString(positional, 1), limit, nil
+}
+
+func optionalString(ss []string, idx int) string {
+	if idx < len(ss) {
+		return ss[idx]
+	}
+	return ""
+}
+
+func runSearch(cfg *config.Config, query, spaceKey string, limit int, log *zap.Logger) {
 	sugar := logging.New("search", log)
 
 	database, err := datastore.Open(cfg, log)
@@ -480,7 +510,7 @@ func runSearch(cfg *config.Config, query, spaceKey string, log *zap.Logger) {
 	}
 	defer database.Close()
 
-	results, err := database.SearchPages(context.Background(), query, spaceKey, 10)
+	results, err := database.SearchPages(context.Background(), query, spaceKey, limit)
 	if err != nil {
 		sugar.Errorw("search failed", "query", query, "error", err)
 		os.Exit(1)
@@ -653,7 +683,7 @@ func printUsage() {
 	fmt.Println("  migrate-down   Rollback last migration")
 	fmt.Println("  save <url>     Save a Confluence page")
 	fmt.Println("  crawl <url>    Crawl a full Confluence space")
-	fmt.Println("  search <q>     Search pages (optional: <space-key>)")
+	fmt.Println("  search <q>     Search pages (optional: <space-key> [--limit N])")
 	fmt.Println("  get-page <id>  Get page by Confluence ID (optional: <space-key>)")
 	fmt.Println("  reindex        Rebuild FTS indexes for all pages")
 	fmt.Println("  stats          Show database statistics")

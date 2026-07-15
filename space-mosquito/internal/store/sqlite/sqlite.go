@@ -427,11 +427,22 @@ func (d *DB) SearchPages(ctx context.Context, query string, spaceKey string, lim
 		return nil, nil
 	}
 
+	results, err := d.searchPagesFTS(ctx, query, spaceKey, limit)
+	if err != nil {
+		return nil, err
+	}
+	if len(results) > 0 {
+		return results, nil
+	}
+	return d.searchPagesTitleFallback(ctx, query, spaceKey, limit)
+}
+
+func (d *DB) searchPagesFTS(ctx context.Context, query, spaceKey string, limit int) ([]store.SearchResult, error) {
 	ftsQuery := buildFTSQuery(query)
 	baseQuery := `
 		SELECT p.confluence_id, s.key, p.title,
 		       snippet(pages_fts, 2, '', '', '...', 20) AS excerpt,
-		       bm25(pages_fts) AS similarity,
+		       bm25(pages_fts, 0.0, 10.0, 1.0) AS similarity,
 		       p.html_path, p.id
 		FROM pages_fts
 		JOIN pages p ON p.id = pages_fts.page_id
@@ -451,6 +462,45 @@ func (d *DB) SearchPages(ctx context.Context, query string, spaceKey string, lim
 	}
 	defer rows.Close()
 
+	return scanSearchResults(rows)
+}
+
+func (d *DB) searchPagesTitleFallback(ctx context.Context, query, spaceKey string, limit int) ([]store.SearchResult, error) {
+	words := searchQueryTokens(query)
+	if len(words) == 0 {
+		return nil, nil
+	}
+
+	baseQuery := `
+		SELECT p.confluence_id, s.key, p.title,
+		       substr(p.title, 1, 200) AS excerpt,
+		       0.0 AS similarity,
+		       p.html_path, p.id
+		FROM pages p
+		JOIN spaces s ON s.id = p.space_id
+		WHERE 1=1`
+	args := make([]any, 0, len(words)+2)
+	for _, w := range words {
+		baseQuery += " AND lower(p.title) LIKE ?"
+		args = append(args, "%"+strings.ToLower(w)+"%")
+	}
+	if spaceKey != "" {
+		baseQuery += " AND s.key = ?"
+		args = append(args, spaceKey)
+	}
+	baseQuery += " ORDER BY p.title LIMIT ?"
+	args = append(args, limit)
+
+	rows, err := d.sql.QueryContext(ctx, baseQuery, args...)
+	if err != nil {
+		return nil, fmt.Errorf("search pages title fallback: %w", err)
+	}
+	defer rows.Close()
+
+	return scanSearchResults(rows)
+}
+
+func scanSearchResults(rows *sql.Rows) ([]store.SearchResult, error) {
 	var results []store.SearchResult
 	for rows.Next() {
 		var r store.SearchResult
@@ -458,13 +508,14 @@ func (d *DB) SearchPages(ctx context.Context, query string, spaceKey string, lim
 		if err := rows.Scan(&r.ConfluenceID, &r.SpaceKey, &r.Title, &r.Excerpt, &r.Similarity, &r.FilePath, &idStr); err != nil {
 			return nil, err
 		}
+		var err error
 		r.InternalID, err = uuid.Parse(idStr)
 		if err != nil {
 			return nil, err
 		}
 		results = append(results, r)
 	}
-	return results, nil
+	return results, rows.Err()
 }
 
 func (d *DB) IndexPageContent(ctx context.Context, spaceKey string, pageID int) error {
@@ -582,8 +633,12 @@ func parseTime(s string) (time.Time, error) {
 	return time.Time{}, fmt.Errorf("parse time %q", s)
 }
 
+func searchQueryTokens(q string) []string {
+	return strings.Fields(strings.TrimSpace(q))
+}
+
 func buildFTSQuery(q string) string {
-	words := strings.Fields(q)
+	words := searchQueryTokens(q)
 	if len(words) == 0 {
 		return q
 	}
@@ -591,5 +646,5 @@ func buildFTSQuery(q string) string {
 		w = strings.ReplaceAll(w, `"`, `""`)
 		words[i] = `"` + w + `"`
 	}
-	return strings.Join(words, " OR ")
+	return strings.Join(words, " AND ")
 }
