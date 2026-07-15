@@ -20,6 +20,7 @@ type Store interface {
 	GetPage(ctx context.Context, spaceKey string, confluenceID int) (*Page, error)
 	GetPageByConfluenceID(ctx context.Context, confluenceID int, spaceKey string) (*Page, string, error)
 	ListPages(ctx context.Context, spaceKey string, limit int, afterConfluenceID *int) ([]Page, error)
+	ListAllPages(ctx context.Context) ([]Page, error)
 	ListPageSummaries(ctx context.Context, spaceKey string, limit int, afterConfluenceID *int) ([]PageSummary, error)
 	DeleteStalePages(ctx context.Context, spaceID uuid.UUID, crawlStart time.Time) (int64, error)
 

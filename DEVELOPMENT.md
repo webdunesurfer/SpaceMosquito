@@ -53,14 +53,18 @@ Not run in CI by default. See `DOCS/task-server-integration-tests.md`.
 - Default result limit is **10** (CLI: `--limit N`; REST: `?limit=N`; MCP: `limit` field).
 - If FTS returns no rows, search falls back to case-insensitive **title substring** match.
 
-Diagnostic SQL when results look missing:
+## Page content (Markdown)
 
-```sql
-SELECT p.title, bm25(pages_fts, 0.0, 10.0, 1.0) AS rank
-FROM pages_fts
-JOIN pages p ON p.id = pages_fts.page_id
-WHERE pages_fts MATCH '"word1" AND "word2" AND "word3"'
-ORDER BY rank LIMIT 20;
+Crawls and imports store page body text as **Markdown** (`content.md` on disk, `pages.content` in the DB) using HTML→Markdown conversion — not flat `doc.Text()` extraction. This preserves paragraph boundaries and improves search/MCP readability.
+
+```
+index.html  →  contentmd.HTMLToMarkdown()  →  content.md + pages.content  →  FTS
+```
+
+Regenerate existing catalogs after upgrade:
+
+```sh
+spacemosquito reindex --content
 ```
 
 ## Testing with curl

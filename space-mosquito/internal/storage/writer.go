@@ -74,6 +74,20 @@ func (w *Writer) SaveHTML(dir, html string) error {
 	return nil
 }
 
+func (w *Writer) SaveMarkdown(dir, markdown string) error {
+	path := filepath.Join(dir, "content.md")
+	if err := os.WriteFile(path, []byte(markdown), 0644); err != nil {
+		if w.log.Enabled() {
+			w.log.Errorw("save markdown failed", "path", path, "error", err)
+		}
+		return fmt.Errorf("save markdown: %w", err)
+	}
+	if w.log.Enabled() {
+		w.log.Infow("markdown saved", "path", path, "bytes", len(markdown))
+	}
+	return nil
+}
+
 func (w *Writer) SaveRawHTML(dir, html string) error {
 	path := filepath.Join(dir, "raw.html")
 	if err := os.WriteFile(path, []byte(html), 0644); err != nil {

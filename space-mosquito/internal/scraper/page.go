@@ -303,25 +303,3 @@ func extractConfluenceBaseURL(urlStr string) string {
 
 	return fmt.Sprintf("%s://%s", u.Scheme, u.Host)
 }
-
-// extractTextFromHTML extracts plain text from cleaned HTML for embedding.
-func extractTextFromHTML(html string) string {
-	doc, err := goquery.NewDocumentFromReader(strings.NewReader(html))
-	if err != nil {
-		return ""
-	}
-
-	// Get text content
-	text := doc.Text()
-
-	// Clean up whitespace
-	text = strings.Join(strings.Fields(text), " ")
-	text = strings.TrimSpace(text)
-
-	// Truncate to reasonable length for embedding
-	if len(text) > 50000 {
-		text = text[:50000]
-	}
-
-	return text
-}

@@ -5,10 +5,12 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/vkh/spacemosquito/internal/config"
+	"github.com/vkh/spacemosquito/internal/contentmd"
 	"github.com/vkh/spacemosquito/internal/datastore"
 	"github.com/vkh/spacemosquito/internal/store"
 	"github.com/vkh/spacemosquito/pkg/logging"
@@ -65,6 +67,21 @@ func TestImportSaved_HappyPathAndSearch(t *testing.T) {
 	}
 	if len(reportFiles) != 1 {
 		t.Fatalf("report files = %d, want 1", len(reportFiles))
+	}
+
+	page, err := db.GetPage(context.Background(), "TST", 10)
+	if err != nil {
+		t.Fatalf("GetPage: %v", err)
+	}
+	if !strings.Contains(page.Content, "mosquito") {
+		t.Fatalf("content = %q, want markdown with mosquito", page.Content)
+	}
+	contentMD, err := os.ReadFile(filepath.Join(fromDir, "TST", "Overview", contentmd.ContentFileName))
+	if err != nil {
+		t.Fatalf("content.md: %v", err)
+	}
+	if !strings.Contains(string(contentMD), "mosquito") {
+		t.Fatalf("content.md = %q", contentMD)
 	}
 }
 

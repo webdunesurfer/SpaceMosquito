@@ -86,6 +86,12 @@ Or trigger a crawl via MCP at `http://localhost:8081/mcp`.
 
 Multi-word queries match **all** terms (AND). Title matches rank above body-only hits. Default: 10 results.
 
+Page **content** is stored as Markdown (`content.md` on disk, `pages.content` in DB) for readable search and MCP results. After upgrading, regenerate existing pages:
+
+```sh
+spacemosquito reindex --content
+```
+
 ```sh
 spacemosquito search "your query"
 spacemosquito search "your query" SPACEKEY
@@ -120,6 +126,7 @@ curl -s "http://localhost:8081/api/pages/42?space_key=TST"
 | `crawl <url>` | Crawl a Confluence space |
 | `search <query>` | Full-text search (`--limit N`; multi-word AND) |
 | `get-page <id>` | Get page by Confluence ID (optional space key) |
+| `reindex` | Rebuild FTS indexes (`--content` regenerates Markdown from saved HTML) |
 | `stats` | Database statistics |
 | `version` | Print build version |
 

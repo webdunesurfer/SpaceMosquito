@@ -358,6 +358,29 @@ func (d *DB) ListPages(ctx context.Context, spaceKey string, limit int, afterCon
 	return pages, nil
 }
 
+func (d *DB) ListAllPages(ctx context.Context) ([]store.Page, error) {
+	rows, err := d.sql.QueryContext(ctx,
+		`SELECT p.id, p.space_id, p.confluence_id, p.version, p.title, p.parent_confluence_id,
+		        p.content, p.html_path, p.raw_html_path, p.metadata_path, p.file_dir,
+		        p.created_at, p.updated_at
+		 FROM pages p
+		 ORDER BY p.space_id, p.confluence_id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var pages []store.Page
+	for rows.Next() {
+		p, err := scanPage(rows)
+		if err != nil {
+			return nil, err
+		}
+		pages = append(pages, p)
+	}
+	return pages, rows.Err()
+}
+
 func (d *DB) ListPageSummaries(ctx context.Context, spaceKey string, limit int, afterConfluenceID *int) ([]store.PageSummary, error) {
 	if limit == 0 {
 		limit = 100

@@ -1,6 +1,6 @@
 # ADR-006: Saved Page Format — Mix of Clean and Raw HTML
 
-- **Status**: Accepted
+- **Status**: Superseded by [ADR-015](015-saved-page-format-with-markdown.md)
 - **Date**: 2025-01-17
 - **Context**: We need to save Confluence pages in a format that is both human-navigable offline and preserves the original content for reference.
 - **Decision**: Save each page as a directory containing:

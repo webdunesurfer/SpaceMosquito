@@ -64,6 +64,9 @@ func TestWriter_SaveHTML_and_SaveRawHTML(t *testing.T) {
 	if err := w.SaveRawHTML(dir, "<raw/>"); err != nil {
 		t.Fatal(err)
 	}
+	if err := w.SaveMarkdown(dir, "# Title\n\nbody"); err != nil {
+		t.Fatal(err)
+	}
 
 	indexBytes, err := os.ReadFile(filepath.Join(dir, "index.html"))
 	if err != nil {
@@ -79,6 +82,14 @@ func TestWriter_SaveHTML_and_SaveRawHTML(t *testing.T) {
 	}
 	if string(rawBytes) != "<raw/>" {
 		t.Errorf("raw.html content mismatch")
+	}
+
+	mdBytes, err := os.ReadFile(filepath.Join(dir, "content.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(mdBytes) != "# Title\n\nbody" {
+		t.Errorf("content.md = %q", mdBytes)
 	}
 }
 

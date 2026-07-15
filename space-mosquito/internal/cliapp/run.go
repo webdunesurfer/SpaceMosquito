@@ -15,6 +15,7 @@ import (
 	"github.com/vkh/spacemosquito/internal/app"
 	"github.com/vkh/spacemosquito/internal/bootstrap"
 	"github.com/vkh/spacemosquito/internal/config"
+	"github.com/vkh/spacemosquito/internal/contentmd"
 	"github.com/vkh/spacemosquito/internal/datastore"
 	"github.com/vkh/spacemosquito/internal/paths"
 	"github.com/vkh/spacemosquito/internal/scraper"
@@ -99,7 +100,13 @@ func Run(args []string) int {
 		}
 		runCrawl(cfg, args[2], log)
 	case "reindex":
-		runReindex(cfg, log)
+		withContent := false
+		for _, arg := range args[2:] {
+			if arg == "--content" {
+				withContent = true
+			}
+		}
+		runReindex(cfg, withContent, log)
 	case "search":
 		query, spaceKey, limit, err := parseSearchArgs(args[2:])
 		if err != nil {
@@ -449,7 +456,7 @@ func runCrawl(cfg *config.Config, spaceURL string, log *zap.Logger) {
 	fmt.Println()
 }
 
-func runReindex(cfg *config.Config, log *zap.Logger) {
+func runReindex(cfg *config.Config, withContent bool, log *zap.Logger) {
 	sugar := logging.New("reindex", log)
 
 	database, err := datastore.Open(cfg, log)
@@ -459,13 +466,40 @@ func runReindex(cfg *config.Config, log *zap.Logger) {
 	}
 	defer database.Close()
 
-	if err := database.IndexAllPageContents(context.Background()); err != nil {
+	ctx := context.Background()
+
+	if withContent {
+		savedBase, err := paths.ResolveSaved(cfg)
+		if err != nil {
+			sugar.Errorw("resolve saved path failed", "error", err)
+			os.Exit(1)
+		}
+		result, err := contentmd.ReindexAll(ctx, database, savedBase)
+		if err != nil {
+			sugar.Errorw("content reindex failed", "error", err)
+			os.Exit(1)
+		}
+		sugar.Infow("content reindexed",
+			"updated", result.Updated,
+			"skipped", result.Skipped,
+			"errors", len(result.Errors))
+		fmt.Printf("Content reindexed: %d updated, %d skipped\n", result.Updated, result.Skipped)
+		for _, e := range result.Errors {
+			fmt.Fprintf(os.Stderr, "  error: %s\n", e)
+		}
+	}
+
+	if err := database.IndexAllPageContents(ctx); err != nil {
 		sugar.Errorw("reindex failed", "error", err)
 		os.Exit(1)
 	}
 
 	sugar.Info("all pages reindexed successfully")
-	fmt.Println("All pages reindexed successfully")
+	if withContent {
+		fmt.Println("All pages reindexed successfully (content + FTS)")
+	} else {
+		fmt.Println("All pages reindexed successfully")
+	}
 }
 
 func parseSearchArgs(args []string) (query, spaceKey string, limit int, err error) {
@@ -685,7 +719,7 @@ func printUsage() {
 	fmt.Println("  crawl <url>    Crawl a full Confluence space")
 	fmt.Println("  search <q>     Search pages (optional: <space-key> [--limit N])")
 	fmt.Println("  get-page <id>  Get page by Confluence ID (optional: <space-key>)")
-	fmt.Println("  reindex        Rebuild FTS indexes for all pages")
+	fmt.Println("  reindex        Rebuild FTS indexes (--content regenerates Markdown too)")
 	fmt.Println("  stats          Show database statistics")
 	fmt.Println("  cron list      List scheduled crawl jobs")
 	fmt.Println("  cron config    Show cron configuration")

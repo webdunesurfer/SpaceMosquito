@@ -12,6 +12,7 @@ import (
 	"github.com/go-rod/rod"
 	"github.com/go-rod/rod/lib/proto"
 	"github.com/vkh/spacemosquito/internal/config"
+	"github.com/vkh/spacemosquito/internal/contentmd"
 	"github.com/vkh/spacemosquito/internal/db"
 	"github.com/vkh/spacemosquito/internal/session"
 	"github.com/vkh/spacemosquito/internal/storage"
@@ -396,6 +397,14 @@ func (s *Scraper) savePageMetadata(pg *Page, spaceKey, spaceURL string) error {
 	}
 	pg.HTMLPath = dir + "/index.html"
 
+	contentMD, err := contentmd.HTMLToMarkdown(pg.CleanHTML)
+	if err != nil {
+		return fmt.Errorf("convert content markdown: %w", err)
+	}
+	if err := s.storage.SaveMarkdown(dir, contentMD); err != nil {
+		return fmt.Errorf("save content markdown: %w", err)
+	}
+
 	if err := s.storage.SaveRawHTML(dir, pg.RawHTML); err != nil {
 		s.log.Warnw("save raw html failed",
 			"page_id", pg.ConfluenceID,
@@ -451,7 +460,7 @@ func (s *Scraper) savePageMetadata(pg *Page, spaceKey, spaceURL string) error {
 		Version:            pg.Version,
 		Title:              pg.Title,
 		ParentConfluenceID: parentID,
-		Content:            extractTextFromHTML(pg.CleanHTML),
+		Content:            contentMD,
 		HTMLPath:           dir + "/index.html",
 		RawHTMLPath:        dir + "/raw.html",
 		MetadataPath:       dir + "/metadata.json",

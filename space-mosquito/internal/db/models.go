@@ -264,6 +264,37 @@ func (d *DB) ListPages(ctx context.Context, spaceKey string, limit int, afterCon
 	return pages, nil
 }
 
+func (d *DB) ListAllPages(ctx context.Context) ([]Page, error) {
+	rows, err := d.pool.Query(ctx,
+		`SELECT p.id, p.space_id, p.confluence_id, p.version, p.title, p.parent_confluence_id,
+		        p.content, p.html_path, p.raw_html_path, p.metadata_path, p.file_dir,
+		        p.created_at, p.updated_at
+		 FROM pages p
+		 ORDER BY p.space_id, p.confluence_id`)
+	if err != nil {
+		if d.log.Enabled() {
+			d.log.Errorw("list all pages failed", "error", err)
+		}
+		return nil, err
+	}
+	defer rows.Close()
+
+	var pages []Page
+	for rows.Next() {
+		var p Page
+		if err := rows.Scan(&p.ID, &p.SpaceID, &p.ConfluenceID, &p.Version, &p.Title, &p.ParentConfluenceID,
+			&p.Content, &p.HTMLPath, &p.RawHTMLPath, &p.MetadataPath, &p.FileDir,
+			&p.CreatedAt, &p.UpdatedAt); err != nil {
+			if d.log.Enabled() {
+				d.log.Errorw("list all pages: scan error", "error", err)
+			}
+			return nil, err
+		}
+		pages = append(pages, p)
+	}
+	return pages, nil
+}
+
 func (d *DB) ListPageSummaries(ctx context.Context, spaceKey string, limit int, afterConfluenceID *int) ([]PageSummary, error) {
 	if limit == 0 {
 		limit = 100

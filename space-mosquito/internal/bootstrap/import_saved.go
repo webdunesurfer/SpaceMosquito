@@ -12,8 +12,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/PuerkitoBio/goquery"
 	"github.com/google/uuid"
+	"github.com/vkh/spacemosquito/internal/contentmd"
 	"github.com/vkh/spacemosquito/internal/session"
 	"github.com/vkh/spacemosquito/internal/storage"
 	"github.com/vkh/spacemosquito/internal/store"
@@ -239,6 +239,9 @@ func parseRecord(metaPath string) (importRecord, string, error) {
 		return rec, skipReason, nil
 	}
 	rec.content = content
+	if strings.TrimSpace(content) != "" {
+		_ = contentmd.WriteFile(rec.fileDir, content)
+	}
 
 	return rec, "", nil
 }
@@ -301,35 +304,25 @@ func applyRecords(ctx context.Context, db store.Store, records []importRecord, l
 }
 
 func extractContent(indexPath, rawPath string) (string, string, error) {
-	indexBytes, err := os.ReadFile(indexPath)
-	if err == nil {
-		text := extractTextFromHTML(string(indexBytes))
-		if strings.TrimSpace(text) != "" {
-			return text, "", nil
-		}
+	md, err := contentmd.HTMLFileToMarkdown(indexPath)
+	if err == nil && strings.TrimSpace(md) != "" {
+		return md, "", nil
 	}
-	rawBytes, err := os.ReadFile(rawPath)
+	if err != nil && !os.IsNotExist(err) {
+		return "", "", err
+	}
+
+	md, err = contentmd.HTMLFileToMarkdown(rawPath)
 	if err != nil {
-		return "", "missing index.html and raw.html", nil
+		if os.IsNotExist(err) {
+			return "", "missing index.html and raw.html", nil
+		}
+		return "", "", err
 	}
-	text := extractTextFromHTML(string(rawBytes))
-	if strings.TrimSpace(text) == "" {
+	if strings.TrimSpace(md) == "" {
 		return "", "empty content in index.html and raw.html", nil
 	}
-	return text, "", nil
-}
-
-func extractTextFromHTML(html string) string {
-	doc, err := goquery.NewDocumentFromReader(strings.NewReader(html))
-	if err != nil {
-		return ""
-	}
-	text := strings.Join(strings.Fields(doc.Text()), " ")
-	text = strings.TrimSpace(text)
-	if len(text) > 50000 {
-		text = text[:50000]
-	}
-	return text
+	return md, "", nil
 }
 
 func parseConfluenceID(confluenceURL string) int {

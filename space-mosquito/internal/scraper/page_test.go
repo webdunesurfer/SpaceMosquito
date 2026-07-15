@@ -7,30 +7,6 @@ import (
 	"github.com/PuerkitoBio/goquery"
 )
 
-func TestExtractTextFromHTML(t *testing.T) {
-	t.Run("basic", func(t *testing.T) {
-		html := "<html><body><p>Hello   <b>world</b></p></body></html>"
-		got := extractTextFromHTML(html)
-		if got != "Hello world" {
-			t.Errorf("got %q", got)
-		}
-	})
-
-	t.Run("empty", func(t *testing.T) {
-		if got := extractTextFromHTML(""); got != "" {
-			t.Errorf("got %q", got)
-		}
-	})
-
-	t.Run("truncation", func(t *testing.T) {
-		long := "<p>" + strings.Repeat("a", 60000) + "</p>"
-		got := extractTextFromHTML(long)
-		if len(got) != 50000 {
-			t.Errorf("len = %d, want 50000", len(got))
-		}
-	})
-}
-
 func TestStripChrome(t *testing.T) {
 	s := testScraper()
 	html := loadFixture(t, "page_with_chrome.html")
