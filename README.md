@@ -451,6 +451,8 @@ go run ./cmd/server
 | GET | `/api/spaces` | List all tracked spaces |
 | POST | `/api/spaces` | Add a new space (`{url: "..."}`) |
 | GET | `/api/spaces/{key}` | Get space details |
+| GET | `/api/spaces/{key}/pages` | List pages in a space (optional `?include_content=true`) |
+| GET | `/api/pages/{confluence_id}` | Get page by Confluence ID (`?space_key=` optional) |
 | DELETE | `/api/spaces/{key}` | Delete a space |
 
 ### MCP (Model Context Protocol)

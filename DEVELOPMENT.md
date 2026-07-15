@@ -49,3 +49,11 @@ Not run in CI by default. See `DOCS/task-server-integration-tests.md`.
 ## Testing with curl
 
 When testing urls that have streaming mode e.g. `http://localhost:8081/mcp` , use `timeout` command to avoid hanging in endless waiting.
+
+Get a page by Confluence ID (REST):
+
+```sh
+curl -s http://localhost:8081/api/pages/42
+curl -s "http://localhost:8081/api/pages/42?space_key=TST"
+```
+

@@ -11,6 +11,7 @@ tmp/
 # Compiled binaries
 space-mosquito/cli
 space-mosquito/server
+space-mosquito/spacemosquito
 
 # Secrets & sensitive config
 *.enc

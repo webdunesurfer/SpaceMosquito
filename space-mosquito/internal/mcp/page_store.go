@@ -4,23 +4,20 @@ import (
 	"context"
 
 	"github.com/vkh/spacemosquito/internal/db"
+	"github.com/vkh/spacemosquito/internal/search"
 	"github.com/vkh/spacemosquito/internal/store"
 )
 
 type pageStore interface {
-	GetPage(ctx context.Context, spaceKey string, confluenceID int) (*db.Page, error)
+	GetPageByConfluenceID(ctx context.Context, confluenceID int, spaceKey string) (*db.Page, string, error)
 }
 
 type dbPageStore struct {
 	db store.Store
 }
 
-func (s dbPageStore) GetPage(ctx context.Context, spaceKey string, confluenceID int) (*db.Page, error) {
-	page, err := s.db.GetPage(ctx, spaceKey, confluenceID)
-	if err != nil {
-		return nil, err
-	}
-	return page, nil
+func (s dbPageStore) GetPageByConfluenceID(ctx context.Context, confluenceID int, spaceKey string) (*db.Page, string, error) {
+	return s.db.GetPageByConfluenceID(ctx, confluenceID, spaceKey)
 }
 
 func (s *Server) pageStore() pageStore {
@@ -28,4 +25,16 @@ func (s *Server) pageStore() pageStore {
 		return s.pages
 	}
 	return dbPageStore{db: s.db}
+}
+
+func (s *Server) toolGetPage(args map[string]interface{}) (interface{}, error) {
+	spaceKey, confluenceID, err := parseGetPageArgs(args)
+	if err != nil {
+		return nil, err
+	}
+	page, resolvedKey, err := s.pageStore().GetPageByConfluenceID(context.Background(), confluenceID, spaceKey)
+	if err != nil {
+		return nil, err
+	}
+	return search.ToPageDetail(page, resolvedKey, s.cfg.MCP.ExposeInternalIDs), nil
 }

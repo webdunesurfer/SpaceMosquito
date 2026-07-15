@@ -3,6 +3,7 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -254,6 +255,74 @@ func (d *DB) GetPage(ctx context.Context, spaceKey string, pageID int) (*store.P
 	return &p, nil
 }
 
+func (d *DB) GetPageByConfluenceID(ctx context.Context, confluenceID int, spaceKey string) (*store.Page, string, error) {
+	if confluenceID <= 0 {
+		return nil, "", fmt.Errorf("invalid confluence_id")
+	}
+	if spaceKey != "" {
+		page, err := d.GetPage(ctx, spaceKey, confluenceID)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return nil, "", store.ErrPageNotFound
+			}
+			return nil, "", err
+		}
+		return page, spaceKey, nil
+	}
+
+	rows, err := d.sql.QueryContext(ctx,
+		`SELECT p.id, p.space_id, p.confluence_id, p.version, p.title, p.parent_confluence_id,
+		        p.content, p.html_path, p.raw_html_path, p.metadata_path, p.file_dir,
+		        p.created_at, p.updated_at, s.key
+		 FROM pages p
+		 JOIN spaces s ON s.id = p.space_id
+		 WHERE p.confluence_id = ?
+		 ORDER BY s.key`,
+		confluenceID,
+	)
+	if err != nil {
+		return nil, "", err
+	}
+	defer rows.Close()
+
+	var matches []struct {
+		page     store.Page
+		spaceKey string
+	}
+	for rows.Next() {
+		p, spaceKey, err := scanPageWithSpaceKey(rows)
+		if err != nil {
+			return nil, "", err
+		}
+		matches = append(matches, struct {
+			page     store.Page
+			spaceKey string
+		}{page: p, spaceKey: spaceKey})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, "", err
+	}
+
+	switch len(matches) {
+	case 0:
+		return nil, "", store.ErrPageNotFound
+	case 1:
+		return &matches[0].page, matches[0].spaceKey, nil
+	default:
+		candidates := make([]store.PageCandidate, len(matches))
+		for i, m := range matches {
+			candidates[i] = store.PageCandidate{
+				SpaceKey: m.spaceKey,
+				Title:    m.page.Title,
+			}
+		}
+		return nil, "", &store.AmbiguousPageError{
+			ConfluenceID: confluenceID,
+			Candidates:   candidates,
+		}
+	}
+}
+
 func (d *DB) ListPages(ctx context.Context, spaceKey string, limit int, afterConfluenceID *int) ([]store.Page, error) {
 	if limit == 0 {
 		limit = 100
@@ -468,6 +537,35 @@ func scanPage(rows rowScanner) (store.Page, error) {
 		return p, err
 	}
 	return p, nil
+}
+
+func scanPageWithSpaceKey(rows rowScanner) (store.Page, string, error) {
+	var p store.Page
+	var idStr, spaceIDStr, spaceKey string
+	var createdAt, updatedAt string
+	err := rows.Scan(&idStr, &spaceIDStr, &p.ConfluenceID, &p.Version, &p.Title, &p.ParentConfluenceID,
+		&p.Content, &p.HTMLPath, &p.RawHTMLPath, &p.MetadataPath, &p.FileDir,
+		&createdAt, &updatedAt, &spaceKey)
+	if err != nil {
+		return p, "", err
+	}
+	p.ID, err = uuid.Parse(idStr)
+	if err != nil {
+		return p, "", err
+	}
+	p.SpaceID, err = uuid.Parse(spaceIDStr)
+	if err != nil {
+		return p, "", err
+	}
+	p.CreatedAt, err = parseTime(createdAt)
+	if err != nil {
+		return p, "", err
+	}
+	p.UpdatedAt, err = parseTime(updatedAt)
+	if err != nil {
+		return p, "", err
+	}
+	return p, spaceKey, nil
 }
 
 func parseTime(s string) (time.Time, error) {

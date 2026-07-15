@@ -6,9 +6,8 @@ import (
 )
 
 func parseGetPageArgs(args map[string]interface{}) (spaceKey string, confluenceID int, err error) {
-	spaceKey, ok := args["space_key"].(string)
-	if !ok || spaceKey == "" {
-		return "", 0, fmt.Errorf("space_key is required")
+	if key, ok := args["space_key"].(string); ok {
+		spaceKey = key
 	}
 
 	idFloat, ok := args["confluence_id"].(float64)

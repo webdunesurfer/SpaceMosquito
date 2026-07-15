@@ -89,6 +89,21 @@ spacemosquito search "your query"
 spacemosquito search "your query" SPACEKEY
 ```
 
+## Get a page by Confluence ID
+
+```sh
+# space_key optional when the ID is unique in your catalog
+spacemosquito get-page 250347937
+spacemosquito get-page 42 TST
+```
+
+Or via REST while the server is running:
+
+```sh
+curl -s http://localhost:8081/api/pages/250347937
+curl -s "http://localhost:8081/api/pages/42?space_key=TST"
+```
+
 ## Commands
 
 | Command | Description |
@@ -98,6 +113,7 @@ spacemosquito search "your query" SPACEKEY
 | `serve` | Start API + MCP server |
 | `crawl <url>` | Crawl a Confluence space |
 | `search <query>` | Full-text search |
+| `get-page <id>` | Get page by Confluence ID (optional space key) |
 | `stats` | Database statistics |
 | `version` | Print build version |
 

@@ -276,14 +276,14 @@ func (s *Server) handleToolsList(session *ClientSession, id interface{}) {
 		},
 		{
 			Name:        "confluence_get_page",
-			Description: "Get a Confluence page by space key and confluence_id (from search results or page URL)",
+			Description: "Get a Confluence page by confluence_id (from search results or page URL). space_key is optional unless multiple spaces share the same ID.",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {
-					"space_key": {"type": "string", "description": "Space key"},
-					"confluence_id": {"type": "integer", "description": "Confluence page ID"}
+					"confluence_id": {"type": "integer", "description": "Confluence page ID"},
+					"space_key": {"type": "string", "description": "Optional. Required only when multiple spaces contain the same confluence_id."}
 				},
-				"required": ["space_key", "confluence_id"]
+				"required": ["confluence_id"]
 			}`),
 		},
 	}
@@ -402,19 +402,6 @@ func (s *Server) toolListSpace(args map[string]interface{}) (interface{}, error)
 		return nil, fmt.Errorf("list pages failed: %w", err)
 	}
 	return search.BuildListSpaceResultFromSummaries(parsed.SpaceKey, summaries, parsed.Limit, expose), nil
-}
-
-func (s *Server) toolGetPage(args map[string]interface{}) (interface{}, error) {
-	spaceKey, confluenceID, err := parseGetPageArgs(args)
-	if err != nil {
-		return nil, err
-	}
-	page, err := s.pageStore().GetPage(context.Background(), spaceKey, confluenceID)
-	if err != nil {
-		return nil, fmt.Errorf("page not found: %w", err)
-	}
-	detail := search.ToPageDetail(page, spaceKey, s.cfg.MCP.ExposeInternalIDs)
-	return detail, nil
 }
 
 func (s *Server) sendResponse(session *ClientSession, id interface{}, result interface{}) {

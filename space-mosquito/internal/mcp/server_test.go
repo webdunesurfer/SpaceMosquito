@@ -31,11 +31,11 @@ func testServer() *Server {
 }
 
 type fakePageStore struct {
-	getPage func(ctx context.Context, spaceKey string, confluenceID int) (*db.Page, error)
+	getPageByConfluenceID func(ctx context.Context, confluenceID int, spaceKey string) (*db.Page, string, error)
 }
 
-func (f fakePageStore) GetPage(ctx context.Context, spaceKey string, confluenceID int) (*db.Page, error) {
-	return f.getPage(ctx, spaceKey, confluenceID)
+func (f fakePageStore) GetPageByConfluenceID(ctx context.Context, confluenceID int, spaceKey string) (*db.Page, string, error) {
+	return f.getPageByConfluenceID(ctx, confluenceID, spaceKey)
 }
 
 func readResponse(t *testing.T, ch <-chan []byte) MCPResponse {
@@ -169,16 +169,16 @@ func TestHandleToolsCall_validation(t *testing.T) {
 		srv := testServer()
 		srv.cfg = &config.Config{}
 		srv.pages = fakePageStore{
-			getPage: func(ctx context.Context, spaceKey string, id int) (*db.Page, error) {
+			getPageByConfluenceID: func(ctx context.Context, id int, spaceKey string) (*db.Page, string, error) {
 				if spaceKey != "PROJ" || id != 42 {
-					t.Errorf("GetPage(%q, %d)", spaceKey, id)
+					t.Errorf("GetPageByConfluenceID(%d, %q)", id, spaceKey)
 				}
 				return &db.Page{
 					ConfluenceID: 42,
 					Title:        "Hello",
 					Version:      1,
 					Content:      "world",
-				}, nil
+				}, "PROJ", nil
 			},
 		}
 		sess := testSession(t)

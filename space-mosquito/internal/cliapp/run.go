@@ -3,10 +3,12 @@ package cliapp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -19,6 +21,7 @@ import (
 	"github.com/vkh/spacemosquito/internal/search"
 	"github.com/vkh/spacemosquito/internal/session"
 	"github.com/vkh/spacemosquito/internal/storage"
+	"github.com/vkh/spacemosquito/internal/store"
 	"github.com/vkh/spacemosquito/pkg/logger"
 	"github.com/vkh/spacemosquito/pkg/logging"
 	"go.uber.org/zap"
@@ -107,6 +110,16 @@ func Run(args []string) int {
 			spaceKey = args[3]
 		}
 		runSearch(cfg, args[2], spaceKey, log)
+	case "get-page":
+		if len(args) < 3 {
+			fmt.Fprintln(os.Stderr, "usage: spacemosquito get-page <confluence_id> [space_key]")
+			return 1
+		}
+		spaceKey := ""
+		if len(args) >= 4 {
+			spaceKey = args[3]
+		}
+		return runGetPage(cfg, args[2], spaceKey, log)
 	case "stats":
 		runStats(cfg, log)
 	case "cron":
@@ -285,6 +298,51 @@ func runBootstrapImportSaved(cfg *config.Config, args []string, log *zap.Logger)
 	fmt.Printf("Deduplicated: %d\n", report.Deduplicated)
 	fmt.Printf("Skipped: %d\n", len(report.Skipped))
 	fmt.Printf("Errors: %d\n", len(report.Errors))
+}
+
+func runGetPage(cfg *config.Config, confluenceIDStr, spaceKey string, log *zap.Logger) int {
+	sugar := logging.New("get-page", log)
+
+	confluenceID, err := strconv.Atoi(confluenceIDStr)
+	if err != nil || confluenceID <= 0 {
+		fmt.Fprintln(os.Stderr, "invalid confluence_id")
+		return 1
+	}
+
+	database, err := datastore.Open(cfg, log)
+	if err != nil {
+		sugar.Errorw("database open failed", "error", err)
+		return 1
+	}
+	defer database.Close()
+
+	detail, err := search.GetPageDetail(context.Background(), database, confluenceID, spaceKey, cfg.MCP.ExposeInternalIDs)
+	if err != nil {
+		var ambiguous *store.AmbiguousPageError
+		switch {
+		case errors.As(err, &ambiguous):
+			fmt.Fprintln(os.Stderr, ambiguous.Error())
+			for _, c := range ambiguous.Candidates {
+				fmt.Fprintf(os.Stderr, "  %s: %s\n", c.SpaceKey, c.Title)
+			}
+			return 2
+		case errors.Is(err, store.ErrPageNotFound):
+			fmt.Fprintln(os.Stderr, "page not found")
+			return 1
+		default:
+			sugar.Errorw("get page failed", "error", err)
+			fmt.Fprintln(os.Stderr, err.Error())
+			return 1
+		}
+	}
+
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(detail); err != nil {
+		sugar.Errorw("encode failed", "error", err)
+		return 1
+	}
+	return 0
 }
 
 func runMigrateDown(cfg *config.Config, log *zap.Logger) {
@@ -596,6 +654,7 @@ func printUsage() {
 	fmt.Println("  save <url>     Save a Confluence page")
 	fmt.Println("  crawl <url>    Crawl a full Confluence space")
 	fmt.Println("  search <q>     Search pages (optional: <space-key>)")
+	fmt.Println("  get-page <id>  Get page by Confluence ID (optional: <space-key>)")
 	fmt.Println("  reindex        Rebuild FTS indexes for all pages")
 	fmt.Println("  stats          Show database statistics")
 	fmt.Println("  cron list      List scheduled crawl jobs")

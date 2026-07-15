@@ -11,20 +11,16 @@ func TestParseGetPageArgs(t *testing.T) {
 		wantErr bool
 	}{
 		{
+			name:    "valid without space_key",
+			args:    map[string]interface{}{"confluence_id": float64(1)},
+			wantKey: "",
+			wantID:  1,
+		},
+		{
 			name:    "valid",
 			args:    map[string]interface{}{"space_key": "PROJ", "confluence_id": float64(12345)},
 			wantKey: "PROJ",
 			wantID:  12345,
-		},
-		{
-			name:    "missing space_key",
-			args:    map[string]interface{}{"confluence_id": float64(1)},
-			wantErr: true,
-		},
-		{
-			name:    "empty space_key",
-			args:    map[string]interface{}{"space_key": "", "confluence_id": float64(1)},
-			wantErr: true,
 		},
 		{
 			name:    "missing confluence_id",

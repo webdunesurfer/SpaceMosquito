@@ -148,6 +148,7 @@ func setupComponents(cfg *config.Config, log *zap.Logger) (*serverComponents, er
 	mux.HandleFunc("GET /api/spaces/{key}", api.SpaceByIDHandler(database, logging.New("spaces", log)))
 	mux.HandleFunc("DELETE /api/spaces/{key}", api.SpaceByIDHandler(database, logging.New("spaces", log)))
 	mux.HandleFunc("GET /api/spaces/{key}/pages", api.SpacePagesHandler(database, cfg, logging.New("spaces", log)))
+	mux.HandleFunc("GET /api/pages/{confluence_id}", api.PageByConfluenceIDHandler(database, cfg, logging.New("pages", log)))
 
 	return &serverComponents{
 		database:        database,

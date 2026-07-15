@@ -17,6 +17,7 @@ import (
 	"github.com/vkh/spacemosquito/internal/config"
 	"github.com/vkh/spacemosquito/internal/paths"
 	"github.com/vkh/spacemosquito/internal/search"
+	"github.com/vkh/spacemosquito/internal/store"
 	"github.com/vkh/spacemosquito/internal/testutil"
 )
 
@@ -383,6 +384,51 @@ func TestMCP_GetPage_notFound(t *testing.T) {
 	}
 	if !envelope.IsError {
 		t.Fatalf("expected tool error, got %s", string(resp.Result))
+	}
+}
+
+func TestREST_GetPage_byConfluenceID(t *testing.T) {
+	ts, seed := bootSeededServer(t)
+
+	var page search.PageDetail
+	url := ts.URL + "/api/pages/" + strconv.Itoa(seed.SearchPageID)
+	if code := testutil.GETJSON(t, nil, url, &page); code != http.StatusOK {
+		t.Fatalf("status = %d", code)
+	}
+	if page.ConfluenceID != seed.SearchPageID || page.SpaceKey != seed.SpaceKey {
+		t.Fatalf("page = %+v", page)
+	}
+}
+
+func TestMCP_GetPage_withoutSpaceKey(t *testing.T) {
+	ts, seed := bootSeededServer(t)
+	client := testutil.ConnectMCP(t, ts.URL)
+	defer client.Close()
+	client.Call(t, "initialize", map[string]any{}, 1)
+
+	var page search.PageDetail
+	client.ToolCall(t, "confluence_get_page", map[string]any{
+		"confluence_id": float64(seed.SearchPageID),
+	}, 8, &page)
+	if page.ConfluenceID != seed.SearchPageID {
+		t.Errorf("confluence_id = %d", page.ConfluenceID)
+	}
+}
+
+func TestREST_GetPage_ambiguous(t *testing.T) {
+	ts := app.NewTestServer(t, testConfig(t))
+	ctx := context.Background()
+	id1, _ := ts.Store.CreateSpace(ctx, "AAA", "A", "https://example/spaces/AAA")
+	id2, _ := ts.Store.CreateSpace(ctx, "BBB", "B", "https://example/spaces/BBB")
+	_ = ts.Store.UpsertPage(ctx, &store.Page{SpaceID: id1, ConfluenceID: 77, Title: "A page", Content: "a"})
+	_ = ts.Store.UpsertPage(ctx, &store.Page{SpaceID: id2, ConfluenceID: 77, Title: "B page", Content: "b"})
+
+	code, body := testutil.GETBody(t, ts.URL+"/api/pages/77")
+	if code != http.StatusConflict {
+		t.Fatalf("status = %d, body = %s", code, body)
+	}
+	if !strings.Contains(string(body), "AAA") || !strings.Contains(string(body), "BBB") {
+		t.Fatalf("body = %s", body)
 	}
 }
 

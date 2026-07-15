@@ -2,11 +2,14 @@ package db
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/vkh/spacemosquito/internal/store"
 )
 
 func (d *DB) CreateSpace(ctx context.Context, key, name, url string) (uuid.UUID, error) {
@@ -140,6 +143,77 @@ func (d *DB) GetPage(ctx context.Context, spaceKey string, pageID int) (*Page, e
 			"title", p.Title)
 	}
 	return &p, nil
+}
+
+func (d *DB) GetPageByConfluenceID(ctx context.Context, confluenceID int, spaceKey string) (*Page, string, error) {
+	if confluenceID <= 0 {
+		return nil, "", fmt.Errorf("invalid confluence_id")
+	}
+	if spaceKey != "" {
+		page, err := d.GetPage(ctx, spaceKey, confluenceID)
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return nil, "", store.ErrPageNotFound
+			}
+			return nil, "", err
+		}
+		return page, spaceKey, nil
+	}
+
+	rows, err := d.pool.Query(ctx,
+		`SELECT p.id, p.space_id, p.confluence_id, p.version, p.title, p.parent_confluence_id,
+		        p.content, p.html_path, p.raw_html_path, p.metadata_path, p.file_dir,
+		        p.created_at, p.updated_at, s.key
+		 FROM pages p
+		 JOIN spaces s ON s.id = p.space_id
+		 WHERE p.confluence_id = $1
+		 ORDER BY s.key`,
+		confluenceID,
+	)
+	if err != nil {
+		return nil, "", err
+	}
+	defer rows.Close()
+
+	var matches []struct {
+		page     Page
+		spaceKey string
+	}
+	for rows.Next() {
+		var p Page
+		var spaceKey string
+		if err := rows.Scan(&p.ID, &p.SpaceID, &p.ConfluenceID, &p.Version, &p.Title, &p.ParentConfluenceID,
+			&p.Content, &p.HTMLPath, &p.RawHTMLPath, &p.MetadataPath, &p.FileDir,
+			&p.CreatedAt, &p.UpdatedAt, &spaceKey); err != nil {
+			return nil, "", err
+		}
+		matches = append(matches, struct {
+			page     Page
+			spaceKey string
+		}{page: p, spaceKey: spaceKey})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, "", err
+	}
+
+	switch len(matches) {
+	case 0:
+		return nil, "", store.ErrPageNotFound
+	case 1:
+		return &matches[0].page, matches[0].spaceKey, nil
+	default:
+		candidates := make([]store.PageCandidate, len(matches))
+		for i, m := range matches {
+			candidates[i] = store.PageCandidate{
+				SpaceKey: m.spaceKey,
+				Title:    m.page.Title,
+			}
+		}
+		return nil, "", &store.AmbiguousPageError{
+			ConfluenceID: confluenceID,
+			Candidates:   candidates,
+		}
+	}
 }
 
 func (d *DB) ListPages(ctx context.Context, spaceKey string, limit int, afterConfluenceID *int) ([]Page, error) {
