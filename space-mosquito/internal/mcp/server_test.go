@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/vkh/spacemosquito/internal/config"
-	"github.com/vkh/spacemosquito/internal/db"
+	"github.com/vkh/spacemosquito/internal/store"
 	"github.com/vkh/spacemosquito/pkg/logging"
 )
 
@@ -31,10 +31,10 @@ func testServer() *Server {
 }
 
 type fakePageStore struct {
-	getPageByConfluenceID func(ctx context.Context, confluenceID int, spaceKey string) (*db.Page, string, error)
+	getPageByConfluenceID func(ctx context.Context, confluenceID int, spaceKey string) (*store.Page, string, error)
 }
 
-func (f fakePageStore) GetPageByConfluenceID(ctx context.Context, confluenceID int, spaceKey string) (*db.Page, string, error) {
+func (f fakePageStore) GetPageByConfluenceID(ctx context.Context, confluenceID int, spaceKey string) (*store.Page, string, error) {
 	return f.getPageByConfluenceID(ctx, confluenceID, spaceKey)
 }
 
@@ -169,11 +169,11 @@ func TestHandleToolsCall_validation(t *testing.T) {
 		srv := testServer()
 		srv.cfg = &config.Config{}
 		srv.pages = fakePageStore{
-			getPageByConfluenceID: func(ctx context.Context, id int, spaceKey string) (*db.Page, string, error) {
+			getPageByConfluenceID: func(ctx context.Context, id int, spaceKey string) (*store.Page, string, error) {
 				if spaceKey != "PROJ" || id != 42 {
 					t.Errorf("GetPageByConfluenceID(%d, %q)", id, spaceKey)
 				}
-				return &db.Page{
+				return &store.Page{
 					ConfluenceID: 42,
 					Title:        "Hello",
 					Version:      1,

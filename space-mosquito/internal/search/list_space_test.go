@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/vkh/spacemosquito/internal/db"
+	"github.com/vkh/spacemosquito/internal/store"
 )
 
 func TestClampListSpaceLimit(t *testing.T) {
@@ -109,7 +109,7 @@ func TestParseListSpaceQuery(t *testing.T) {
 
 func TestBuildListSpaceResultFromSummaries_hasMore(t *testing.T) {
 	now := time.Now()
-	summaries := []db.PageSummary{
+	summaries := []store.PageSummary{
 		{ConfluenceID: 10, Title: "A", UpdatedAt: now},
 		{ConfluenceID: 20, Title: "B", UpdatedAt: now},
 		{ConfluenceID: 30, Title: "C", UpdatedAt: now},
@@ -131,7 +131,7 @@ func TestBuildListSpaceResultFromSummaries_hasMore(t *testing.T) {
 }
 
 func TestBuildListSpaceResultFromSummaries_noMore(t *testing.T) {
-	summaries := []db.PageSummary{{ConfluenceID: 1, Title: "Only"}}
+	summaries := []store.PageSummary{{ConfluenceID: 1, Title: "Only"}}
 	result := BuildListSpaceResultFromSummaries("PROJ", summaries, 50, false)
 	if result.HasMore {
 		t.Error("has_more should be false")
@@ -142,7 +142,7 @@ func TestBuildListSpaceResultFromSummaries_noMore(t *testing.T) {
 }
 
 func TestBuildListSpaceResultFromSummaries_omitsContent(t *testing.T) {
-	summaries := []db.PageSummary{{ConfluenceID: 1, Title: "T", CreatedAt: time.Now()}}
+	summaries := []store.PageSummary{{ConfluenceID: 1, Title: "T", CreatedAt: time.Now()}}
 	result := BuildListSpaceResultFromSummaries("PROJ", summaries, 50, false)
 	data, err := json.Marshal(result.Pages[0])
 	if err != nil {
@@ -157,7 +157,7 @@ func TestBuildListSpaceResultFromSummaries_omitsContent(t *testing.T) {
 }
 
 func TestBuildListSpaceResultFromPages_includesContent(t *testing.T) {
-	pages := []db.Page{{ConfluenceID: 1, Title: "T", Content: "body"}}
+	pages := []store.Page{{ConfluenceID: 1, Title: "T", Content: "body"}}
 	result := BuildListSpaceResultFromPages("PROJ", pages, 50, false)
 	if result.Pages[0].Content != "body" {
 		t.Errorf("content = %q", result.Pages[0].Content)
@@ -166,7 +166,7 @@ func TestBuildListSpaceResultFromPages_includesContent(t *testing.T) {
 
 func TestToListSpacePageSummary_exposeInternalID(t *testing.T) {
 	id := uuid.MustParse("550e8400-e29b-41d4-a716-446655440000")
-	summary := &db.PageSummary{
+	summary := &store.PageSummary{
 		ID:           id,
 		ConfluenceID: 42,
 		Title:        "T",
@@ -182,7 +182,7 @@ func TestToListSpacePageSummary_exposeInternalID(t *testing.T) {
 
 func TestToListSpacePageFull_exposeInternalID(t *testing.T) {
 	id := uuid.MustParse("550e8400-e29b-41d4-a716-446655440000")
-	page := &db.Page{
+	page := &store.Page{
 		ID:           id,
 		ConfluenceID: 42,
 		Title:        "T",

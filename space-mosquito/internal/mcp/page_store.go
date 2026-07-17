@@ -2,21 +2,19 @@ package mcp
 
 import (
 	"context"
-
-	"github.com/vkh/spacemosquito/internal/db"
 	"github.com/vkh/spacemosquito/internal/search"
 	"github.com/vkh/spacemosquito/internal/store"
 )
 
 type pageStore interface {
-	GetPageByConfluenceID(ctx context.Context, confluenceID int, spaceKey string) (*db.Page, string, error)
+	GetPageByConfluenceID(ctx context.Context, confluenceID int, spaceKey string) (*store.Page, string, error)
 }
 
 type dbPageStore struct {
 	db store.Store
 }
 
-func (s dbPageStore) GetPageByConfluenceID(ctx context.Context, confluenceID int, spaceKey string) (*db.Page, string, error) {
+func (s dbPageStore) GetPageByConfluenceID(ctx context.Context, confluenceID int, spaceKey string) (*store.Page, string, error) {
 	return s.db.GetPageByConfluenceID(ctx, confluenceID, spaceKey)
 }
 

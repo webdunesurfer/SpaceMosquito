@@ -4,20 +4,18 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"net/http"
-	"strings"
-	"sync"
-	"time"
-
 	"github.com/go-rod/rod"
 	"github.com/go-rod/rod/lib/proto"
 	"github.com/vkh/spacemosquito/internal/config"
 	"github.com/vkh/spacemosquito/internal/contentmd"
-	"github.com/vkh/spacemosquito/internal/db"
 	"github.com/vkh/spacemosquito/internal/session"
 	"github.com/vkh/spacemosquito/internal/storage"
 	"github.com/vkh/spacemosquito/internal/store"
 	"github.com/vkh/spacemosquito/pkg/logging"
+	"net/http"
+	"strings"
+	"sync"
+	"time"
 )
 
 // Page represents a discovered Confluence page in the tree.
@@ -432,7 +430,7 @@ func (s *Scraper) savePageMetadata(pg *Page, spaceKey, spaceURL string) error {
 	}
 	pg.MetadataPath = dir + "/metadata.json"
 
-	var space *db.Space
+	var space *store.Space
 	space, err = s.db.GetSpaceByKey(context.Background(), spaceKey)
 	if err != nil {
 		s.log.Infow("space not found, auto-creating", "space_key", spaceKey)
@@ -446,7 +444,7 @@ func (s *Scraper) savePageMetadata(pg *Page, spaceKey, spaceURL string) error {
 				"space_key", spaceKey, "error", err)
 			return nil
 		}
-		space = &db.Space{ID: spaceID, Key: spaceKey, Name: spaceKey, URL: sURL}
+		space = &store.Space{ID: spaceID, Key: spaceKey, Name: spaceKey, URL: sURL}
 	}
 
 	var parentID *int
@@ -454,7 +452,7 @@ func (s *Scraper) savePageMetadata(pg *Page, spaceKey, spaceURL string) error {
 		parentID = pg.ParentID
 	}
 
-	dbPage := &db.Page{
+	dbPage := &store.Page{
 		SpaceID:            space.ID,
 		ConfluenceID:       pg.ConfluenceID,
 		Version:            pg.Version,

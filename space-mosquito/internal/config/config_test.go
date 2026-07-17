@@ -28,8 +28,7 @@ func TestLoad_malformedYAML(t *testing.T) {
 func TestLoad_defaults(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	content := `
-database:
-  host: localhost
+database: {}
 storage: {}
 session:
   encryption_key: "12345678901234567890123456789012"
@@ -43,11 +42,11 @@ session:
 		t.Fatalf("Load: %v", err)
 	}
 
-	if cfg.Database.Port != 5432 {
-		t.Errorf("database.port = %d, want 5432", cfg.Database.Port)
+	if cfg.Database.Driver != "sqlite" {
+		t.Errorf("database.driver = %q, want sqlite", cfg.Database.Driver)
 	}
-	if cfg.Database.SSLMode != "disable" {
-		t.Errorf("database.sslmode = %q, want disable", cfg.Database.SSLMode)
+	if cfg.Database.DriverName() != "sqlite" {
+		t.Errorf("DriverName() = %q, want sqlite", cfg.Database.DriverName())
 	}
 	if cfg.Storage.BasePath != "./saved" {
 		t.Errorf("storage.base_path = %q, want ./saved", cfg.Storage.BasePath)
@@ -66,8 +65,7 @@ session:
 func TestLoad_cronDefaults(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	content := `
-database:
-  host: localhost
+database: {}
 session:
   encryption_key: "12345678901234567890123456789012"
 cron:
@@ -99,26 +97,6 @@ cron:
 	}
 	if cfg.Cron.Incremental.MaxDuration != "30m" {
 		t.Errorf("incremental.max_duration = %q, want 30m", cfg.Cron.Incremental.MaxDuration)
-	}
-}
-
-func TestDatabaseConfig_DSN(t *testing.T) {
-	t.Setenv("DATABASE_URL", "")
-
-	cfg := DatabaseConfig{
-		Host: "db", Port: 5432, User: "u", Password: "p", DBName: "d", SSLMode: "disable",
-	}
-	want := "host=db port=5432 user=u password=p dbname=d sslmode=disable"
-	if got := cfg.DSN(); got != want {
-		t.Errorf("DSN() = %q, want %q", got, want)
-	}
-}
-
-func TestDatabaseConfig_DSN_envOverride(t *testing.T) {
-	t.Setenv("DATABASE_URL", "postgres://custom:5432/mydb")
-	cfg := DatabaseConfig{Host: "ignored"}
-	if got := cfg.DSN(); got != "postgres://custom:5432/mydb" {
-		t.Errorf("DSN() = %q, want env override", got)
 	}
 }
 

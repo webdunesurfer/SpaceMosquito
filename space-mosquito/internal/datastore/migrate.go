@@ -5,35 +5,37 @@ import (
 	"path/filepath"
 
 	"github.com/vkh/spacemosquito/internal/config"
-	"github.com/vkh/spacemosquito/internal/store"
 	"github.com/vkh/spacemosquito/internal/store/sqlite"
 	"github.com/vkh/spacemosquito/pkg/logging"
 )
 
-func migrationsDir(root, driver string) string {
-	return filepath.Join(root, driver)
+func migrationsDir(root string) string {
+	return filepath.Join(root, "sqlite")
 }
 
-// MigrateUp applies pending schema migrations for the configured driver.
+// MigrateUp applies pending SQLite schema migrations.
 func MigrateUp(cfg *config.Config, migrationsRoot string, log logging.Sugar) error {
-	switch cfg.Database.DriverName() {
-	case "sqlite":
-		return sqlite.MigrateUp(cfg, migrationsDir(migrationsRoot, "sqlite"), log)
-	case "postgres":
-		return store.MigrateUp(cfg, migrationsRoot, log)
-	default:
-		return fmt.Errorf("unsupported database driver %q", cfg.Database.Driver)
+	if err := requireSQLite(cfg); err != nil {
+		return err
 	}
+	return sqlite.MigrateUp(cfg, migrationsDir(migrationsRoot), log)
 }
 
-// MigrateDown rolls back one migration step for the configured driver.
+// MigrateDown rolls back one SQLite migration step.
 func MigrateDown(cfg *config.Config, migrationsRoot string, log logging.Sugar) error {
+	if err := requireSQLite(cfg); err != nil {
+		return err
+	}
+	return sqlite.MigrateDown(cfg, migrationsDir(migrationsRoot), log)
+}
+
+func requireSQLite(cfg *config.Config) error {
 	switch cfg.Database.DriverName() {
 	case "sqlite":
-		return sqlite.MigrateDown(cfg, migrationsDir(migrationsRoot, "sqlite"), log)
+		return nil
 	case "postgres":
-		return store.MigrateDown(cfg, migrationsRoot, log)
+		return fmt.Errorf("database driver %q is no longer supported; use sqlite", cfg.Database.Driver)
 	default:
-		return fmt.Errorf("unsupported database driver %q", cfg.Database.Driver)
+		return fmt.Errorf("unsupported database driver %q (only sqlite is supported)", cfg.Database.Driver)
 	}
 }

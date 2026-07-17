@@ -4,7 +4,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/vkh/spacemosquito/internal/db"
+	"github.com/vkh/spacemosquito/internal/store"
 )
 
 // SearchHit is the public search result shape (MCP, REST, CLI).
@@ -30,7 +30,7 @@ type PageDetail struct {
 }
 
 // ToSearchHits maps DB rows to API-facing search hits.
-func ToSearchHits(results []db.SearchResult, exposeInternalIDs bool) []SearchHit {
+func ToSearchHits(results []store.SearchResult, exposeInternalIDs bool) []SearchHit {
 	if len(results) == 0 {
 		return []SearchHit{}
 	}
@@ -52,7 +52,7 @@ func ToSearchHits(results []db.SearchResult, exposeInternalIDs bool) []SearchHit
 }
 
 // ToPageDetail maps a DB page to the MCP/REST page detail shape.
-func ToPageDetail(page *db.Page, spaceKey string, exposeInternalIDs bool) PageDetail {
+func ToPageDetail(page *store.Page, spaceKey string, exposeInternalIDs bool) PageDetail {
 	detail := PageDetail{
 		ConfluenceID: page.ConfluenceID,
 		SpaceKey:     spaceKey,

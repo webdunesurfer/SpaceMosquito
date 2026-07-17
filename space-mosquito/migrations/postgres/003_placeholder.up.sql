@@ -1,3 +1,0 @@
--- Migration 003 placeholder
--- No changes: migration numbering gap between 001_initial and 004_fts.
--- Kept as a no-op to maintain expected sequential numbering.

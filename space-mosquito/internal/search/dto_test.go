@@ -6,12 +6,12 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
-	"github.com/vkh/spacemosquito/internal/db"
+	"github.com/vkh/spacemosquito/internal/store"
 )
 
 func TestToSearchHits_confluenceID(t *testing.T) {
 	internal := uuid.MustParse("550e8400-e29b-41d4-a716-446655440000")
-	results := []db.SearchResult{{
+	results := []store.SearchResult{{
 		ConfluenceID: 12345,
 		SpaceKey:     "PROJ",
 		Title:        "Test Page",
@@ -57,7 +57,7 @@ func TestToSearchHits_empty(t *testing.T) {
 }
 
 func TestToSearchHits_normalizesExcerpt(t *testing.T) {
-	results := []db.SearchResult{{
+	results := []store.SearchResult{{
 		ConfluenceID: 1,
 		SpaceKey:     "PROJ",
 		Title:        "T",
@@ -74,7 +74,7 @@ func TestToSearchHits_normalizesExcerpt(t *testing.T) {
 
 func TestToPageDetail(t *testing.T) {
 	pageID := uuid.MustParse("550e8400-e29b-41d4-a716-446655440000")
-	page := &db.Page{
+	page := &store.Page{
 		ID:           pageID,
 		ConfluenceID: 99,
 		Title:        "Title",

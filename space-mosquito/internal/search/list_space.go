@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/vkh/spacemosquito/internal/db"
+	"github.com/vkh/spacemosquito/internal/store"
 )
 
 const (
@@ -96,7 +96,7 @@ func ParseListSpaceQuery(limitStr, afterStr, includeContentStr string) (ListSpac
 }
 
 // ToListSpacePageSummary maps a DB summary row to the list shape.
-func ToListSpacePageSummary(summary *db.PageSummary, exposeInternalIDs bool) ListSpacePage {
+func ToListSpacePageSummary(summary *store.PageSummary, exposeInternalIDs bool) ListSpacePage {
 	row := ListSpacePage{
 		ConfluenceID:       summary.ConfluenceID,
 		Title:              summary.Title,
@@ -112,7 +112,7 @@ func ToListSpacePageSummary(summary *db.PageSummary, exposeInternalIDs bool) Lis
 }
 
 // ToListSpacePageFull maps a DB page to the list shape with content (include_content mode).
-func ToListSpacePageFull(page *db.Page, exposeInternalIDs bool) ListSpacePage {
+func ToListSpacePageFull(page *store.Page, exposeInternalIDs bool) ListSpacePage {
 	row := ListSpacePage{
 		ConfluenceID:       page.ConfluenceID,
 		Title:              page.Title,
@@ -129,7 +129,7 @@ func ToListSpacePageFull(page *db.Page, exposeInternalIDs bool) ListSpacePage {
 }
 
 // BuildListSpaceResultFromSummaries trims an over-fetched summary slice and sets pagination metadata.
-func BuildListSpaceResultFromSummaries(spaceKey string, summaries []db.PageSummary, limit int, exposeInternalIDs bool) ListSpaceResult {
+func BuildListSpaceResultFromSummaries(spaceKey string, summaries []store.PageSummary, limit int, exposeInternalIDs bool) ListSpaceResult {
 	hasMore := len(summaries) > limit
 	if hasMore {
 		summaries = summaries[:limit]
@@ -152,7 +152,7 @@ func BuildListSpaceResultFromSummaries(spaceKey string, summaries []db.PageSumma
 }
 
 // BuildListSpaceResultFromPages trims an over-fetched page slice and sets pagination metadata.
-func BuildListSpaceResultFromPages(spaceKey string, pages []db.Page, limit int, exposeInternalIDs bool) ListSpaceResult {
+func BuildListSpaceResultFromPages(spaceKey string, pages []store.Page, limit int, exposeInternalIDs bool) ListSpaceResult {
 	hasMore := len(pages) > limit
 	if hasMore {
 		pages = pages[:limit]

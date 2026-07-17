@@ -193,13 +193,11 @@ func NormalizeConfig(cfg *config.Config) error {
 		cfg.Session.FilePath = expanded
 	}
 
-	if cfg.Database.DriverName() == "sqlite" {
-		dbPath, err := ResolveDB(cfg)
-		if err != nil {
-			return err
-		}
-		cfg.Database.Path = dbPath
+	dbPath, err := ResolveDB(cfg)
+	if err != nil {
+		return err
 	}
+	cfg.Database.Path = dbPath
 
 	return nil
 }

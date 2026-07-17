@@ -1,7 +1,6 @@
 package config
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"time"
@@ -19,30 +18,18 @@ type Config struct {
 	Cron     CronConfig     `yaml:"cron"`
 }
 
+// DatabaseConfig configures the embedded SQLite database.
 type DatabaseConfig struct {
-	Driver   string `yaml:"driver"` // postgres | sqlite
-	Path     string `yaml:"path"`   // sqlite database file (relative to storage base parent)
-	Host     string `yaml:"host"`
-	Port     int    `yaml:"port"`
-	User     string `yaml:"user"`
-	Password string `yaml:"password"`
-	DBName   string `yaml:"dbname"`
-	SSLMode  string `yaml:"sslmode"`
+	Driver string `yaml:"driver"` // sqlite (default); postgres is rejected
+	Path   string `yaml:"path"`   // sqlite database file (relative to data dir unless absolute)
 }
 
-// DriverName returns the configured driver, defaulting to postgres.
+// DriverName returns the configured driver, defaulting to sqlite.
 func (c DatabaseConfig) DriverName() string {
 	if c.Driver == "" {
-		return "postgres"
+		return "sqlite"
 	}
 	return c.Driver
-}
-
-func (c DatabaseConfig) DSN() string {
-	if os.Getenv("DATABASE_URL") != "" {
-		return os.Getenv("DATABASE_URL")
-	}
-	return fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=%s", c.Host, c.Port, c.User, c.Password, c.DBName, c.SSLMode)
 }
 
 type StorageConfig struct {
@@ -112,11 +99,8 @@ func Load(path string) (*Config, error) {
 		return nil, err
 	}
 
-	if cfg.Database.Port == 0 {
-		cfg.Database.Port = 5432
-	}
-	if cfg.Database.SSLMode == "" {
-		cfg.Database.SSLMode = "disable"
+	if cfg.Database.Driver == "" {
+		cfg.Database.Driver = "sqlite"
 	}
 	if cfg.Storage.BasePath == "" {
 		cfg.Storage.BasePath = "./saved"
