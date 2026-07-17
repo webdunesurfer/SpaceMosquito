@@ -6,7 +6,7 @@
 #   ./scripts/cleanup-docker-legacy.sh
 #   ./scripts/cleanup-docker-legacy.sh --project-name SpaceMosquito
 #   ./scripts/cleanup-docker-legacy.sh --purge-images
-#   ./scripts/cleanup-docker-legacy.sh --purge-bind-mounts   # destructive; opt-in
+#   ./scripts/cleanup-docker-legacy.sh --purge-bind-mounts
 #
 # See DOCS/guides/cleanup-docker-legacy.md
 #
@@ -20,6 +20,7 @@ DRY_RUN=0
 PURGE_BIND_MOUNTS=0
 PURGE_IMAGES=0
 PROJECT_NAME=""
+VOLUMES_TO_REMOVE=""
 
 usage() {
   cat <<'EOF'
@@ -28,7 +29,7 @@ Usage: ./scripts/cleanup-docker-legacy.sh [options]
   --dry-run              Print actions without changing anything
   --project-name NAME    Compose project name (default: repo directory basename)
   --purge-images         Remove spacemosquito-related Docker images
-  --purge-bind-mounts    Also delete host bind mounts (saved-data, session.enc, …)
+  --purge-bind-mounts    Also delete host bind mounts (saved-data, session.enc, ...)
   -h, --help             Show this help
 
 Guide: DOCS/guides/cleanup-docker-legacy.md
@@ -69,11 +70,25 @@ run() {
 info() { echo "==> $*"; }
 warn() { echo "warning: $*" >&2; }
 
-# Default Compose project name is the directory basename (Compose v2).
+# Compose project names must be lowercase [a-z0-9_-], starting with alnum.
+# Use separate sed -E calls for macOS/BSD sed compatibility.
+normalize_project_name() {
+  printf '%s' "$1" \
+    | tr '[:upper:]' '[:lower:]' \
+    | sed -E 's/[^a-z0-9_-]+/-/g' \
+    | sed -E 's/^-+//' \
+    | sed -E 's/-+$//' \
+    | sed -E 's/^[^a-z0-9]+//'
+}
+
 if [[ -z "${PROJECT_NAME}" ]]; then
   PROJECT_NAME="$(basename "${REPO_ROOT}")"
 fi
-PROJECT_NAME_LOWER="$(printf '%s' "${PROJECT_NAME}" | tr '[:upper:]' '[:lower:]')"
+RAW_PROJECT_NAME="${PROJECT_NAME}"
+PROJECT_NAME="$(normalize_project_name "${PROJECT_NAME}")"
+if [[ -z "${PROJECT_NAME}" ]]; then
+  PROJECT_NAME="spacemosquito"
+fi
 
 COMPOSE_FILE="${REPO_ROOT}/docker-compose.yml"
 
@@ -114,6 +129,78 @@ Guide: DOCS/guides/cleanup-docker-legacy.md
 EOF
 }
 
+volume_already_queued() {
+  needle="$1"
+  for v in ${VOLUMES_TO_REMOVE}; do
+    [[ "$v" == "$needle" ]] && return 0
+  done
+  return 1
+}
+
+queue_volume() {
+  vol="$1"
+  if volume_already_queued "$vol"; then
+    return 0
+  fi
+  if [[ -z "${VOLUMES_TO_REMOVE}" ]]; then
+    VOLUMES_TO_REMOVE="$vol"
+  else
+    VOLUMES_TO_REMOVE="${VOLUMES_TO_REMOVE} ${vol}"
+  fi
+}
+
+# Remove containers attached to a volume, then remove the volume.
+remove_volume() {
+  vol="$1"
+  if ! docker volume inspect "$vol" >/dev/null 2>&1; then
+    echo "  (not found) $vol"
+    return 0
+  fi
+
+  info "Freeing containers using volume: $vol"
+  ids="$(docker ps -aq --filter "volume=${vol}" 2>/dev/null || true)"
+  if [[ -n "${ids}" ]]; then
+    if [[ "${DRY_RUN}" -eq 1 ]]; then
+      echo "[dry-run] docker rm -f ${ids}"
+    else
+      echo "+ docker rm -f (containers using ${vol})"
+      # shellcheck disable=SC2086
+      docker rm -f ${ids} || warn "failed to remove some containers using ${vol}"
+    fi
+  else
+    echo "  (no containers via --filter volume=)"
+  fi
+
+  info "Removing volume: $vol"
+  if [[ "${DRY_RUN}" -eq 1 ]]; then
+    echo "[dry-run] docker volume rm ${vol}"
+    return 0
+  fi
+
+  echo "+ docker volume rm ${vol}"
+  if docker volume rm "$vol" 2>/dev/null; then
+    return 0
+  fi
+
+  warn "volume still in use — scanning all containers for mount ${vol}"
+  docker ps -aq 2>/dev/null | while IFS= read -r cid; do
+    [[ -z "$cid" ]] && continue
+    mounts="$(docker inspect "$cid" --format '{{range .Mounts}}{{.Name}} {{end}}' 2>/dev/null || true)"
+    case " ${mounts} " in
+      *" ${vol} "*)
+        echo "+ docker rm -f ${cid}"
+        docker rm -f "$cid" || true
+        ;;
+    esac
+  done
+
+  if docker volume rm "$vol"; then
+    return 0
+  fi
+  warn "still failed to remove volume ${vol}"
+  return 1
+}
+
 if ! command -v docker >/dev/null 2>&1; then
   warn "docker not found on PATH — skipping container/volume/image cleanup"
   print_bind_mounts
@@ -129,13 +216,16 @@ if ! docker info >/dev/null 2>&1; then
   exit 0
 fi
 
+if [[ "${RAW_PROJECT_NAME}" != "${PROJECT_NAME}" ]]; then
+  info "Normalized Compose project name: ${RAW_PROJECT_NAME} -> ${PROJECT_NAME}"
+fi
 info "Repo: ${REPO_ROOT}"
 info "Compose project name: ${PROJECT_NAME}"
 if [[ "${DRY_RUN}" -eq 1 ]]; then
   info "Mode: dry-run (no changes)"
 fi
 
-# --- Compose down -----------------------------------------------------------
+# --- Compose down ------------------------------------------------------------
 if [[ -f "${COMPOSE_FILE}" ]]; then
   info "Found docker-compose.yml — bringing stack down"
   if [[ "${DRY_RUN}" -eq 1 ]]; then
@@ -145,7 +235,7 @@ if [[ -f "${COMPOSE_FILE}" ]]; then
       || warn "compose down failed (stack may already be gone)"
   fi
 else
-  info "No docker-compose.yml (expected after packaging removal) — trying project name only"
+  info "No docker-compose.yml — trying project name only"
   if [[ "${DRY_RUN}" -eq 1 ]]; then
     echo "[dry-run] docker compose -p ${PROJECT_NAME} down --remove-orphans"
   else
@@ -154,67 +244,76 @@ else
   fi
 fi
 
-# --- Named volumes ----------------------------------------------------------
-info "Looking for named volumes (pgdata)"
-
-remove_volume_if_exists() {
-  vol="$1"
-  if docker volume inspect "$vol" >/dev/null 2>&1; then
-    info "Removing volume: $vol"
-    run docker volume rm "$vol" || warn "failed to remove volume $vol"
-    return 0
-  fi
-  echo "  (not found) $vol"
-  return 1
-}
-
-remove_volume_if_exists "${PROJECT_NAME}_pgdata" || true
-if [[ "${PROJECT_NAME_LOWER}" != "${PROJECT_NAME}" ]]; then
-  remove_volume_if_exists "${PROJECT_NAME_LOWER}_pgdata" || true
+# Stop leftover containers for this project / name.
+info "Stopping leftover containers matching spacemosquito / ${PROJECT_NAME}"
+LEFTOVER_IDS="$(docker ps -aq --filter "label=com.docker.compose.project=${PROJECT_NAME}" 2>/dev/null || true)"
+if [[ -z "${LEFTOVER_IDS}" ]]; then
+  LEFTOVER_IDS="$(docker ps -a --format '{{.ID}} {{.Names}}' 2>/dev/null \
+    | awk 'tolower($0) ~ /spacemosquito/ {print $1}' || true)"
 fi
-remove_volume_if_exists "spacemosquito_pgdata" || true
-remove_volume_if_exists "SpaceMosquito_pgdata" || true
+if [[ -n "${LEFTOVER_IDS}" ]]; then
+  if [[ "${DRY_RUN}" -eq 1 ]]; then
+    echo "[dry-run] docker rm -f ${LEFTOVER_IDS}"
+  else
+    echo "+ docker rm -f (leftover project containers)"
+    # shellcheck disable=SC2086
+    docker rm -f ${LEFTOVER_IDS} || warn "failed to remove some leftover containers"
+  fi
+else
+  echo "  (none)"
+fi
 
-# Catch leftovers whose names contain both spacemosquito and pgdata (case-insensitive).
+# --- Named volumes -----------------------------------------------------------
+info "Looking for named volumes (pgdata)"
+queue_volume "${PROJECT_NAME}_pgdata"
+queue_volume "spacemosquito_pgdata"
+
 while IFS= read -r vol; do
   [[ -z "$vol" ]] && continue
-  case "$vol" in
-    "${PROJECT_NAME}_pgdata"|"${PROJECT_NAME_LOWER}_pgdata"|spacemosquito_pgdata|SpaceMosquito_pgdata)
-      continue
+  vol_lc=$(printf '%s' "$vol" | tr '[:upper:]' '[:lower:]')
+  case "$vol_lc" in
+    *spacemosquito*)
+      case "$vol_lc" in
+        *pgdata*) queue_volume "$vol" ;;
+      esac
       ;;
   esac
-  info "Removing matching volume: $vol"
-  run docker volume rm "$vol" || warn "failed to remove volume $vol"
-done < <(
-  docker volume ls -q 2>/dev/null | while IFS= read -r v; do
-    vl=$(printf '%s' "$v" | tr '[:upper:]' '[:lower:]')
-    case "$vl" in
-      *spacemosquito*pgdata*|*pgdata*spacemosquito*) printf '%s\n' "$v" ;;
-    esac
-  done
-)
+done <<EOF
+$(docker volume ls -q 2>/dev/null || true)
+EOF
 
-# --- Images (optional) ------------------------------------------------------
+if [[ -z "${VOLUMES_TO_REMOVE}" ]]; then
+  echo "  (no matching volumes found)"
+else
+  for vol in ${VOLUMES_TO_REMOVE}; do
+    remove_volume "$vol" || true
+  done
+fi
+
+# --- Images (optional) -------------------------------------------------------
 if [[ "${PURGE_IMAGES}" -eq 1 ]]; then
   info "Removing images matching spacemosquito / ${PROJECT_NAME}"
   while IFS= read -r img; do
     [[ -z "$img" ]] && continue
+    [[ "$img" == "<none>:<none>" ]] && continue
     info "Removing image: $img"
     run docker image rm "$img" || warn "failed to remove image $img"
-  done < <(
-    docker images --format '{{.Repository}}:{{.Tag}}' 2>/dev/null | while IFS= read -r line; do
-      ll=$(printf '%s' "$line" | tr '[:upper:]' '[:lower:]')
-      pl=$(printf '%s' "${PROJECT_NAME}" | tr '[:upper:]' '[:lower:]')
-      case "$ll" in
-        *spacemosquito*|"${pl}-app"*|"${pl}_app"*) printf '%s\n' "$line" ;;
-      esac
-    done
-  )
+  done <<EOF
+$(docker images --format '{{.Repository}}:{{.Tag}}' 2>/dev/null \
+  | awk -v p="${PROJECT_NAME}" '
+      BEGIN { pl = tolower(p) }
+      {
+        ll = tolower($0)
+        if (ll ~ /spacemosquito/ || index(ll, pl "-app") || index(ll, pl "_app"))
+          print
+      }' \
+  || true)
+EOF
 else
   info "Skipping image removal (pass --purge-images to remove related images)"
 fi
 
-# --- Bind mounts ------------------------------------------------------------
+# --- Bind mounts -------------------------------------------------------------
 print_bind_mounts
 if [[ "${PURGE_BIND_MOUNTS}" -eq 1 ]]; then
   for p in \

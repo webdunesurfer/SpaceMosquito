@@ -28,16 +28,18 @@ chmod +x scripts/cleanup-docker-legacy.sh   # once
 | Flag | Effect |
 |------|--------|
 | `--dry-run` | Print actions only |
-| `--project-name NAME` | Compose project name (default: repo directory basename, e.g. `SpaceMosquito`) |
+| `--project-name NAME` | Compose project name (default: repo directory basename). **Normalized to lowercase** (e.g. `SpaceMosquito` → `spacemosquito`) because Compose rejects mixed case. |
 | `--purge-images` | Remove images whose names match `spacemosquito` / `{project}-app` |
 | `--purge-bind-mounts` | **Destructive:** delete host `saved-data/`, `saved/`, `session.enc`, `config.yaml`, `cron-config.json`, `.env` under the repo |
 
 ## What it does
 
-1. `docker compose down --remove-orphans` (uses `docker-compose.yml` if present, else project name only).
-2. Removes named volumes such as `{project}_pgdata`, `spacemosquito_pgdata`.
-3. Optionally removes related images (`--purge-images`).
-4. Lists bind-mount leftovers; deletes them only with `--purge-bind-mounts`.
+1. **Normalizes** the Compose project name to lowercase (`SpaceMosquito` → `spacemosquito`) so `docker compose -p` accepts it.
+2. `docker compose down --remove-orphans` with the normalized project name.
+3. Force-removes leftover containers (compose label or name match).
+4. For each matching `*_pgdata` volume: remove containers still using it, then `docker volume rm`.
+5. Optionally removes related images (`--purge-images`).
+6. Lists bind-mount leftovers; deletes them only with `--purge-bind-mounts`.
 
 ## Manual equivalent
 
