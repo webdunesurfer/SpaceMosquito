@@ -1,0 +1,1 @@
+-- Migration 003 placeholder (no-op)

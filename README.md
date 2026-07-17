@@ -25,7 +25,7 @@ make build
 Or:
 
 ```sh
-cd space-mosquito
+cd spacemosquito
 go build -o spacemosquito ./cmd/spacemosquito
 ```
 
@@ -168,5 +168,5 @@ See [DEVELOPMENT.md](DEVELOPMENT.md). Quick checks:
 
 ```sh
 make test
-cd space-mosquito && go test -race -tags=integration ./internal/app/...
+cd spacemosquito && go test -race -tags=integration ./internal/app/...
 ```

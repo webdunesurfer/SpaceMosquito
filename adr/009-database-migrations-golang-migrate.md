@@ -15,7 +15,7 @@
   - SQLx raw migrations — possible but adds boilerplate for tracking migration versions
   - Migration libraries in other languages (Flyway, Liquibase) — not native to Go
 - **Consequences**:
-  - Migration files live in `space-mosquito/migrations/sqlite/` with numbered up/down SQL files
+  - Migration files live in `spacemosquito/migrations/sqlite/` with numbered up/down SQL files
   - Migration version is stored in a `schema_migrations` table in SQLite
   - Migrations should be run before the MCP server and API server start
   - Release builds embed SQLite migrations; `spacemosquito init` applies them

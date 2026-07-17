@@ -1,0 +1,43 @@
+# Example config for local installs.
+# Prefer: `spacemosquito init` (writes ~/.spacemosquito/config.yaml).
+#
+# Data directory: ~/.spacemosquito/  (override with SPACEMOSQUITO_DATA_DIR or --data-dir)
+
+database:
+  driver: sqlite
+  path: spacemosquito.db
+
+storage:
+  base_path: ~/.spacemosquito/saved
+
+session:
+  # Generate: openssl rand -base64 32
+  encryption_key: ""
+  file_path: ~/.spacemosquito/session.enc
+
+# browser:
+#   path: /usr/bin/chromium   # optional; CHROMIUM_PATH env overrides this
+
+embedder:
+  model: nomic-embed-text
+
+mcp:
+  port: 8081
+  host: "127.0.0.1"
+  session_timeout: 3600
+  expose_internal_ids: false
+
+cron:
+  full_crawl:
+    enabled: false
+    interval: "24h"
+    max_duration: "4h"
+    spaces:
+      - "https://company.atlassian.net/wiki/spaces/PROJ"
+  incremental:
+    enabled: false
+    interval: "2h"
+    max_duration: "30m"
+    detection: "dom"
+    spaces:
+      - "https://company.atlassian.net/wiki/spaces/PROJ"

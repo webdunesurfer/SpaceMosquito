@@ -9,7 +9,7 @@
   - **SQLite + FTS5** is the only supported database.
   - **Docker Compose / PostgreSQL** are not supported product modes (legacy cleanup via `scripts/cleanup-docker-legacy.sh` only).
   - All state lives under `~/.spacemosquito/` (or `--data-dir` / `SPACEMOSQUITO_DATA_DIR`).
-  - Migrations live under `space-mosquito/migrations/sqlite/` (embedded in release builds).
+  - Migrations live under `spacemosquito/migrations/sqlite/` (embedded in release builds).
   - API-first scraping with go-rod Chromium fallback remains (unchanged).
   - Former Docker users migrate via on-disk `saved/` + `bootstrap import-saved` (+ optional `reindex --content`), not Postgres dumps.
 

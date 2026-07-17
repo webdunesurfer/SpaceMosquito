@@ -54,7 +54,7 @@ docker volume ls | grep -i spacemosquito
 Postgres volume data is **not** imported. Rebuild the catalog from saved HTML:
 
 ```sh
-cd space-mosquito
+cd spacemosquito
 go build -o spacemosquito ./cmd/spacemosquito
 
 ./spacemosquito init

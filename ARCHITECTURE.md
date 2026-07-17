@@ -132,7 +132,7 @@ Query → SQLite FTS5 (AND multi-word, BM25 with title boost)
 
 **pages_fts** — FTS5 virtual table over title + content
 
-Migrations live in `space-mosquito/migrations/sqlite/` (also embedded in release builds).
+Migrations live in `spacemosquito/migrations/sqlite/` (also embedded in release builds).
 
 ## Scraping Modes
 

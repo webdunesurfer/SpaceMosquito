@@ -4,22 +4,22 @@ BUILD_DIR=build
 
 build:
 	mkdir -p $(BUILD_DIR)
-	cd space-mosquito && go build -o ../$(BUILD_DIR)/spacemosquito ./cmd/spacemosquito
+	cd spacemosquito && go build -o ../$(BUILD_DIR)/spacemosquito ./cmd/spacemosquito
 
 run: build
 	$(BUILD_DIR)/spacemosquito serve
 
 test:
-	cd space-mosquito && go test -race ./...
+	cd spacemosquito && go test -race ./...
 
 migrate-up:
-	cd space-mosquito && go run ./cmd/spacemosquito init
+	cd spacemosquito && go run ./cmd/spacemosquito init
 
 migrate-down:
-	cd space-mosquito && go run ./cmd/spacemosquito migrate-down
+	cd spacemosquito && go run ./cmd/spacemosquito migrate-down
 
 lint:
-	cd space-mosquito && go vet ./...
+	cd spacemosquito && go vet ./...
 	cd firefox-extension && npx tsc --noEmit
 
 dev-extension:
@@ -30,4 +30,4 @@ build-extension:
 
 clean:
 	rm -rf build/
-	cd space-mosquito && go clean
+	cd spacemosquito && go clean

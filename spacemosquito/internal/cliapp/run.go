@@ -1,0 +1,732 @@
+package cliapp
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"flag"
+	"fmt"
+	"net/http"
+	"os"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/vkh/spacemosquito/internal/app"
+	"github.com/vkh/spacemosquito/internal/bootstrap"
+	"github.com/vkh/spacemosquito/internal/config"
+	"github.com/vkh/spacemosquito/internal/contentmd"
+	"github.com/vkh/spacemosquito/internal/datastore"
+	"github.com/vkh/spacemosquito/internal/paths"
+	"github.com/vkh/spacemosquito/internal/scraper"
+	"github.com/vkh/spacemosquito/internal/search"
+	"github.com/vkh/spacemosquito/internal/session"
+	"github.com/vkh/spacemosquito/internal/storage"
+	"github.com/vkh/spacemosquito/internal/store"
+	"github.com/vkh/spacemosquito/pkg/logger"
+	"github.com/vkh/spacemosquito/pkg/logging"
+	"go.uber.org/zap"
+)
+
+// Version is stamped at link time via -ldflags "-X github.com/vkh/spacemosquito/internal/cliapp.Version=...".
+var Version = "dev"
+
+// Run is the CLI entrypoint. args should include the program name (os.Args).
+func Run(args []string) int {
+	if len(args) < 2 {
+		printUsage()
+		return 1
+	}
+
+	if args[1] == "version" || args[1] == "--version" {
+		fmt.Println(Version)
+		return 0
+	}
+
+	log, err := logger.NewProduction(nil)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to create logger: %v\n", err)
+		return 1
+	}
+	defer log.Sync()
+
+	cmd := args[1]
+	if cmd == "init" {
+		runInit(args[2:], log)
+		return 0
+	}
+
+	cfgPath, err := paths.ResolveConfig()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to resolve config path: %v\n", err)
+		return 1
+	}
+
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to load config: %v\n", err)
+		return 1
+	}
+	if err := paths.NormalizeConfig(cfg); err != nil {
+		fmt.Fprintf(os.Stderr, "failed to normalize config paths: %v\n", err)
+		return 1
+	}
+
+	switch cmd {
+	case "bootstrap":
+		if len(args) < 3 {
+			fmt.Fprintln(os.Stderr, "usage: spacemosquito bootstrap import-saved [--from PATH] [--force] [--dry-run]")
+			return 1
+		}
+		switch args[2] {
+		case "import-saved":
+			runBootstrapImportSaved(cfg, args[3:], log)
+		default:
+			fmt.Fprintf(os.Stderr, "unknown bootstrap subcommand: %s\n", args[2])
+			return 1
+		}
+	case "migrate-down":
+		runMigrateDown(cfg, log)
+	case "save":
+		if len(args) < 3 {
+			fmt.Fprintln(os.Stderr, "usage: spacemosquito save <url>")
+			return 1
+		}
+		runSave(cfg, args[2], log)
+	case "crawl":
+		if len(args) < 3 {
+			fmt.Fprintln(os.Stderr, "usage: spacemosquito crawl <space-url>")
+			return 1
+		}
+		runCrawl(cfg, args[2], log)
+	case "reindex":
+		withContent := false
+		for _, arg := range args[2:] {
+			if arg == "--content" {
+				withContent = true
+			}
+		}
+		runReindex(cfg, withContent, log)
+	case "search":
+		query, spaceKey, limit, err := parseSearchArgs(args[2:])
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			fmt.Fprintln(os.Stderr, "usage: spacemosquito search <query> [space-key] [--limit N]")
+			return 1
+		}
+		runSearch(cfg, query, spaceKey, limit, log)
+	case "get-page":
+		if len(args) < 3 {
+			fmt.Fprintln(os.Stderr, "usage: spacemosquito get-page <confluence_id> [space_key]")
+			return 1
+		}
+		spaceKey := ""
+		if len(args) >= 4 {
+			spaceKey = args[3]
+		}
+		return runGetPage(cfg, args[2], spaceKey, log)
+	case "stats":
+		runStats(cfg, log)
+	case "cron":
+		if len(args) < 3 {
+			fmt.Fprintln(os.Stderr, "usage: spacemosquito cron <list|config|run-now>")
+			return 1
+		}
+		switch args[2] {
+		case "list":
+			runCronList(cfg, log)
+		case "config":
+			runCronConfig(cfg)
+		case "run-now":
+			runCronRunNow(cfg, log)
+		default:
+			fmt.Fprintf(os.Stderr, "unknown cron subcommand: %s\n", args[2])
+			fmt.Fprintln(os.Stderr, "usage: spacemosquito cron <list|config|run-now>")
+			return 1
+		}
+	case "serve":
+		runServe(cfg, log)
+	default:
+		fmt.Fprintf(os.Stderr, "unknown command: %s\n", cmd)
+		printUsage()
+		return 1
+	}
+	return 0
+}
+
+func runInit(args []string, log *zap.Logger) {
+	fs := flag.NewFlagSet("init", flag.ExitOnError)
+	dataDir := fs.String("data-dir", "", "data directory (default ~/.spacemosquito)")
+	encKey := fs.String("encryption-key", "", "session encryption key (auto-generated if omitted)")
+	force := fs.Bool("force-config", false, "overwrite existing config.yaml")
+	downloadBrowser := fs.Bool("download-browser", false, "pre-download Chromium into the data directory")
+	bootstrapMode := fs.String("bootstrap-mode", "recrawl", "bootstrap mode: recrawl | import_saved")
+	bootstrapFrom := fs.String("from", "", "saved directory to import from when bootstrap-mode=import_saved")
+	bootstrapForce := fs.Bool("bootstrap-force", false, "allow import into a non-empty database")
+	bootstrapDryRun := fs.Bool("bootstrap-dry-run", false, "scan/import report only without DB writes")
+	_ = fs.Parse(args)
+
+	result, err := paths.InitWorkspace(paths.InitOptions{
+		DataDir:       *dataDir,
+		EncryptionKey: *encKey,
+		ForceConfig:   *force,
+	})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "init failed: %v\n", err)
+		os.Exit(1)
+	}
+
+	cfg, err := config.Load(result.ConfigPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to load config: %v\n", err)
+		os.Exit(1)
+	}
+	if err := paths.NormalizeConfig(cfg); err != nil {
+		fmt.Fprintf(os.Stderr, "failed to normalize config paths: %v\n", err)
+		os.Exit(1)
+	}
+
+	migrationsPath, err := paths.ResolveMigrations()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to resolve migrations path: %v\n", err)
+		os.Exit(1)
+	}
+
+	sugar := logging.New("cli", log)
+	if err := datastore.MigrateUp(cfg, migrationsPath, sugar); err != nil {
+		sugar.Errorw("migration failed", "error", err)
+		os.Exit(1)
+	}
+
+	if *downloadBrowser {
+		if err := scraper.DownloadChromium(sugar); err != nil {
+			sugar.Errorw("browser download failed", "error", err)
+			os.Exit(1)
+		}
+	}
+
+	mode := strings.TrimSpace(*bootstrapMode)
+	if mode == "" {
+		mode = "recrawl"
+	}
+	switch mode {
+	case "recrawl":
+		// no-op bootstrap path
+	case "import_saved":
+		from := strings.TrimSpace(*bootstrapFrom)
+		if from == "" {
+			from = cfg.Storage.BasePath
+		}
+		reportDir, err := paths.ResolveReports()
+		if err != nil {
+			sugar.Errorw("resolve reports directory failed", "error", err)
+			os.Exit(1)
+		}
+		database, err := datastore.Open(cfg, log)
+		if err != nil {
+			sugar.Errorw("database open failed", "error", err)
+			os.Exit(1)
+		}
+		defer database.Close()
+		report, err := bootstrap.ImportSaved(context.Background(), database, bootstrap.Options{
+			FromDir:   from,
+			ReportDir: reportDir,
+			Force:     *bootstrapForce,
+			DryRun:    *bootstrapDryRun,
+		}, sugar)
+		if err != nil {
+			sugar.Errorw("bootstrap import-saved failed", "error", err)
+			os.Exit(1)
+		}
+		fmt.Printf("Bootstrap import-saved complete: pages=%d spaces=%d skipped=%d errors=%d\n",
+			report.ImportedPages, report.ImportedSpaces, len(report.Skipped), len(report.Errors))
+	default:
+		fmt.Fprintf(os.Stderr, "invalid --bootstrap-mode: %q (expected recrawl or import_saved)\n", mode)
+		os.Exit(1)
+	}
+
+	fmt.Printf("Data directory: %s\n", result.DataDir)
+	fmt.Printf("Config:         %s\n", result.ConfigPath)
+	if result.ConfigCreated {
+		fmt.Println("Created default config.yaml (sqlite)")
+	}
+	fmt.Printf("Session file:   %s\n", result.SessionPath)
+	fmt.Println()
+	fmt.Println("Init complete. Run the Firefox extension, then: spacemosquito serve")
+}
+
+func runBootstrapImportSaved(cfg *config.Config, args []string, log *zap.Logger) {
+	fs := flag.NewFlagSet("bootstrap import-saved", flag.ExitOnError)
+	from := fs.String("from", "", "directory containing saved pages (default config.storage.base_path)")
+	force := fs.Bool("force", false, "allow import into non-empty database")
+	dryRun := fs.Bool("dry-run", false, "scan and report only")
+	_ = fs.Parse(args)
+
+	sugar := logging.New("bootstrap", log)
+	fromDir := strings.TrimSpace(*from)
+	if fromDir == "" {
+		fromDir = cfg.Storage.BasePath
+	}
+	reportDir, err := paths.ResolveReports()
+	if err != nil {
+		sugar.Errorw("resolve reports directory failed", "error", err)
+		os.Exit(1)
+	}
+
+	database, err := datastore.Open(cfg, log)
+	if err != nil {
+		sugar.Errorw("database open failed", "error", err)
+		os.Exit(1)
+	}
+	defer database.Close()
+
+	report, err := bootstrap.ImportSaved(context.Background(), database, bootstrap.Options{
+		FromDir:   fromDir,
+		ReportDir: reportDir,
+		Force:     *force,
+		DryRun:    *dryRun,
+	}, sugar)
+	if err != nil {
+		sugar.Errorw("import-saved failed", "error", err)
+		os.Exit(1)
+	}
+
+	fmt.Printf("Import complete from %s\n", report.From)
+	fmt.Printf("Scanned: %d\n", report.ScannedFiles)
+	fmt.Printf("Imported pages: %d\n", report.ImportedPages)
+	fmt.Printf("Imported spaces: %d\n", report.ImportedSpaces)
+	fmt.Printf("Deduplicated: %d\n", report.Deduplicated)
+	fmt.Printf("Skipped: %d\n", len(report.Skipped))
+	fmt.Printf("Errors: %d\n", len(report.Errors))
+}
+
+func runGetPage(cfg *config.Config, confluenceIDStr, spaceKey string, log *zap.Logger) int {
+	sugar := logging.New("get-page", log)
+
+	confluenceID, err := strconv.Atoi(confluenceIDStr)
+	if err != nil || confluenceID <= 0 {
+		fmt.Fprintln(os.Stderr, "invalid confluence_id")
+		return 1
+	}
+
+	database, err := datastore.Open(cfg, log)
+	if err != nil {
+		sugar.Errorw("database open failed", "error", err)
+		return 1
+	}
+	defer database.Close()
+
+	detail, err := search.GetPageDetail(context.Background(), database, confluenceID, spaceKey, cfg.MCP.ExposeInternalIDs)
+	if err != nil {
+		var ambiguous *store.AmbiguousPageError
+		switch {
+		case errors.As(err, &ambiguous):
+			fmt.Fprintln(os.Stderr, ambiguous.Error())
+			for _, c := range ambiguous.Candidates {
+				fmt.Fprintf(os.Stderr, "  %s: %s\n", c.SpaceKey, c.Title)
+			}
+			return 2
+		case errors.Is(err, store.ErrPageNotFound):
+			fmt.Fprintln(os.Stderr, "page not found")
+			return 1
+		default:
+			sugar.Errorw("get page failed", "error", err)
+			fmt.Fprintln(os.Stderr, err.Error())
+			return 1
+		}
+	}
+
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(detail); err != nil {
+		sugar.Errorw("encode failed", "error", err)
+		return 1
+	}
+	return 0
+}
+
+func runMigrateDown(cfg *config.Config, log *zap.Logger) {
+	migrationsPath, err := paths.ResolveMigrations()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to resolve migrations path: %v\n", err)
+		os.Exit(1)
+	}
+
+	sugar := logging.New("cli", log)
+	if err := datastore.MigrateDown(cfg, migrationsPath, sugar); err != nil {
+		sugar.Errorw("migration rollback failed", "error", err)
+		os.Exit(1)
+	}
+	sugar.Info("migration rolled back")
+}
+
+func runSave(cfg *config.Config, pageURL string, log *zap.Logger) {
+	sugar := logging.New("cli", log)
+	w := storage.NewWriter(cfg.Storage.BasePath, sugar)
+
+	spaceKey := "unknown"
+	pageTitle := "untitled"
+
+	dir, err := w.MakePageDir(spaceKey, pageTitle)
+	if err != nil {
+		sugar.Errorw("failed to create page dir", "error", err)
+		os.Exit(1)
+	}
+
+	meta := &storage.Metadata{
+		Title:         pageTitle,
+		ConfluenceURL: pageURL,
+		SpaceKey:      spaceKey,
+		SavedAt:       time.Now(),
+	}
+
+	if err := w.SaveMetadata(dir, meta); err != nil {
+		sugar.Errorw("failed to save metadata", "error", err)
+		os.Exit(1)
+	}
+
+	sugar.Infow("page saved", "path", dir, "url", pageURL)
+}
+
+func runServe(cfg *config.Config, log *zap.Logger) {
+	_ = cfg
+	_ = log
+	fmt.Println("Starting SpaceMosquito server...")
+	if err := app.Run(context.Background()); err != nil {
+		fmt.Fprintf(os.Stderr, "server error: %v\n", err)
+		os.Exit(1)
+	}
+}
+
+func runCrawl(cfg *config.Config, spaceURL string, log *zap.Logger) {
+	requestID := fmt.Sprintf("crawl-%d", time.Now().Unix())
+	sugar := logging.New("crawl", log)
+	sugar.Infow("crawl command initiated",
+		"space_url", spaceURL,
+		"request_id", requestID)
+
+	database, err := datastore.Open(cfg, log)
+	if err != nil {
+		sugar.Errorw("failed to connect to database", "error", err)
+		os.Exit(1)
+	}
+	defer database.Close()
+
+	store := session.NewStore(cfg.Session.FilePath, sugar)
+	if !store.HasSession() {
+		sugar.Errorw("no session found — run the Firefox extension to capture cookies first")
+		os.Exit(1)
+	}
+
+	encKey := cfg.Session.EncryptionKey
+	if encKey == "" {
+		sugar.Errorw("encryption key not configured")
+		os.Exit(1)
+	}
+
+	sess, err := store.Load(encKey)
+	if err != nil {
+		sugar.Errorw("failed to load session", "error", err)
+		os.Exit(1)
+	}
+
+	sugar.Infow("session loaded",
+		"cookie_count", len(sess.Cookies),
+		"confluence_url", sess.ConfluenceURL)
+
+	storageWriter := storage.NewWriter(cfg.Storage.BasePath, sugar)
+	assetDownloader := storage.NewAssetDownloader(sugar)
+
+	s := scraper.New(cfg, database, storageWriter, assetDownloader, sugar)
+
+	if err := s.CrawlSpace(spaceURL, sess); err != nil {
+		sugar.Errorw("crawl failed", "error", err)
+		os.Exit(1)
+	}
+
+	sugar.Infow("crawl completed successfully", "request_id", requestID)
+
+	fmt.Println()
+	fmt.Println("=== Crawl Summary ===")
+	fmt.Println()
+}
+
+func runReindex(cfg *config.Config, withContent bool, log *zap.Logger) {
+	sugar := logging.New("reindex", log)
+
+	database, err := datastore.Open(cfg, log)
+	if err != nil {
+		sugar.Errorw("failed to connect to database", "error", err)
+		os.Exit(1)
+	}
+	defer database.Close()
+
+	ctx := context.Background()
+
+	if withContent {
+		savedBase, err := paths.ResolveSaved(cfg)
+		if err != nil {
+			sugar.Errorw("resolve saved path failed", "error", err)
+			os.Exit(1)
+		}
+		result, err := contentmd.ReindexAll(ctx, database, savedBase)
+		if err != nil {
+			sugar.Errorw("content reindex failed", "error", err)
+			os.Exit(1)
+		}
+		sugar.Infow("content reindexed",
+			"updated", result.Updated,
+			"skipped", result.Skipped,
+			"errors", len(result.Errors))
+		fmt.Printf("Content reindexed: %d updated, %d skipped\n", result.Updated, result.Skipped)
+		for _, e := range result.Errors {
+			fmt.Fprintf(os.Stderr, "  error: %s\n", e)
+		}
+	}
+
+	if err := database.IndexAllPageContents(ctx); err != nil {
+		sugar.Errorw("reindex failed", "error", err)
+		os.Exit(1)
+	}
+
+	sugar.Info("all pages reindexed successfully")
+	if withContent {
+		fmt.Println("All pages reindexed successfully (content + FTS)")
+	} else {
+		fmt.Println("All pages reindexed successfully")
+	}
+}
+
+func parseSearchArgs(args []string) (query, spaceKey string, limit int, err error) {
+	limit = 10
+	var positional []string
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--limit":
+			if i+1 >= len(args) {
+				return "", "", 0, fmt.Errorf("--limit requires a value")
+			}
+			n, parseErr := strconv.Atoi(args[i+1])
+			if parseErr != nil || n <= 0 {
+				return "", "", 0, fmt.Errorf("invalid --limit value %q", args[i+1])
+			}
+			limit = n
+			i++
+		default:
+			positional = append(positional, args[i])
+		}
+	}
+	if len(positional) < 1 {
+		return "", "", 0, fmt.Errorf("missing search query")
+	}
+	return positional[0], optionalString(positional, 1), limit, nil
+}
+
+func optionalString(ss []string, idx int) string {
+	if idx < len(ss) {
+		return ss[idx]
+	}
+	return ""
+}
+
+func runSearch(cfg *config.Config, query, spaceKey string, limit int, log *zap.Logger) {
+	sugar := logging.New("search", log)
+
+	database, err := datastore.Open(cfg, log)
+	if err != nil {
+		sugar.Errorw("failed to connect to database", "error", err)
+		os.Exit(1)
+	}
+	defer database.Close()
+
+	results, err := database.SearchPages(context.Background(), query, spaceKey, limit)
+	if err != nil {
+		sugar.Errorw("search failed", "query", query, "error", err)
+		os.Exit(1)
+	}
+
+	if results == nil {
+		fmt.Println("No results found")
+		return
+	}
+
+	hits := search.ToSearchHits(results, cfg.MCP.ExposeInternalIDs)
+
+	fmt.Printf("\n=== Search Results for '%s' ===\n", query)
+	if spaceKey != "" {
+		fmt.Printf("Space: %s\n", spaceKey)
+	}
+	fmt.Printf("Total: %d results\n\n", len(hits))
+
+	for i, r := range hits {
+		fmt.Printf("%d. %s (Space: %s, ID: %d)\n", i+1, r.Title, r.SpaceKey, r.ConfluenceID)
+		fmt.Printf("   Similarity: %.4f\n", r.Similarity)
+		if r.Excerpt != "" {
+			fmt.Printf("   Excerpt: %s\n", r.Excerpt)
+		}
+		fmt.Println()
+	}
+}
+
+func runStats(cfg *config.Config, log *zap.Logger) {
+	sugar := logging.New("stats", log)
+
+	database, err := datastore.Open(cfg, log)
+	if err != nil {
+		sugar.Errorw("stats failed", "error", err)
+		os.Exit(1)
+	}
+	defer database.Close()
+
+	stats, err := database.GetPageStats(context.Background())
+	if err != nil {
+		sugar.Errorw("stats failed", "error", err)
+		os.Exit(1)
+	}
+
+	fmt.Println("\n=== SpaceMosquito Statistics ===")
+	fmt.Printf("Total Spaces: %d\n", stats.TotalSpaces)
+	fmt.Printf("Total Pages: %d\n", stats.TotalPages)
+	fmt.Printf("Content Indexing: %s\n", stats.ContentLang)
+	fmt.Printf("Last Crawled: %s\n", stats.LastCrawledStr)
+	fmt.Println()
+}
+
+func runCronList(cfg *config.Config, log *zap.Logger) {
+	sugar := logging.New("cron", log)
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Get(fmt.Sprintf("http://localhost:%d/api/cron", cfg.MCP.Port))
+	if err != nil {
+		sugar.Errorw("failed to connect to server", "error", err)
+		fmt.Fprintln(os.Stderr, "Cannot connect to server. Is it running?")
+		os.Exit(1)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		fmt.Fprintf(os.Stderr, "Server returned status %d\n", resp.StatusCode)
+		os.Exit(1)
+	}
+
+	var jobs []struct {
+		ID       string    `json:"ID"`
+		NextRun  time.Time `json:"NextRun"`
+		LastRun  time.Time `json:"LastRun"`
+		Disabled bool      `json:"Disabled"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&jobs); err != nil {
+		sugar.Errorw("failed to decode response", "error", err)
+		os.Exit(1)
+	}
+
+	fmt.Println("\n=== Scheduled Crawl Jobs ===")
+	if len(jobs) == 0 {
+		fmt.Println("No jobs configured")
+		return
+	}
+	for _, j := range jobs {
+		status := "active"
+		if j.Disabled {
+			status = "disabled"
+		}
+		fmt.Printf("  %s [%s]\n", j.ID, status)
+		if !j.NextRun.IsZero() {
+			fmt.Printf("    Next run: %s\n", j.NextRun.Format(time.RFC3339))
+		}
+		if !j.LastRun.IsZero() {
+			fmt.Printf("    Last run: %s\n", j.LastRun.Format(time.RFC3339))
+		}
+	}
+	fmt.Println()
+}
+
+func runCronConfig(cfg *config.Config) {
+	fmt.Println("\n=== Cron Configuration ===")
+	if cfg.Cron.FullCrawl == nil && cfg.Cron.Incremental == nil {
+		fmt.Println("Cron is not configured")
+		return
+	}
+
+	if cfg.Cron.FullCrawl != nil {
+		fmt.Println("\nFull Crawl:")
+		fmt.Printf("  Enabled:    %v\n", cfg.Cron.FullCrawl.Enabled)
+		fmt.Printf("  Interval:   %s\n", cfg.Cron.FullCrawl.Interval)
+		fmt.Printf("  Max Duration: %s\n", cfg.Cron.FullCrawl.MaxDuration)
+		fmt.Printf("  Spaces:\n")
+		for _, sp := range cfg.Cron.FullCrawl.Spaces {
+			fmt.Printf("    - %s\n", sp)
+		}
+	}
+
+	if cfg.Cron.Incremental != nil {
+		fmt.Println("\nIncremental Scan:")
+		fmt.Printf("  Enabled:    %v\n", cfg.Cron.Incremental.Enabled)
+		fmt.Printf("  Interval:   %s\n", cfg.Cron.Incremental.Interval)
+		fmt.Printf("  Max Duration: %s\n", cfg.Cron.Incremental.MaxDuration)
+		fmt.Printf("  Detection:  %s\n", cfg.Cron.Incremental.Detection)
+		fmt.Printf("  Spaces:\n")
+		for _, sp := range cfg.Cron.Incremental.Spaces {
+			fmt.Printf("    - %s\n", sp)
+		}
+	}
+	fmt.Println()
+}
+
+func runCronRunNow(cfg *config.Config, log *zap.Logger) {
+	sugar := logging.New("cron", log)
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Post(fmt.Sprintf("http://localhost:%d/api/cron/start", cfg.MCP.Port), "application/json", nil)
+	if err != nil {
+		sugar.Errorw("failed to connect to server", "error", err)
+		fmt.Fprintln(os.Stderr, "Cannot connect to server. Is it running?")
+		os.Exit(1)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		fmt.Fprintf(os.Stderr, "Server returned status %d\n", resp.StatusCode)
+		os.Exit(1)
+	}
+
+	fmt.Println("Jobs triggered successfully")
+}
+
+func printUsage() {
+	fmt.Println("Usage: spacemosquito <command> [arguments]")
+	fmt.Println()
+	fmt.Println("Commands:")
+	fmt.Println("  init           Create data dir, config, and run migrations")
+	fmt.Println("    --data-dir <path>         Data directory (default ~/.spacemosquito)")
+	fmt.Println("    --encryption-key <key>    Session key (auto-generated if omitted)")
+	fmt.Println("    --download-browser        Pre-download Chromium for offline use")
+	fmt.Println("    --bootstrap-mode <mode>   Bootstrap mode: recrawl | import_saved")
+	fmt.Println("    --from <path>             Saved path for import_saved mode")
+	fmt.Println("    --bootstrap-force         Allow import into non-empty DB")
+	fmt.Println("    --bootstrap-dry-run       Scan/report only for import_saved mode")
+	fmt.Println("  bootstrap import-saved      Import pages from saved/ into DB")
+	fmt.Println("    --from <path>             Saved directory (default config storage path)")
+	fmt.Println("    --force                   Allow import into non-empty DB")
+	fmt.Println("    --dry-run                 Scan and report only")
+	fmt.Println("  migrate-down   Rollback last migration")
+	fmt.Println("  save <url>     Save a Confluence page")
+	fmt.Println("  crawl <url>    Crawl a full Confluence space")
+	fmt.Println("  search <q>     Search pages (optional: <space-key> [--limit N])")
+	fmt.Println("  get-page <id>  Get page by Confluence ID (optional: <space-key>)")
+	fmt.Println("  reindex        Rebuild FTS indexes (--content regenerates Markdown too)")
+	fmt.Println("  stats          Show database statistics")
+	fmt.Println("  cron list      List scheduled crawl jobs")
+	fmt.Println("  cron config    Show cron configuration")
+	fmt.Println("  cron run-now   Trigger all jobs immediately")
+	fmt.Println("  serve          Start the API and MCP server")
+	fmt.Println("  version        Print binary version")
+	fmt.Println()
+	fmt.Println("Environment:")
+	fmt.Println("  SPACEMOSQUITO_DATA_DIR       Override default data directory")
+	fmt.Println("  CONFIG_PATH                  Override config file path")
+	fmt.Println("  SPACEMOSQUITO_MIGRATIONS_DIR Override migrations directory (dev)")
+	fmt.Println("  MIGRATIONS_PATH              Override migrations root directory")
+	fmt.Println("  CRON_CONFIG_PATH             Override cron overrides file")
+	fmt.Println("  CHROMIUM_PATH                Override Chromium/Chrome executable")
+}

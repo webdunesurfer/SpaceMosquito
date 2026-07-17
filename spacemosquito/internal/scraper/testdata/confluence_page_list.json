@@ -1,0 +1,19 @@
+{
+  "results": [
+    {
+      "id": "515393957",
+      "type": "page",
+      "title": "Schnittstellen",
+      "version": { "number": 11 },
+      "_links": { "webui": "/spaces/SK/pages/515393957/Schnittstellen" }
+    },
+    {
+      "id": "533664653",
+      "type": "page",
+      "title": "Stempelkarte Home",
+      "version": { "number": 3 },
+      "_links": { "webui": "/spaces/SK/pages/533664653/Stempelkarte+Home" }
+    }
+  ],
+  "size": 2
+}

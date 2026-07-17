@@ -8,7 +8,7 @@
 ## Local Development & Build
 
 ```sh
-cd space-mosquito
+cd spacemosquito
 go build ./cmd/server
 go build ./cmd/cli
 go build ./cmd/spacemosquito
@@ -17,7 +17,7 @@ go build ./cmd/spacemosquito
 Release binaries (cross-compile, embedded SQLite migrations):
 
 ```sh
-cd space-mosquito
+cd spacemosquito
 ./scripts/build-release.sh v0.1.0
 ls dist/
 ```
@@ -25,14 +25,14 @@ ls dist/
 ## Run unit tests
 
 ```sh
-cd space-mosquito
+cd spacemosquito
 go test ./...
 ```
 
 With the race detector (same as CI):
 
 ```sh
-cd space-mosquito
+cd spacemosquito
 go test -race ./...
 ```
 
@@ -41,7 +41,7 @@ go test -race ./...
 Requires the `integration` build tag. Boots a real SQLite DB with embedded migrations, seeds fixtures, and exercises HTTP + MCP SSE.
 
 ```sh
-cd space-mosquito
+cd spacemosquito
 go test -race -tags=integration ./internal/app/...
 ```
 
