@@ -9,9 +9,9 @@ tmp/
 *.exe
 
 # Compiled binaries
-space-mosquito/cli
-space-mosquito/server
-space-mosquito/spacemosquito
+spacemosquito/cli
+spacemosquito/server
+spacemosquito/spacemosquito
 
 # Secrets & sensitive config
 *.enc

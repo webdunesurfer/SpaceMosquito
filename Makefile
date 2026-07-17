@@ -1,13 +1,10 @@
-.PHONY: build run test migrate-up migrate-down lint dev-extension build-extension clean
-
-BUILD_DIR=build
+.PHONY: build run test migrate-up migrate-down lint dev-extension build-extensions clean
 
 build:
-	mkdir -p $(BUILD_DIR)
-	cd spacemosquito && go build -o ../$(BUILD_DIR)/spacemosquito ./cmd/spacemosquito
+	cd spacemosquito && go build -o spacemosquito ./cmd/spacemosquito
 
 run: build
-	$(BUILD_DIR)/spacemosquito serve
+	cd spacemosquito && ./spacemosquito serve
 
 test:
 	cd spacemosquito && go test -race ./...
@@ -25,9 +22,10 @@ lint:
 dev-extension:
 	cd firefox-extension && npx web-ext run --source-dir ./dist --target firefox
 
-build-extension:
-	cd firefox-extension && npx webpack --mode production
+build-extensions:
+	cd firefox-extension && npm install && npx webpack --mode production
+	cd chrome-extension && npm install && npx webpack --mode production
 
 clean:
-	rm -rf build/
+	rm -f spacemosquito/spacemosquito
 	cd spacemosquito && go clean

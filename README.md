@@ -8,7 +8,8 @@ All state lives under `~/.spacemosquito/` (or a portable `--data-dir`).
 
 ## Requirements
 
-- [Go](https://go.dev/dl/) 1.25+ (to build from source)
+- Go 1.25+ (to build from source)
+- Npx and npm for building extensions
 - Firefox or Chrome (for the Pirate Mosquito extension)
 
 ## Install
@@ -19,7 +20,7 @@ All state lives under `~/.spacemosquito/` (or a portable `--data-dir`).
 git clone https://github.com/webdunesurfer/SpaceMosquito.git
 cd SpaceMosquito
 make build
-# binary: build/spacemosquito
+# binary: spacemosquito/spacemosquito
 ```
 
 Or:
