@@ -43,11 +43,11 @@ sudo mv spacemosquito-darwin-arm64 /usr/local/bin/spacemosquito
 ## First run
 
 ```sh
-spacemosquito init
+./spacemosquito init
 # Optional: pre-download Chromium (~150 MB) for API-fallback crawls
-spacemosquito init --download-browser
+./spacemosquito init --download-browser
 
-spacemosquito serve
+./spacemosquito serve
 ```
 
 `init` writes a generated **encryption key** to `config.yaml` (`session.encryption_key`). Keep that file — the same key is required to decrypt `session.enc`.
@@ -55,13 +55,13 @@ spacemosquito serve
 Portable mode:
 
 ```sh
-spacemosquito init --data-dir ./data
-SPACEMOSQUITO_DATA_DIR=./data spacemosquito serve
+./spacemosquito init --data-dir ./data
+SPACEMOSQUITO_DATA_DIR=./data ./spacemosquito serve
 ```
 
 ## Capture a Confluence session
 
-1. Start the server: `spacemosquito serve`
+1. Start the server: `./spacemosquito serve`
 2. Load the Pirate Mosquito extension (see below).
 3. Open Confluence and use the extension to send cookies to `http://localhost:8081`.
 
@@ -84,7 +84,7 @@ Open `chrome://extensions` → Developer mode → **Load unpacked** → select `
 ## Crawl a space
 
 ```sh
-spacemosquito crawl "https://your-domain.atlassian.net/wiki/spaces/SPACEKEY"
+./spacemosquito crawl "https://your-domain.atlassian.net/wiki/spaces/SPACEKEY"
 ```
 
 Or trigger a crawl via the extension or MCP at `http://localhost:8081/mcp`.
@@ -96,13 +96,13 @@ Multi-word queries match **all** terms (AND). Title matches rank above body-only
 Page **content** is stored as Markdown (`content.md` on disk, `pages.content` in the DB). After upgrading, regenerate existing pages:
 
 ```sh
-spacemosquito reindex --content
+./spacemosquito reindex --content
 ```
 
 ```sh
-spacemosquito search "your query"
-spacemosquito search "your query" SPACEKEY
-spacemosquito search "your query" --limit 50
+./spacemosquito search "your query"
+./spacemosquito search "your query" SPACEKEY
+./spacemosquito search "your query" --limit 50
 ```
 
 REST and MCP also accept `limit` (`GET /api/search?q=...&limit=50`, MCP `confluence_search` `limit` field).
@@ -110,8 +110,8 @@ REST and MCP also accept `limit` (`GET /api/search?q=...&limit=50`, MCP `conflue
 ## Get a page by Confluence ID
 
 ```sh
-spacemosquito get-page 250347937
-spacemosquito get-page 42 TST
+./spacemosquito get-page 250347937
+./spacemosquito get-page 42 TST
 
 curl -s http://localhost:8081/api/pages/250347937
 curl -s "http://localhost:8081/api/pages/42?space_key=TST"
@@ -131,25 +131,25 @@ curl -s "http://localhost:8081/api/pages/42?space_key=TST"
 | `stats` | Database statistics |
 | `version` | Print build version |
 
-Run `spacemosquito` with no arguments for the full command list.
+Run `./spacemosquito` with no arguments for the full command list.
 
 ## Coming from Docker?
 
 Docker Compose / PostgreSQL mode has been removed. To keep crawl artifacts without recrawling:
 
 1. Wipe leftover containers/volumes (optional): [`scripts/cleanup-docker-legacy.sh`](scripts/cleanup-docker-legacy.sh) — see [`docs/guides/cleanup-docker-legacy.md`](docs/guides/cleanup-docker-legacy.md)
-2. `spacemosquito init`
+2. `./spacemosquito init`
 3. Copy your old Compose bind-mount `saved-data/` (or `./saved`) → `~/.spacemosquito/saved/`
-4. `spacemosquito bootstrap import-saved`
-5. `spacemosquito reindex --content`
-6. Point the extension at `http://localhost:8081` and run `spacemosquito serve`
+4. `./spacemosquito bootstrap import-saved`
+5. `./spacemosquito reindex --content`
+6. Point the extension at `http://localhost:8081` and run `./spacemosquito serve`
 
 Useful flags:
 
 ```sh
-spacemosquito bootstrap import-saved --from /path/to/saved
-spacemosquito bootstrap import-saved --force
-spacemosquito bootstrap import-saved --dry-run
+./spacemosquito bootstrap import-saved --from /path/to/saved
+./spacemosquito bootstrap import-saved --force
+./spacemosquito bootstrap import-saved --dry-run
 ```
 
 Import does **not** read PostgreSQL. If you only have a Postgres volume and no `saved/` tree, recrawl instead.

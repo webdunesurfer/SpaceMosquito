@@ -17,7 +17,7 @@
 
   **Database:** `pages.content` stores the same Markdown text as `content.md` (single source for FTS indexing). Path to `content.md` is derivable as `{file_dir}/content.md`; no separate API field in v1.
 
-  **Regeneration:** `spacemosquito reindex --content` re-walks saved HTML and updates `content.md` + `pages.content` + FTS for existing installs.
+  **Regeneration:** `./spacemosquito reindex --content` re-walks saved HTML and updates `content.md` + `pages.content` + FTS for existing installs.
 
 - **Rationale**:
   - **Hybrid model** keeps ADR-006’s offline browser story (`index.html`) while fixing tokenization and readability.

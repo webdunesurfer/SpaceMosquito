@@ -65,7 +65,7 @@ index.html  →  contentmd.HTMLToMarkdown()  →  content.md + pages.content  �
 Regenerate existing catalogs after upgrade:
 
 ```sh
-spacemosquito reindex --content
+./spacemosquito reindex --content
 ```
 
 ## Testing with curl

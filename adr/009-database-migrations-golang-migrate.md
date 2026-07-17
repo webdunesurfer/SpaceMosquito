@@ -9,7 +9,7 @@
   - Simple CLI (`migrate up`, `migrate down`) that integrates into the Go build process
   - Version-controlled SQL migration files in `migrations/` directory
   - Supports SQLite (file:// / modernc) used by this project
-  - Applied via `spacemosquito init` / embedded migrations on serve
+  - Applied via `./spacemosquito init` / embedded migrations on serve
 - **Alternatives considered**:
   - `goose` — similar feature set, but golang-migrate has a cleaner API and more widespread adoption
   - SQLx raw migrations — possible but adds boilerplate for tracking migration versions
@@ -18,4 +18,4 @@
   - Migration files live in `spacemosquito/migrations/sqlite/` with numbered up/down SQL files
   - Migration version is stored in a `schema_migrations` table in SQLite
   - Migrations should be run before the MCP server and API server start
-  - Release builds embed SQLite migrations; `spacemosquito init` applies them
+  - Release builds embed SQLite migrations; `./spacemosquito init` applies them

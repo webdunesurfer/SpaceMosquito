@@ -119,11 +119,11 @@ print_next_steps() {
 Next steps (dockerless):
   1. Build or install spacemosquito
      cd spacemosquito && go build -o spacemosquito ./cmd/spacemosquito
-  2. spacemosquito init
+  2. ./spacemosquito init
   3. Copy saved-data/ (or saved/) into ~/.spacemosquito/saved if migrating
-  4. spacemosquito bootstrap import-saved
-  5. spacemosquito reindex --content
-  6. spacemosquito serve
+  4. ./spacemosquito bootstrap import-saved
+  5. ./spacemosquito reindex --content
+  6. ./spacemosquito serve
 
 Guide: docs/guides/cleanup-docker-legacy.md
 EOF
