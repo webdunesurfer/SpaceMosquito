@@ -8,7 +8,7 @@ Establish a unit-test suite for the Go backend (`space-mosquito/`). Tests must e
 
 - Docker Compose, container startup, or volume-mount behavior
 - Browser extension code (`firefox-extension/`, `chrome-extension/`)
-- End-to-end shell scripts in `tests/` (e.g. `test_phase5_mcp.sh`)
+- In-process server integration tests (`go test -tags=integration ./internal/app/...`; see `DOCS/task-server-integration-tests.md`)
 - Live Confluence instances, real SSO flows, or headless Chromium (go-rod) launches
 - PostgreSQL integration tests requiring a running database (defer to a separate task if needed)
 

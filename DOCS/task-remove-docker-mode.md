@@ -23,7 +23,7 @@ Make **SQLite / dockerless the only supported runtime**. Delete Docker Compose, 
 | 1 | [`phase-1-cleanup-script.md`](./remove-docker/phase-1-cleanup-script.md) | S | **Done** — `scripts/cleanup-docker-legacy.sh`, [`DOCS/guides/cleanup-docker-legacy.md`](./guides/cleanup-docker-legacy.md) |
 | 2 | [`phase-2-delete-packaging.md`](./remove-docker/phase-2-delete-packaging.md) | S | **Done** — Dockerfile/Compose/scripts deleted; Makefile cleaned |
 | 3 | [`phase-3-code-cleanup.md`](./remove-docker/phase-3-code-cleanup.md) | M | **Done** — SQLite-only store/config; `pgx` removed |
-| 4 | [`phase-4-test-cleanup.md`](./remove-docker/phase-4-test-cleanup.md) | S–M | Drop Docker/Postgres tests |
+| 4 | [`phase-4-test-cleanup.md`](./remove-docker/phase-4-test-cleanup.md) | S–M | **Done** — Docker smoke scripts removed; SQLite tests only |
 | 5 | [`phase-5-docs-cleanup.md`](./remove-docker/phase-5-docs-cleanup.md) | M | README merge/replace; scrub dual-mode docs |
 | 6 | [`phase-6-adr-cleanup.md`](./remove-docker/phase-6-adr-cleanup.md) | S | ADR-016; delete 014/012/003 |
 

@@ -1,5 +1,10 @@
 # Task: Database Integration Tests (PostgreSQL)
 
+> **Superseded.** Postgres integration tests are not planned. SpaceMosquito is SQLite-only.
+> Use store unit tests (`internal/store/sqlite`) and in-process server integration tests:
+> `go test -race -tags=integration ./internal/app/...`
+> See [`DOCS/task-server-integration-tests.md`](./task-server-integration-tests.md) and [`DOCS/task-remove-docker-mode.md`](./task-remove-docker-mode.md).
+
 ## Objective
 
 Add optional **integration tests** for `internal/db` that run against a real PostgreSQL instance. Complements the unit-test suite in `DOCS/task-go-unit-tests.md`, which deliberately avoids Docker and live databases.

@@ -8,13 +8,13 @@ This closes the gap between:
 
 - **Store tests** (`internal/store/sqlite/sqlite_test.go`) — DB only, no HTTP
 - **Handler/MCP unit tests** — handlers in isolation, often `nil` DB
-- **Shell scripts** (`tests/test_phase5_mcp.sh`) — require a manually running Docker server and real crawled data
+- Former Docker shell smoke scripts under `tests/` — **removed**; use this Go suite instead
 
 **Parent references:**
 
 - `DOCS/epic-dockerless-mode.md` — Tier 3 (`TestServerBoot_SQLite`, `TestMCP_SearchRoundTrip`)
 - `DOCS/task-go-unit-tests.md` — unit scope explicitly defers this work
-- `DOCS/task-db-integration-tests.md` — SQL-layer Postgres tests (complementary, not duplicate)
+- `DOCS/task-db-integration-tests.md` — **superseded** (Postgres path removed)
 
 **Out of scope (v1):**
 
@@ -23,7 +23,7 @@ This closes the gap between:
 - Browser, crawl jobs, cron execution, live Confluence
 - Session extension / encrypted session round-trip (unless needed for a specific endpoint)
 - SSE streaming stress tests or MCP session TTL expiry
-- Replacing existing `tests/*.sh` scripts (they remain for manual/Docker smoke)
+- Manual curl smoke against a long-lived `serve` process (optional; not required for CI)
 
 ---
 
@@ -34,7 +34,7 @@ This closes the gap between:
 | Store | `TestSQLiteStoreCRUDAndSearch` — migrate, seed, search in-process | No HTTP |
 | API | `handler_test.go` — `httptest.NewRecorder`, nil DB for search | No seeded data, no full mux |
 | MCP | `server_test.go` — `processMessage` in-process, fakes | No HTTP, no DB seed |
-| Shell | `test_phase5_mcp.sh` — curl against `:8081` | Manual server, real DB content, not CI-friendly |
+| Shell | ~~`test_phase5_mcp.sh`~~ | **Removed** — use this Go suite |
 
 Default CI (`.github/workflows/go-test.yml`) runs `go test -race ./...` only — integration tests **must not** run on every PR unless we later promote a fast subset.
 
@@ -160,7 +160,7 @@ func POSTJSON(t, url string, body, dest any) int
 
 ### MCP helpers
 
-Port logic from `tests/test_phase5_mcp.sh`:
+Port / session flow (historical shell smoke; now covered by Go tests):
 
 1. `POST /mcp` → `initialize` → parse `session_id` from JSON body (non-SSE first response).
 2. `POST /mcp/session/{id}` → parse SSE `data: {...}` lines into `MCPResponse`.
@@ -213,7 +213,7 @@ Use table-driven subtests where multiple cases share the same server fixture (`T
 |------|-------|
 | `TestREST_Reindex` | `POST /api/search/reindex` → `200`; search still works |
 | `TestReleaseBinary_Smoke` | `go build -o $TMP/spacemosquito ./cmd/spacemosquito`; exec `serve` on random port; `GET /health` only |
-| Postgres variant | Reuse harness with `TEST_DATABASE_URL` + `database.driver: postgres` — defer to `task-db-integration-tests.md` |
+| ~~Postgres variant~~ | **Dropped** — SQLite-only |
 
 ---
 
@@ -280,7 +280,7 @@ Set `paths.SetDataDir(tempDir)` before `paths.NormalizeConfig`.
 1. **Package location:** `internal/app` vs top-level `test/integration` — prefer `internal/app` to stay close to wiring; revisit if import cycles appear.
 2. **Parallelism:** start with `t.Parallel()` disabled (SQLite + shared globals like `mcp.ServerInstance`); enable later if isolated.
 3. **Promote to PR CI?** Only if runtime stays under ~30s on GitHub runners; otherwise nightly/release only.
-4. **Shell script deprecation?** Keep `test_phase5_mcp.sh` for Docker manual QA; add comment pointing to Go integration tests.
+4. **Shell scripts:** Deleted in remove-docker Phase 4; Go integration tests are the only automated path.
 
 ---
 
@@ -288,7 +288,7 @@ Set `paths.SetDataDir(tempDir)` before `paths.NormalizeConfig`.
 
 | Doc | Relationship |
 |-----|----------------|
-| `DOCS/task-db-integration-tests.md` | SQL correctness on Postgres; no HTTP |
+| `DOCS/task-db-integration-tests.md` | Superseded — Postgres integration not planned |
 | `DOCS/task-dockerless-migrations.md` | Embedded migrations validated in `TestServerBoot_embeddedMigrations` |
 | `DOCS/task-mcp-list-space-pagination.md` | Pagination cases for `TestREST_SpacePages_pagination` |
 | `DOCS/task-mcp-search-excerpts.md` | Excerpt shape in search assertions |
