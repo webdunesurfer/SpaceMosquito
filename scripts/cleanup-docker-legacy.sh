@@ -8,7 +8,7 @@
 #   ./scripts/cleanup-docker-legacy.sh --purge-images
 #   ./scripts/cleanup-docker-legacy.sh --purge-bind-mounts
 #
-# See DOCS/guides/cleanup-docker-legacy.md
+# See docs/guides/cleanup-docker-legacy.md
 #
 set -euo pipefail
 
@@ -32,7 +32,7 @@ Usage: ./scripts/cleanup-docker-legacy.sh [options]
   --purge-bind-mounts    Also delete host bind mounts (saved-data, session.enc, ...)
   -h, --help             Show this help
 
-Guide: DOCS/guides/cleanup-docker-legacy.md
+Guide: docs/guides/cleanup-docker-legacy.md
 EOF
   exit "${1:-0}"
 }
@@ -125,7 +125,7 @@ Next steps (dockerless):
   5. spacemosquito reindex --content
   6. spacemosquito serve
 
-Guide: DOCS/guides/cleanup-docker-legacy.md
+Guide: docs/guides/cleanup-docker-legacy.md
 EOF
 }
 

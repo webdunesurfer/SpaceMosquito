@@ -11,7 +11,7 @@
   - No WebSocket complexity or additional infrastructure needed
   - Simple firewall/NAT traversal compared to WebSocket or custom protocols
 - **Alternatives considered**:
-  - Stdio transport — only works for local processes, not for remote Docker containers or networked clients
+  - Stdio transport — only works for local processes, not for remote hosts or networked clients
   - WebSocket — more complex, requires bidirectional connection management
   - HTTP POST only (no SSE) — each request must carry full state; less efficient for streaming responses
 - **Endpoints**:
@@ -21,4 +21,4 @@
 - **Consequences**:
   - MCP server must persist session state in memory (or Redis for multi-instance deployments)
   - Sessions timeout after inactivity; clients must reconnect
-  - For local dev, the MCP server listens on port 8081; in containers, this is exposed for remote clients
+  - The MCP server listens on port 8081 by default (configurable host/port)

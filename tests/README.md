@@ -16,4 +16,4 @@ cd space-mosquito
 go test -race -tags=integration ./internal/app/...
 ```
 
-See `DEVELOPMENT.md` and `DOCS/task-server-integration-tests.md`.
+See `DEVELOPMENT.md`.

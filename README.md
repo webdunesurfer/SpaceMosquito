@@ -4,35 +4,12 @@
 
 Confluence space scraper, indexer, and search engine. Uses the Confluence REST API for content extraction (with headless browser fallback), stores pages locally in **SQLite + FTS5**, and exposes an MCP server plus browser extensions for session management and crawl control.
 
-All state lives under `~/.spacemosquito/` (or a portable `--data-dir`). Docker and PostgreSQL are **not** supported.
-
-## Architecture at a Glance
-
-```
-┌──────────────────────────────────────────────────────────────────┐
-│                      Host Machine                                │
-│                                                                  │
-│  Firefox / Chrome + Pirate Mosquito extension                    │
-│       │ cookies / crawl UI                                       │
-│       ▼                                                          │
-│  spacemosquito (binary)                                          │
-│    HTTP API + MCP  :8081                                         │
-│    Cron · Scraper (API + rod fallback) · Session (AES-GCM)       │
-│       │                                                          │
-│       ▼                                                          │
-│  ~/.spacemosquito/                                               │
-│    config.yaml · spacemosquito.db (SQLite+FTS5) · session.enc    │
-│    saved/ · browser/ (optional Chromium) · cron-config.json      │
-└──────────────────────────────────────────────────────────────────┘
-```
-
-See [ARCHITECTURE.md](ARCHITECTURE.md) for details.
+All state lives under `~/.spacemosquito/` (or a portable `--data-dir`).
 
 ## Requirements
 
 - [Go](https://go.dev/dl/) 1.25+ (to build from source)
 - Firefox or Chrome (for the Pirate Mosquito extension)
-- macOS, Linux, or Windows x64
 
 ## Install
 
@@ -73,7 +50,7 @@ spacemosquito init --download-browser
 spacemosquito serve
 ```
 
-`init` prints a generated **encryption key** once. Save it — the same value must remain in `config.yaml` for session decryption.
+`init` writes a generated **encryption key** to `config.yaml` (`session.encryption_key`). Keep that file — the same key is required to decrypt `session.enc`.
 
 Portable mode:
 
@@ -160,7 +137,7 @@ Run `spacemosquito` with no arguments for the full command list.
 
 Docker Compose / PostgreSQL mode has been removed. To keep crawl artifacts without recrawling:
 
-1. Wipe leftover containers/volumes (optional): [`scripts/cleanup-docker-legacy.sh`](scripts/cleanup-docker-legacy.sh) — see [`DOCS/guides/cleanup-docker-legacy.md`](DOCS/guides/cleanup-docker-legacy.md)
+1. Wipe leftover containers/volumes (optional): [`scripts/cleanup-docker-legacy.sh`](scripts/cleanup-docker-legacy.sh) — see [`docs/guides/cleanup-docker-legacy.md`](docs/guides/cleanup-docker-legacy.md)
 2. `spacemosquito init`
 3. Copy your old Compose bind-mount `saved-data/` (or `./saved`) → `~/.spacemosquito/saved/`
 4. `spacemosquito bootstrap import-saved`
@@ -176,8 +153,6 @@ spacemosquito bootstrap import-saved --dry-run
 ```
 
 Import does **not** read PostgreSQL. If you only have a Postgres volume and no `saved/` tree, recrawl instead.
-
-Full removal overview: [`DOCS/task-remove-docker-mode.md`](DOCS/task-remove-docker-mode.md).
 
 ## Environment
 

@@ -251,11 +251,6 @@ func runInit(args []string, log *zap.Logger) {
 		fmt.Println("Created default config.yaml (sqlite)")
 	}
 	fmt.Printf("Session file:   %s\n", result.SessionPath)
-	if *encKey == "" && result.ConfigCreated {
-		fmt.Println()
-		fmt.Println("Generated encryption key (save this — it will not be shown again):")
-		fmt.Println(result.EncryptionKey)
-	}
 	fmt.Println()
 	fmt.Println("Init complete. Run the Firefox extension, then: spacemosquito serve")
 }

@@ -7,8 +7,7 @@ and indexes content for BM25/lexical search. It exposes an MCP server for LLM
 integration, plus Firefox/Chrome browser extensions for session management
 and crawl control.
 
-Docker / PostgreSQL are not part of the runtime. See
-[`DOCS/task-remove-docker-mode.md`](DOCS/task-remove-docker-mode.md).
+Docker / PostgreSQL are not part of the runtime. See [ADR-016](adr/016-sqlite-only-distribution.md).
 
 ## System Components
 

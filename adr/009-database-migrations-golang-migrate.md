@@ -2,20 +2,20 @@
 
 - **Status**: Accepted
 - **Date**: 2025-01-17
-- **Context**: The PostgreSQL database schema needs version control and reproducible migrations for both local development and container deployments.
+- **Context**: The SQLite schema needs version control and reproducible migrations for local installs and release binaries.
 - **Decision**: Use `github.com/golang-migrate/migrate` for database migrations
 - **Rationale**:
   - Well-established, battle-tested Go migration tool
   - Simple CLI (`migrate up`, `migrate down`) that integrates into the Go build process
   - Version-controlled SQL migration files in `migrations/` directory
-  - Supports PostgreSQL natively
-  - Can be run automatically on backend startup in container mode
+  - Supports SQLite (file:// / modernc) used by this project
+  - Applied via `spacemosquito init` / embedded migrations on serve
 - **Alternatives considered**:
   - `goose` — similar feature set, but golang-migrate has a cleaner API and more widespread adoption
   - SQLx raw migrations — possible but adds boilerplate for tracking migration versions
   - Migration libraries in other languages (Flyway, Liquibase) — not native to Go
 - **Consequences**:
-  - Migration files live in `space-mosquito/migrations/` with numbered up/down SQL files
-  - Migration version is stored in a `schema_migrations` table in PostgreSQL
+  - Migration files live in `space-mosquito/migrations/sqlite/` with numbered up/down SQL files
+  - Migration version is stored in a `schema_migrations` table in SQLite
   - Migrations should be run before the MCP server and API server start
-  - In Docker, migrations run as part of the container startup (via entrypoint script)
+  - Release builds embed SQLite migrations; `spacemosquito init` applies them

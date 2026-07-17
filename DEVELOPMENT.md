@@ -3,6 +3,7 @@
 ## Ground rules
 
 - Breaking changes in API are acceptable.
+- For documentation use Mermaid for diagrams.
 
 ## Local Development & Build
 
@@ -44,7 +45,7 @@ cd space-mosquito
 go test -race -tags=integration ./internal/app/...
 ```
 
-Not run in CI by default. See `DOCS/task-server-integration-tests.md`.
+Not run in CI by default.
 
 ## Search
 
@@ -80,5 +81,4 @@ curl -s "http://localhost:8081/api/pages/42?space_key=TST"
 
 ## Coming from Docker
 
-Docker / Postgres packaging is removed. See [README.md](README.md#coming-from-docker)
-and [`DOCS/task-remove-docker-mode.md`](DOCS/task-remove-docker-mode.md).
+Docker / Postgres packaging is removed. See [README.md](README.md#coming-from-docker).

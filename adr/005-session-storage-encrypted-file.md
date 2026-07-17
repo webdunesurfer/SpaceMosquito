@@ -2,21 +2,21 @@
 
 - **Status**: Accepted
 - **Date**: 2025-01-17
-- **Context**: We need to store Confluence session cookies securely so the cron job can use them for automated scraping. The storage must work both on the host machine and inside Docker containers.
+- **Context**: We need to store Confluence session cookies securely so the cron job can use them for automated scraping. The storage must work portably under the local data directory (or a custom `--data-dir`).
 - **Decision**: Use AES-GCM encrypted file storage for session cookies, with a user-provided encryption key
 - **Rationale**:
   - Works everywhere — no OS-specific dependencies like macOS Keychain or Linux secret-service
   - AES-GCM provides authenticated encryption (confidentiality + integrity)
-  - Simple file-based storage is ideal for Docker volumes — just mount/persist the file
+  - Simple file-based storage fits a single data directory (`session.enc`) without OS keyring dependencies
   - User-provided key (from config or environment variable) gives users full control
   - No need for external key management services
 - **Alternatives considered**:
-  - OS keyring (macOS Keychain, Linux secret-service) — better UX but doesn't work in containers and adds platform dependencies
+  - OS keyring (macOS Keychain, Linux secret-service) — better UX but adds platform dependencies
   - In-memory only — session lost on restart, breaks cron functionality
   - Plaintext JSON file — unacceptable security risk
   - SQLite with SQLCipher — overkill for storing a few cookies
 - **Consequences**:
   - User must set and remember an encryption key (or derive it from a password)
   - Key loss means permanent loss of session data
-  - Session file should be in a user-accessible location (e.g., ~/.config/spacemosquito/session.enc or a Docker volume)
+  - Session file lives under the data directory (default `~/.spacemosquito/session.enc`)
   - File permissions should be restrictive (0600) when written

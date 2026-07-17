@@ -9,6 +9,5 @@
 **/.git/
 firefox-extension/
 docs/
-ADR/
-DOCS/
+adr/
 *.md

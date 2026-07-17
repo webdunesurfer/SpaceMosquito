@@ -2,7 +2,7 @@
 
 - **Status**: Accepted
 - **Date**: 2026-07-15
-- **Supersedes**: [ADR-006](006-saved-page-format.md)
+- **Supersedes**: ADR-006 (deleted; prior HTML-only layout)
 - **Context**: ADR-006 defined on-disk page artifacts as clean HTML, raw HTML, assets, and metadata. Flat text extraction (`doc.Text()` on HTML) merges words across block boundaries (`definitionNo`), pollutes search with macro noise, and produces unreadable `pages.content` for MCP/REST. ADR-006 rejected “Markdown only” because it is not directly browsable in a browser. We still need offline HTML viewing **and** structured text for search and agents.
 
 - **Decision**: Extend the per-page directory layout with **`content.md`** — structured Markdown derived from clean HTML (v1) or Confluence storage format (v2). Keep all ADR-006 artifacts unchanged.
@@ -33,10 +33,10 @@
   - **Expose `markdown_path` in REST/MCP** — deferred; convention under `file_dir` is enough v1.
 
 - **Consequences**:
-  - Implementation in **`DOCS/task-content-markdown.md`** (converter package, scraper/import wiring, tests).
+  - Implemented in `internal/contentmd/` (scraper, import, `reindex --content`).
   - `import_saved` and new crawls must write `content.md` and upsert Markdown into `pages.content`.
   - Existing catalogs need one-time `reindex --content` after upgrade.
-  - ADR-006 remains in the repo for history but is **superseded** by this ADR for current behavior.
+  - Prior HTML-only ADR-006 is removed; this ADR is the on-disk contract.
   - Search and MCP consumers should treat `content` as Markdown (plain text with lightweight markup), not HTML.
 
-- **Related**: `DOCS/task-content-markdown.md`, `DOCS/task-import-saved.md`, ADR-006 (superseded), ADR-010
+- **Related**: ADR-010, `DEVELOPMENT.md` (page content / reindex)

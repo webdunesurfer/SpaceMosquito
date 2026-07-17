@@ -2,8 +2,7 @@
 
 Wipe leftover **Docker Compose** state from machines that ran SpaceMosquito with containers + PostgreSQL. Crawl data on the host (`saved-data/`, `session.enc`) is **not** deleted unless you opt in.
 
-**Parent:** [`DOCS/remove-docker/phase-1-cleanup-script.md`](../remove-docker/phase-1-cleanup-script.md)  
-**Overview:** [`DOCS/task-remove-docker-mode.md`](../task-remove-docker-mode.md)
+After cleanup, migrate via [README Coming from Docker](../../README.md#coming-from-docker).
 
 ## Prerequisites
 

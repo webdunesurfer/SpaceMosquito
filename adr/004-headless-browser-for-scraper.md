@@ -3,26 +3,26 @@
 - **Status**: Accepted (updated with go-rod)
 - **Date**: 2025-01-17
 - **Updated**: 2026-05-17
-- **Context**: The cron job needs to scrape Confluence pages headlessly. We need a browser engine that reliably renders JavaScript-heavy pages like Confluence, without excessive Docker complexity.
+- **Context**: The cron job needs to scrape Confluence pages headlessly. We need a browser engine that reliably renders JavaScript-heavy pages like Confluence, with minimal host dependencies.
 - **Decision**: Use go-rod (Go-native Chrome DevTools Protocol) with Chromium for headless scraping
 - **Rationale**:
   - go-rod is a pure-Go library — zero Node.js dependency, no driver downloads, no version pinning
   - Uses Chrome DevTools Protocol directly; no Xvfb or DISPLAY required for headless mode
-  - Significantly simpler Docker image: no Node.js, no unzip, no driver structure management
+  - No Node.js, no driver downloads, no version pinning — Chromium via rod download or CHROMIUM_PATH
   - Well-maintained, good API ergonomics with type-safe element queries and fluent waits
   - Confluence is heavily JavaScript-dependent; raw HTTP requests with Go would fail to capture rendered content
   - go-rod supports cookie injection via CDP `Storage.setCookies`, enabling authenticated scraping
   - Chromium headless is the de facto standard for server-side scraping; rendering consistency across platforms
   - go-rod's `MustWaitStable()` provides robust page load detection for JS-heavy pages
 - **Alternatives considered**:
-  - Playwright with Firefox — rejected due to sandbox namespace errors, Xvfb requirements, and driver version mismatches in Docker
+  - Playwright with Firefox — rejected due to sandbox/Xvfb requirements and driver version mismatches
   - Playwright with Chromium — still requires Node.js bridge, driver downloads, and version management
   - Selenium — heavier, slower, and less mature Go bindings
-  - chromedp — rejected due to sandbox namespace failures (EPERM) in Colima vz driver (see ADR-013)
+  - chromedp — rejected historically due to sandbox namespace failures (EPERM); see ADR-013
   - Go-native HTTP + HTML parsing — would fail on JavaScript-rendered Confluence content
 - **Consequences**:
-  - Chromium binary must be available in the Docker image (adds ~150MB)
+  - Chromium must be available on the host (rod auto-download under the data dir, or CHROMIUM_PATH)
   - Uses Chrome DevTools Protocol — may need attention if Confluence uses non-standard Chrome features
   - Pure-Go stack means fewer moving parts and easier debugging
   - No Xvfb needed; Chromium runs headless natively without a display server
-- **Related**: ADR-012 (chromedp over Playwright, superseded by ADR-013), ADR-013 (go-rod over chromedp)
+- **Related**: ADR-013 (go-rod over chromedp)

@@ -304,9 +304,7 @@ After implementation, verify on each target:
 
 | Doc | Relationship |
 |-----|--------------|
-| `DOCS/task-validation-sso-fix.md` | SSO false positives affect self-hosted enterprises too |
-| `DOCS/task-go-unit-tests.md` | Extend URL tests in same PR or follow-up |
-| `DOCS/epic-dockerless-mode.md` | End users on self-hosted likely use dockerless binaries |
+| `docs/task-validation-sso-fix.md` | SSO false positives affect self-hosted enterprises too |
 | `CHANGELOG.md` | "Broadened URL detection for custom domains" — complete the Chrome-only partial work |
 | `ADR-002` | Hybrid auth still applies; extension captures cookies on real browser |
 

@@ -2,10 +2,10 @@
 
 - **Status**: Accepted
 - **Date**: 2026-05-17
-- **Context**: ADR-012 recommended chromedp as the headless browser library. However, during implementation in Docker (Colima with vz driver on Apple Silicon), chromedp's `NoSandbox` flag caused sandbox namespace failures (EPERM) when launching Chromium. The scraper needed a working alternative that maintains the same benefits (pure-Go, no Node.js, no Xvfb).
+- **Context**: chromedp was briefly the intended headless browser library. During early Docker/Colima prototyping (vz driver on Apple Silicon), chromedp's `NoSandbox` flag caused sandbox namespace failures (EPERM) when launching Chromium. The scraper needed a working alternative that stays pure-Go with no Node.js or Xvfb. *(Historical Docker note — product is SQLite/local-binary only; see ADR-016.)*
 - **Decision**: Replace chromedp with go-rod, a Go-native headless browser library that uses Chrome DevTools Protocol
 - **Rationale**:
-  - **Fixes Colima vz driver sandbox issue**: go-rod's `launcher.NoSandbox(true)` with explicit `Bin("/usr/bin/chromium")` works reliably in Colima's vz driver, while chromedp's sandbox flag triggers EPERM errors
+  - **Avoids chromedp sandbox failures**: go-rod's `launcher.NoSandbox(true)` with an explicit Chromium binary path works where chromedp hit EPERM in early container prototypes
   - **Pure Go**: Zero Node.js dependency, no driver downloads, no version pinning — same benefit as chromedp
   - **CDP-based**: Communicates via Chrome DevTools Protocol, same underlying protocol as chromedp
   - **Better API ergonomics**: go-rod provides a higher-level fluent API with type-safe element queries, waits, and actions
@@ -22,8 +22,8 @@
   - Cookie injection: `Browser.MustSetCookies()` → `Storage.setCookies` CDP method (vs. chromedp's `cdp.Network.SetCookies`)
   - Navigation: `page.MustNavigate(url)` + `page.MustWaitStable()` instead of `chromedp.Navigate(url)` + `chromedp.WaitVisible()`
   - Content extraction: `page.MustElement("#page-content").MustText()` instead of `chromedp.OuterHTML()`
-  - Dockerfile: no changes needed (Chromium binary is the same dependency)
+  - Chromium comes from rod download under the data dir or `CHROMIUM_PATH`
 - **Alternatives considered**:
-  - chromedp with different sandbox flags — no working combination found for Colima vz driver
-  - Playwright — rejected due to sandbox namespace failures, Xvfb requirements, and driver version mismatches (ADR-012)
+  - chromedp with different sandbox flags — no reliable combination found in early prototypes
+  - Playwright — rejected due to sandbox namespace failures, Xvfb requirements, and driver version mismatches
   - go-cdp — lower-level CDP bindings, more boilerplate, no advantage over go-rod
