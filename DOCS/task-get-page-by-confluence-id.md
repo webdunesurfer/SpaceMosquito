@@ -56,7 +56,7 @@ In practice, a given integer ID usually appears in **one** crawled space. Requir
 
 ### Shared lookup semantics
 
-New store method (both Postgres and SQLite):
+Store method (SQLite):
 
 ```go
 // GetPageByConfluenceID resolves a page by Confluence integer ID.
@@ -228,7 +228,7 @@ Wire in `internal/cliapp/run.go` + `printUsage()`.
 |------|--------|
 | `internal/store/store.go` | Add `GetPageByConfluenceID` to `Store` interface |
 | `internal/store/sqlite/sqlite.go` | Implement lookup + ambiguity |
-| `internal/db/models.go` | Postgres implementation (mirror SQLite) |
+| ~~`internal/db/models.go`~~ | Removed with Postgres store |
 | `internal/store/errors.go` (new) | `ErrPageNotFound`, `AmbiguousPageError` |
 
 Add index if needed for lookup-by-id-only:
@@ -237,7 +237,7 @@ Add index if needed for lookup-by-id-only:
 CREATE INDEX idx_pages_confluence_id ON pages(confluence_id);
 ```
 
-New migration `008_pages_confluence_id_index` for **both** `postgres/` and `sqlite/` trees (no-op acceptable on SQLite if query planner already fast enough — prefer index for large catalogs).
+Migration under `migrations/sqlite/` (Postgres tree removed).
 
 ### Phase 2 — API + MCP + CLI
 
@@ -277,7 +277,7 @@ Fixture: seed two spaces with the **same** `confluence_id` to exercise `409`.
 | Doc | Update |
 |-----|--------|
 | `README.md` | REST table: `GET /api/pages/{confluence_id}` |
-| `README-dockerless.md` | CLI `get-page` example |
+| `README.md` | CLI `get-page` example |
 | `DEVELOPMENT.md` | curl example |
 
 ---
@@ -311,7 +311,7 @@ Fixture: seed two spaces with the **same** `confluence_id` to exercise `409`.
 ## Open Questions
 
 1. Should ambiguous `409` include titles per candidate space for easier disambiguation? **Recommend yes** — `{space_key, title}` pairs in error body.
-2. Postgres integration test for ambiguity in CI? **Defer** — SQLite store tests sufficient for v1.
+2. Postgres integration tests — **N/A** (SQLite-only).
 3. Rate-limit or cap candidate list size in ambiguity error? **Defer** — typical collision count is 2–3.
 
 ---

@@ -1,10 +1,14 @@
 # Epic: Dockerless Mode (End-User Distribution)
 
+> **Superseded / historical.** Dual-mode (Docker + dockerless) is finished and has been reversed:
+> Docker and PostgreSQL are removed. SQLite is the only runtime.
+> See [`DOCS/task-remove-docker-mode.md`](./task-remove-docker-mode.md).
+
 ## Objective
 
 Make SpaceMosquito usable by end users **without Docker**. A user should be able to download a binary for their OS, run a single init command, capture a Confluence session via the existing browser extension, and crawl/search locally — with no container runtime, no separate database service, and no manual Chromium install.
 
-Docker remains supported for developers and power users who prefer the current Compose workflow.
+*(Historical note in original epic: Docker was kept optional; that decision was later reversed — see supersession banner above.)*
 
 ## Target Architecture
 
@@ -32,7 +36,7 @@ Docker remains supported for developers and power users who prefer the current C
 | **Lazy Chromium** | Do not download or launch browser at startup; fetch on first fallback need |
 | **Single data directory** | All state under `~/.spacemosquito/` (or portable `./data/` mode) |
 | **Embedded database** | SQLite replaces PostgreSQL for default/end-user installs |
-| **Docker optional** | Compose stack continues to work; Postgres path becomes `database.driver: postgres` |
+| ~~**Docker optional**~~ | **Reversed** — Docker/Postgres removed; see `task-remove-docker-mode.md` |
 | **Extension unchanged** | Still talks to `http://localhost:8081`; no extension rewrite in v1 |
 
 ## Current State vs Target
@@ -192,7 +196,7 @@ Replace hardcoded Docker Chromium with a resolution chain.
 
 - `spacemosquito-{os}-{arch}` (server + CLI as one binary with subcommands, or two binaries)
 - `SHA256SUMS`
-- `README-dockerless.md` — install, init, extension, first crawl
+- `README.md` — install, init, extension, first crawl
 
 **Go build notes**
 

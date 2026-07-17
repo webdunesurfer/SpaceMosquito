@@ -2,7 +2,9 @@
 
 [![SpaceMosquito](firefox-extension/assets/icon.svg)](https://github.com/webdunesurfer/SpaceMosquito)
 
-Confluence space scraper, indexer, and search engine with automated cron scheduling. Uses Confluence REST API for content extraction (with headless browser fallback), stores pages locally, and indexes content for semantic (BM25) and lexical search. Exposes an MCP server for LLM integration and browser extensions (Firefox/Chrome) for interactive session management and crawl control.
+Confluence space scraper, indexer, and search engine. Uses the Confluence REST API for content extraction (with headless browser fallback), stores pages locally in **SQLite + FTS5**, and exposes an MCP server plus browser extensions for session management and crawl control.
+
+All state lives under `~/.spacemosquito/` (or a portable `--data-dir`). Docker and PostgreSQL are **not** supported.
 
 ## Architecture at a Glance
 
@@ -10,597 +12,186 @@ Confluence space scraper, indexer, and search engine with automated cron schedul
 ┌──────────────────────────────────────────────────────────────────┐
 │                      Host Machine                                │
 │                                                                  │
-│  ┌────────────────────────────────────────────────────────────┐  │
-│  │              Firefox / Chrome (Browser)                    │  │
-│  │  ┌──────────────────────────────────────────────────────┐  │  │
-│  │  │  Pirate Mosquito (Web Extension)                     │  │  │
-│  │  │  ┌──────────┐ ┌───────────┐ ┌───────────┐            │  │  │
-│  │  │  │          | |           | |           |            │  │  │
-│  │  │  | Session  │ │ Background│ │  Popup UI │            │  │  │
-│  │  │  │ Handler  │ │  Worker   │ │  (Session │            │  │  │
-│  │  │  │          │ │           │ │  /Crawl/  │            │  │  │
-│  │  │  │          │ │           │ │  Cron)    │            │  │  │
-│  │  │  └──────────┘ └───────────┘ └───────────┘            │  │  │
-│  │  └──────────────────────────────────────────────────────┘  │  │
-│  └────────────────────────────────────────────────────────────┘  │
-│                                                                  │
-├──────────────────────────────────────────────────────────────────┤
-│                          Docker (Colima)                         │
-│                                                                  │
-│  ┌──────────────────────┐    ┌───────────────────────────────┐   │
-│  │   app (Go Backend)   │    │     PostgreSQL + pgvector     │   │
-│  │                      │    │                               │   │
-│  │  HTTP API  :8081     │    │  ┌──────────┐  ┌──────────┐   │   │
-│  │  MCP/SSE :8081       │◄───┤  │  spaces  │  │  pages   │   │   │
-│  │                      │    │  │          │  │  +fts    │   │   │
-│  │  Cron Scheduler      │    │  │  crawl   │  │          │   │   │
-│  │  Scraper (API+rod)   │    │  │  jobs    │  │          │   │   │
-│  │  Storage (disk)      │    │  └──────────┘  └──────────┘   │   │
-│  │  Session (AES-GCM)   │    └───────────────────────────────┘   │
-│  └──────────────────────┘                                        │
-│                                                                  │
-│  Volumes:                                                        │
-│    config.yaml          → runtime config                         │
-│    cron-config.json     → per-space cron overrides               │
-│    session.enc          → encrypted cookies                      │
-│    saved-data/          → crawled pages + assets                 │
-│    pgdata/              → PostgreSQL data                        │
+│  Firefox / Chrome + Pirate Mosquito extension                    │
+│       │ cookies / crawl UI                                       │
+│       ▼                                                          │
+│  spacemosquito (binary)                                          │
+│    HTTP API + MCP  :8081                                         │
+│    Cron · Scraper (API + rod fallback) · Session (AES-GCM)       │
+│       │                                                          │
+│       ▼                                                          │
+│  ~/.spacemosquito/                                               │
+│    config.yaml · spacemosquito.db (SQLite+FTS5) · session.enc    │
+│    saved/ · browser/ (optional Chromium) · cron-config.json      │
 └──────────────────────────────────────────────────────────────────┘
 ```
 
-## Quick Start
+See [ARCHITECTURE.md](ARCHITECTURE.md) for details.
 
-### Prerequisites
+## Requirements
 
-- [Docker Desktop](https://docs.docker.com/desktop/) or [Colima](https://github.com/abiosoft/colima) (Apple Silicon)
-- [Firefox](https://firefox.com) (for the browser extension)
-- [git](https://git-scm.com/)
+- [Go](https://go.dev/dl/) 1.25+ (to build from source)
+- Firefox or Chrome (for the Pirate Mosquito extension)
+- macOS, Linux, or Windows x64
 
-### 1. Clone and Build
+## Install
 
-```bash
-git clone git@github.com:webdunesurfer/SpaceMosquito.git
+### From source
+
+```sh
+git clone https://github.com/webdunesurfer/SpaceMosquito.git
 cd SpaceMosquito
+make build
+# binary: build/spacemosquito
 ```
 
-### 2. Configure
+Or:
 
-Copy the example config and edit for your environment:
-
-```bash
-cp config.yaml.example config.yaml
+```sh
+cd space-mosquito
+go build -o spacemosquito ./cmd/spacemosquito
 ```
 
-Edit `config.yaml`:
+### Pre-built release (optional)
 
-```yaml
-database:
-  host: db            # "db" inside Docker, "localhost" for local dev
-  port: 5432
-  user: spacemosquito
-  password: spacemosquito
-  dbname: spacemosquito
-  sslmode: disable
+1. Download the binary for your platform from [GitHub Releases](https://github.com/webdunesurfer/SpaceMosquito/releases).
+2. Verify the checksum against `SHA256SUMS` in the release assets.
+3. Install onto your `PATH` (example for macOS/Linux):
 
-storage:
-  base_path: /app/saved   # Where crawled pages are stored
-
-session:
-  encryption_key: your-32-byte-key-here!  # AES-256, must be exactly 32 chars
-  file_path: /app/session.enc
-
-mcp:
-  port: 8081
-  host: "0.0.0.0"
-  session_timeout: 3600
-
-cron:
-  full_crawl:
-    enabled: false          # Set to true to enable scheduled full crawls
-    interval: "24h"
-    max_duration: "4h"
-    spaces:
-      - "https://your-company.atlassian.net/wiki/spaces/PROJ"
-  incremental:
-    enabled: false          # Set to true to enable scheduled incremental scans
-    interval: "2h"
-    max_duration: "30m"
-    detection: "dom"        # "dom" | "api"
-    spaces:
-      - "https://your-company.atlassian.net/wiki/spaces/PROJ"
+```sh
+chmod +x spacemosquito-darwin-arm64
+sudo mv spacemosquito-darwin-arm64 /usr/local/bin/spacemosquito
 ```
 
-### 3. Start Infrastructure
+## First run
 
-```bash
-docker compose up db -d
+```sh
+spacemosquito init
+# Optional: pre-download Chromium (~150 MB) for API-fallback crawls
+spacemosquito init --download-browser
+
+spacemosquito serve
 ```
 
-### 4. Run Migrations
+`init` prints a generated **encryption key** once. Save it — the same value must remain in `config.yaml` for session decryption.
 
-```bash
-docker compose exec app /app/cli init
+Portable mode:
+
+```sh
+spacemosquito init --data-dir ./data
+SPACEMOSQUITO_DATA_DIR=./data spacemosquito serve
 ```
 
-This runs all database migrations against PostgreSQL.
+## Capture a Confluence session
 
-### 5. Capture Session Cookies
+1. Start the server: `spacemosquito serve`
+2. Load the Pirate Mosquito extension (see below).
+3. Open Confluence and use the extension to send cookies to `http://localhost:8081`.
 
-1. Load the **Pirate Mosquito** extension in Firefox:
-   - Open `about:debugging` in Firefox
-   - Click **"This Firefox"** → **"Load Temporary Add-on..."**
-   - Select `firefox-extension/dist/manifest.json`
+### Firefox (temporary)
 
-2. Navigate to your Confluence space (e.g., `https://company.atlassian.net/wiki/spaces/PROJ/overview`)
-
-3. Log in to Confluence if prompted
-
-4. Open the extension popup (click the pirate mosquito icon) and go to the **Session** tab:
-   - Click **"Capture Session"** — this grabs your Confluence cookies
-   - Click **"Validate"** — posts the cookies to the backend for verification
-
-5. The cookies are stored encrypted in `session.enc` (volume-mounted into the Docker container)
-
-### 6. Start the Backend
-
-```bash
-docker compose up app -d
+```sh
+cd firefox-extension && npm install && npm run build
 ```
 
-The server exposes:
-- **HTTP API** on port `8081` (localhost)
-- **MCP (SSE)** on port `8081` (localhost)
+Open `about:debugging` → **This Firefox** → **Load Temporary Add-on…** → select `firefox-extension/dist/manifest.json`.
 
-Verify: `curl http://localhost:8081/health` → `ok`
+### Chrome (temporary)
 
-### 7. Run Your First Crawl
-
-Via the extension popup (Crawl tab):
-- Click **"Crawl Now"** to start an immediate crawl of the current space
-
-Via CLI:
-```bash
-docker compose exec app /app/cli crawl "https://company.atlassian.net/wiki/spaces/PROJ"
+```sh
+cd chrome-extension && npm install && npm run build
 ```
 
-Via API:
-```bash
-curl -X POST http://localhost:8081/api/crawl \
-  -H "Content-Type: application/json" \
-  -d '{"space_url": "https://company.atlassian.net/wiki/spaces/PROJ"}'
+Open `chrome://extensions` → Developer mode → **Load unpacked** → select `chrome-extension/dist/`.
+
+## Crawl a space
+
+```sh
+spacemosquito crawl "https://your-domain.atlassian.net/wiki/spaces/SPACEKEY"
 ```
 
-> **Scraping mode**: Crawls use Confluence REST API for content extraction (fast, no browser overhead). If API access fails (permissions, rate limits), the scraper automatically falls back to a headless browser (go-rod). Browser is only launched on-demand when needed.
+Or trigger a crawl via the extension or MCP at `http://localhost:8081/mcp`.
 
-### 8. Search
+## Search
 
-Via CLI:
-```bash
-docker compose exec app /app/cli search "your query" [space-key]
+Multi-word queries match **all** terms (AND). Title matches rank above body-only hits. Default: 10 results.
+
+Page **content** is stored as Markdown (`content.md` on disk, `pages.content` in the DB). After upgrading, regenerate existing pages:
+
+```sh
+spacemosquito reindex --content
 ```
 
-Via API:
-```bash
-curl "http://localhost:8081/api/search?q=your+query&space_key=PROJ"
+```sh
+spacemosquito search "your query"
+spacemosquito search "your query" SPACEKEY
+spacemosquito search "your query" --limit 50
 ```
 
-### 9. Connect an MCP Client
+REST and MCP also accept `limit` (`GET /api/search?q=...&limit=50`, MCP `confluence_search` `limit` field).
 
-Configure your MCP client (opencode, Cursor, Gemini CLI, etc.) to connect to:
+## Get a page by Confluence ID
 
-```
-http://localhost:8081/mcp
-```
+```sh
+spacemosquito get-page 250347937
+spacemosquito get-page 42 TST
 
-The server provides tools for searching pages, retrieving page content, listing spaces, and triggering crawls.
-
-## Extensions
-
-### Installation
-
-#### Firefox (Temporary)
-
-1. Build the extension:
-   ```bash
-   cd firefox-extension
-   npm install
-   npm run build
-   ```
-
-2. Open `about:debugging` in Firefox
-
-3. Click **"This Firefox"** → **"Load Temporary Add-on..."**
-
-4. Select `firefox-extension/dist/manifest.json`
-
-5. Pin the Pirate Mosquito icon to your toolbar
-
-6. Open the popup to access Session, Crawl, Spaces, and Cron tabs
-
-#### Chrome (Temporary)
-
-1. Build the extension:
-   ```bash
-   cd chrome-extension
-   npm install
-   npm run build
-   ```
-
-2. Open `chrome://extensions` in Chrome
-
-3. Enable **"Developer mode"** (top-right)
-
-4. Click **"Load unpacked"** and select `chrome-extension/dist/`
-
-5. Pin the Pirate Mosquito icon to your toolbar
-
-#### Persistent Install (Advanced)
-
-To install as a permanent extension:
-
-1. Build the extension as above
-
-2. Edit the manifest and set `"update_url"` to your server URL
-
-3. Install via browser add-ons manager
-
-> Note: The extension must be loaded from the same machine as the backend (localhost:8081).
-
-### Development
-
-```bash
-# Firefox
-cd firefox-extension
-npm install
-npm run dev        # Watch mode, rebuilds on changes
-npm run dev:firefox  # Auto-reload in Firefox via web-ext
-
-# Chrome
-cd chrome-extension
-npm install
-npm run dev        # Watch mode, rebuilds on changes
+curl -s http://localhost:8081/api/pages/250347937
+curl -s "http://localhost:8081/api/pages/42?space_key=TST"
 ```
 
-### Popup Tabs
-
-| Tab | Function |
-|-----|----------|
-| **Session** | Capture cookies from the current Confluence session, validate, and delete |
-| **Crawl** | Trigger immediate crawls of the current space, view progress |
-| **Spaces** | Add/remove Confluence spaces for automated crawling |
-| **Cron** | Configure per-space crawl intervals and scheduling |
-
-### Architecture
-
-- **Background worker**: Service worker handling all logic (no content scripts due to Confluence CSP)
-- **Popup UI**: Displays session status, crawl progress, space list, and cron config
-- **Messaging**: Promise-based runtime messaging between popup and background
-- **Storage**: Extension storage API for extension state (active crawl ID, settings)
-- **Confluence flavor detection**: Auto-detects Cloud vs Server/DC during session validation
-
-## Backend CLI
-
-```bash
-# Run inside Docker:
-docker compose exec app /app/cli <command> [args]
-
-# Or build locally:
-cd space-mosquito && go build -o cli ./cmd/cli && ./cli <command> [args]
-```
+## Commands
 
 | Command | Description |
 |---------|-------------|
-| `init` | Run database migrations |
-| `save <url>` | Save a single Confluence page |
-| `crawl <url>` | Crawl a full Confluence space |
-| `search <query> [space-key]` | Search pages (optionally filter by space) |
-| `reindex` | Rebuild FTS indexes for all pages |
-| `stats` | Show database statistics |
-| `cron list` | List scheduled crawl jobs |
-| `cron config` | Show cron configuration |
-| `cron run-now` | Trigger all cron jobs immediately |
-| `serve` | Start the API + MCP server |
+| `init` | Create data directory, config, migrations |
+| `bootstrap import-saved` | Rebuild SQLite catalog from existing `saved/` files |
+| `serve` | Start API + MCP server |
+| `crawl <url>` | Crawl a Confluence space |
+| `search <query>` | Full-text search (`--limit N`; multi-word AND) |
+| `get-page <id>` | Get page by Confluence ID (optional space key) |
+| `reindex` | Rebuild FTS indexes (`--content` regenerates Markdown from saved HTML) |
+| `stats` | Database statistics |
+| `version` | Print build version |
 
-## Configuration Reference
+Run `spacemosquito` with no arguments for the full command list.
 
-### config.yaml
+## Coming from Docker?
 
-All configuration options:
+Docker Compose / PostgreSQL mode has been removed. To keep crawl artifacts without recrawling:
 
-| Section | Key | Default | Description |
-|---------|-----|---------|-------------|
-| `database` | `host` | `localhost` | PostgreSQL host |
-| | `port` | `5432` | PostgreSQL port |
-| | `user` | `spacemosquito` | Database user |
-| | `password` | `spacemosquito` | Database password |
-| | `dbname` | `spacemosquito` | Database name |
-| | `sslmode` | `disable` | SSL mode |
-| `storage` | `base_path` | `./saved` | Directory for crawled pages |
-| `session` | `encryption_key` | _(required)_ | AES-256 key (32 bytes) |
-| | `file_path` | `~/.config/spacemosquito/session.enc` | Path to encrypted session file |
-| `embedder` | `model` | `nomic-embed-text` | Embedding model (local ONNX) |
-| | `openai.api_key` | _(empty)_ | OpenAI API key (optional) |
-| | `openai.model` | `text-embedding-3-small` | OpenAI model name |
-| | `bge.model_path` | `./models/bge-m3` | BGE model path (optional) |
-| `mcp` | `port` | `8081` | MCP/HTTP port |
-| | `host` | `0.0.0.0` | MCP/HTTP bind address |
-| | `session_timeout` | `3600` | MCP session timeout (seconds) |
-| `cron` | `full_crawl.enabled` | `false` | Enable full crawl scheduler |
-| | `full_crawl.interval` | `24h` | Crawl interval (Go duration) |
-| | `full_crawl.max_duration` | `4h` | Max crawl duration before timeout |
-| | `full_crawl.spaces` | `[]` | List of space overview URLs |
-| | `incremental.enabled` | `false` | Enable incremental scan scheduler |
-| | `incremental.interval` | `2h` | Scan interval |
-| | `incremental.max_duration` | `30m` | Max scan duration |
-| | `incremental.detection` | `dom` | Change detection: `dom` (DOM diff) or `api` (Confluence API) — note: full crawls always use Confluence REST API with browser fallback |
-| | `incremental.spaces` | `[]` | List of space overview URLs |
+1. Wipe leftover containers/volumes (optional): [`scripts/cleanup-docker-legacy.sh`](scripts/cleanup-docker-legacy.sh) — see [`DOCS/guides/cleanup-docker-legacy.md`](DOCS/guides/cleanup-docker-legacy.md)
+2. `spacemosquito init`
+3. Copy your old Compose bind-mount `saved-data/` (or `./saved`) → `~/.spacemosquito/saved/`
+4. `spacemosquito bootstrap import-saved`
+5. `spacemosquito reindex --content`
+6. Point the extension at `http://localhost:8081` and run `spacemosquito serve`
 
-### Cron Overrides (cron-config.json)
+Useful flags:
 
-Per-space interval overrides are stored in `cron-config.json` (volume-mounted from the host). This allows the Firefox extension to adjust crawl intervals without restarting the server.
-
-Format:
-```json
-{
-  "NCHB": {
-    "interval": "6h",
-    "type": "full"
-  }
-}
+```sh
+spacemosquito bootstrap import-saved --from /path/to/saved
+spacemosquito bootstrap import-saved --force
+spacemosquito bootstrap import-saved --dry-run
 ```
 
-Keys are space keys. Values override the global cron config for that space.
+Import does **not** read PostgreSQL. If you only have a Postgres volume and no `saved/` tree, recrawl instead.
 
-## Docker Setup
+Full removal overview: [`DOCS/task-remove-docker-mode.md`](DOCS/task-remove-docker-mode.md).
 
-### Compose Services
+## Environment
 
-| Service | Image | Ports | Purpose |
-|---------|-------|-------|---------|
-| `db` | `pgvector/pgvector:pg17` | `5432` | PostgreSQL with vector extension |
-| `app` | _(built from Dockerfile)_ | `8081, 8081` | Go backend + headless scraper |
+| Variable | Purpose |
+|----------|---------|
+| `SPACEMOSQUITO_DATA_DIR` | Data directory (default `~/.spacemosquito`) |
+| `CONFIG_PATH` | Config file path |
+| `CHROMIUM_PATH` | Override browser executable |
 
-### Volumes
+## Development
 
-| Volume | Mount | Host Path | Description |
-|--------|-------|-----------|-------------|
-| `config.yaml` | `/app/config.yaml:ro` | `./config.yaml` | Runtime config (read-only) |
-| `cron-config.json` | `/app/cron-config.json:rw` | `./cron-config.json` | Per-space cron overrides |
-| `session.enc` | `/app/session.enc:rw` | `./session.enc` | Encrypted session cookies |
-| `saved-data` | `/app/saved` | _(bind mount)_ | Crawled pages and assets |
-| `pgdata` | `/var/lib/postgresql/data` | _(Docker volume)_ | PostgreSQL data |
+See [DEVELOPMENT.md](DEVELOPMENT.md). Quick checks:
 
-### Building Locally
-
-```bash
-docker compose up --build app
+```sh
+make test
+cd space-mosquito && go test -race -tags=integration ./internal/app/...
 ```
-
-### Local Development (without Docker)
-
-```bash
-# 1. Start PostgreSQL
-docker compose up db -d
-
-# 2. Run migrations
-cd space-mosquito && go run ./cmd/cli init
-
-# 3. Start the server
-go run ./cmd/server
-
-# 4. The extension communicates with http://localhost:8081
-```
-
-## API Reference
-
-### Health
-
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/health` | Health check |
-
-### Session Management
-
-| Method | Path | Description |
-|--------|------|-------------|
-| POST | `/api/session` | Capture and store session cookies |
-| DELETE | `/api/session` | Delete stored session |
-| GET | `/api/session/status` | Check session validity |
-| POST | `/api/session/validate` | Validate existing session against Confluence |
-
-### Search
-
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/search?q=<query>&space_key=<key>` | Search pages (BM25/lexical) |
-| POST | `/api/search/reindex` | Rebuild FTS indexes (all pages, or `?space_key=&confluence_id=` for one) |
-| GET | `/api/search/stats` | Index statistics |
-
-### Crawl
-
-| Method | Path | Description |
-|--------|------|-------------|
-| POST | `/api/crawl` | Start a crawl job (`{space_url: "..."}`) |
-| GET | `/api/crawl` | List all crawl jobs |
-| GET | `/api/crawl/status?job_id=<id>` | Get job status and progress |
-| POST | `/api/crawl/cancel` | Cancel a running job |
-| POST | `/api/crawl/cleanup` | Remove completed/failed jobs |
-
-### Cron
-
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/cron` | List active cron jobs |
-| POST | `/api/cron/start` | Trigger all jobs immediately |
-| GET | `/api/cron/config` | Get full cron configuration |
-| POST | `/api/cron/config` | Update cron configuration |
-| POST | `/api/cron/reload` | Reload and restart scheduler |
-
-### Per-Space Cron
-
-| Method | Path | Description |
-|--------|------|-------------|
-| POST | `/api/cron/space/{key}` | Set per-space cron override |
-| GET | `/api/cron/space/{key}` | Get per-space cron override |
-| DELETE | `/api/cron/space/{key}` | Remove per-space override |
-
-### Spaces
-
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/spaces` | List all tracked spaces |
-| POST | `/api/spaces` | Add a new space (`{url: "..."}`) |
-| GET | `/api/spaces/{key}` | Get space details |
-| GET | `/api/spaces/{key}/pages` | List pages in a space (optional `?include_content=true`) |
-| GET | `/api/pages/{confluence_id}` | Get page by Confluence ID (`?space_key=` optional) |
-| DELETE | `/api/spaces/{key}` | Delete a space |
-
-### MCP (Model Context Protocol)
-
-| Method | Path | Description |
-|--------|------|-------------|
-| POST | `/mcp` | Initiate session, receive SSE URL |
-| POST | `/mcp/session/{id}` | JSON-RPC 2.0 requests with tool calls |
-
-Available tools: `search_pages`, `get_page`, `list_spaces`, `crawl_space`.
-
-## Troubleshooting
-
-### Session Validation Fails
-
-- Make sure you're logged into Confluence in Firefox before capturing cookies
-- The `tenant.session.token` cookie must be present and not expired
-- Check that `SameSite=None` is set on the session token (Atlassian requires this)
-- Verify the encryption key in `config.yaml` matches the one used to encrypt `session.enc`
-
-### Cron Jobs Not Running
-
-- Ensure `full_crawl.enabled` or `incremental.enabled` is set to `true` in `config.yaml`
-- Verify the space URLs in the `spaces` list are correct overview URLs
-- Check the cron config file: `curl http://localhost:8081/api/cron`
-- Trigger manually: `curl -X POST http://localhost:8081/api/cron/start`
-
-### Crawl Hangs or Times Out
-
-- Check the crawl job status: `curl "http://localhost:8081/api/crawl/status?job_id=<id>"`
-- Increase `max_duration` in the cron config for large spaces
-- Verify the session is valid: `curl http://localhost:8081/api/session/status`
-- Check Docker logs: `docker compose logs app`
-
-### Extension Can't Connect to Backend
-
-- Ensure the backend is running: `curl http://localhost:8081/health`
-- Check CORS is enabled — the backend includes a CORS middleware for extension requests
-- In Firefox, open `about:debugging` and check the background service worker for errors
-
-### PostgreSQL Connection Refused
-
-- Make sure the `db` container is healthy: `docker compose ps db`
-- Check Colima/Docker is running
-- For local dev, ensure PostgreSQL is running on `localhost:5432`
-
-### Storage Disk Space
-
-- Crawled pages and assets accumulate in the `saved-data` volume
-- Check usage: `docker volume inspect spacemosquito_saved-data`
-- Clean up old pages via the API: `curl -X POST http://localhost:8081/api/crawl/cleanup`
-
-## Database Schema
-
-```
-spaces          → tracked Confluence spaces
-  ├─ id (UUID, PK)
-  ├─ key (VARCHAR, UNIQUE)
-  ├─ name (TEXT)
-  ├─ url (TEXT)
-  ├─ last_crawled (TIMESTAMP)
-  └─ created_at (TIMESTAMP)
-
-pages           → crawled pages
-  ├─ id (UUID, PK)
-  ├─ space_id (FK → spaces)
-  ├─ confluence_id (INT)
-  ├─ title (TEXT)
-  ├─ confluence_url (TEXT)
-  ├─ parent_confluence_id (INT)
-  ├─ content (TEXT, FTS searchable)
-  ├─ html_path (TEXT)
-  ├─ raw_html_path (TEXT)
-  ├─ metadata_path (TEXT)
-  ├─ content_vector (tsvector, GIN indexed)  ← BM25/lexical search
-  ├─ pages_crawled (INT)                       ← dynamic count from pages table
-  └─ created_at / updated_at
-
-crawl_jobs      → async crawl job records (in-memory)
-  ├─ id (UUID, PK)
-  ├─ space_url (TEXT)
-  ├─ status (pending/running/completed/failed/cancelled)
-  ├─ total_pages / completed / failed / progress
-  ├─ error
-  └─ created_at / started_at / completed_at / updated_at
-```
-
-\* Vector embeddings (`page_embeddings` table with IVFFlat index) are deferred to a later phase. Current search uses PostgreSQL `tsvector` with GIN indexing (BM25-style lexical search).
-
-## Scraping Modes
-
-SpaceMosquito uses two scraping strategies:
-
-1. **Confluence REST API** (default, fast)
-   - Cloud: `GET /wiki/rest/api/content/{id}?expand=body.storage,version,ancestors`
-   - Server/DC: `GET /rest/api/content/{id}?expand=body.storage,version,ancestors`
-   - Space discovery: `GET /wiki/rest/api/space/{key}/content/page` (Cloud) or `GET /rest/api/content?spaceKey={key}` (Server)
-   - Requires valid session cookies and appropriate Confluence permissions
-
-2. **Headless Browser** (fallback, slower)
-   - go-rod with Chromium, launched on-demand only when API fails
-   - Navigates to page, extracts HTML via DOM
-   - Used for space discovery fallback and API failure fallback
-   - Resilient to permission restrictions but slower
-
-## Security
-
-### Secrets Policy
-
-The following files **must never be committed** to the repository:
-
-| File | What it contains | .gitignore |
-|------|-----------------|------------|
-| `config.yaml` | Real encryption key, DB credentials, Confluence URLs | Yes |
-| `cron-config.json` | Per-space cron overrides with real space URLs | Yes |
-| `session.enc` | AES-256 encrypted Confluence cookies | Yes |
-| `session.enc.bak` | Encrypted session backup | Yes |
-| `.env` | Environment secrets | Yes |
-
-Template files with safe defaults are provided:
-
-| File | Purpose |
-|------|---------|
-| `.env.example` | Environment variable template — copy to `.env` and fill in values |
-| `config.yaml.example` | Config template with empty encryption key — copy to `config.yaml` and customize |
-
-### Encryption
-
-- Session cookies are encrypted with **AES-256-GCM** using a 32-byte key from `config.yaml`
-- The encryption key is user-generated — never use a default or predictable value
-- File permissions are set to `0600` (owner read/write only)
-- If you lose the encryption key, you cannot decrypt the stored session
-
-### Generated Key
-
-```bash
-# Generate a cryptographically secure 32-byte key
-openssl rand -base64 32
-# or
-head -c 32 /dev/urandom | base64
-```
-
-Use the output as your `session.encryption_key` in `config.yaml`.
-
-### API Security
-
-The HTTP API has no authentication. This is intentional for the MVP but should be addressed before production exposure behind a reverse proxy with TLS and access controls.
-
-## License
-
-Private / Internal use only.

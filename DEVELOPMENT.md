@@ -46,7 +46,7 @@ go test -race -tags=integration ./internal/app/...
 
 Not run in CI by default. See `DOCS/task-server-integration-tests.md`.
 
-## Search (SQLite / dockerless)
+## Search
 
 - Multi-word queries use **AND** — all terms must appear in title or body.
 - **Title is weighted 10×** over body in BM25 ranking.
@@ -78,3 +78,7 @@ curl -s http://localhost:8081/api/pages/42
 curl -s "http://localhost:8081/api/pages/42?space_key=TST"
 ```
 
+## Coming from Docker
+
+Docker / Postgres packaging is removed. See [README.md](README.md#coming-from-docker)
+and [`DOCS/task-remove-docker-mode.md`](DOCS/task-remove-docker-mode.md).

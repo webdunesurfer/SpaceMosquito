@@ -3,6 +3,7 @@
 **Parent:** [`DOCS/task-remove-docker-mode.md`](../task-remove-docker-mode.md)  
 **Priority:** P0  
 **Size:** M  
+**Status:** Done  
 **Depends on:** Phases 1–4 ideally done so docs match reality.  
 **Decision:** Merge into **or** fully replace `README.md` from `README-dockerless.md`, then **delete** `README-dockerless.md`. Release cutover: ignore.
 
@@ -25,11 +26,11 @@ One install story: **SQLite / local binary only**. No Colima/Compose primary pat
 
 ## Acceptance criteria
 
-- [ ] `README.md` is dockerless-only; no Compose quick start
-- [ ] `README-dockerless.md` deleted
-- [ ] Architecture / development docs match SQLite-only
-- [ ] Historical phase docs bannered (not mass-deleted)
-- [ ] Overview + cleanup script discoverable from README
+- [x] `README.md` is dockerless-only; no Compose quick start
+- [x] `README-dockerless.md` deleted
+- [x] Architecture / development docs match SQLite-only
+- [x] Historical phase docs bannered (not mass-deleted)
+- [x] Overview + cleanup script discoverable from README
 
 ## Out of scope
 

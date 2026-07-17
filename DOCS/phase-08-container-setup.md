@@ -1,5 +1,9 @@
 # Phase 8: Container Setup
 
+> **Historical.** This phase document describes work from the Docker/Postgres era.
+> Docker mode has been removed; SpaceMosquito is SQLite-only.
+> See [`DOCS/task-remove-docker-mode.md`](./task-remove-docker-mode.md).
+
 ## Objective
 Create Docker images and docker-compose configuration for running the full SpaceMosquito stack in a container.
 

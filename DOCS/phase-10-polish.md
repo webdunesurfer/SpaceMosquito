@@ -1,5 +1,9 @@
 # Phase 10: Polish
 
+> **Historical.** This phase document describes work from the Docker/Postgres era.
+> Docker mode has been removed; SpaceMosquito is SQLite-only.
+> See [`DOCS/task-remove-docker-mode.md`](./task-remove-docker-mode.md).
+
 > **Status**: Completed (Phase 11 hardening in progress). See `.opencode/plans/phase-11-production-hardening.md`.
 
 ## Objective

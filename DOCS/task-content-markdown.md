@@ -345,7 +345,7 @@ Optional follow-up: `content_format: "markdown"` field in JSON (defer v1).
 | `ADR/015-saved-page-format-with-markdown.md` | Saved page layout with `content.md` (supersedes ADR-006) |
 | `ADR/006-saved-page-format.md` | Marked superseded |
 | `DEVELOPMENT.md` | Content pipeline diagram |
-| `README-dockerless.md` | Mention Markdown content for search/MCP |
+| `README.md` | Mention Markdown content for search/MCP |
 | `DOCS/task-import-saved.md` | Point text extraction to `contentmd` package |
 
 ---

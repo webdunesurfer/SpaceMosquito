@@ -1,5 +1,9 @@
 # Phase 1: Go Backend Core
 
+> **Historical.** This phase document describes work from the Docker/Postgres era.
+> Docker mode has been removed; SpaceMosquito is SQLite-only.
+> See [`DOCS/task-remove-docker-mode.md`](./task-remove-docker-mode.md).
+
 ## Objective
 Scaffold the Go backend with configuration, database setup, file storage layer, and a working CLI for saving pages locally.
 

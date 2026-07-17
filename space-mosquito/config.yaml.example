@@ -1,4 +1,4 @@
-# Example config for local / dockerless installs.
+# Example config for local installs.
 # Prefer: `spacemosquito init` (writes ~/.spacemosquito/config.yaml).
 #
 # Data directory: ~/.spacemosquito/  (override with SPACEMOSQUITO_DATA_DIR or --data-dir)

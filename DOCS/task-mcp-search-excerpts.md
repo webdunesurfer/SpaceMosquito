@@ -1,5 +1,7 @@
 # Task: Search Excerpts Centered on Matched Terms
 
+> **Note:** Postgres / Docker excerpts path is removed. Implementation uses SQLite FTS + `internal/search` normalization.
+
 ## Objective
 
 Fix search snippets so **`excerpt` in `confluence_search` / `GET /api/search` shows text around the query match**, not always the first ~200 characters of the page. Agents must be able to see *why* a page matched and skim relevant sections without calling `confluence_get_page` for every hit.
@@ -158,7 +160,7 @@ Remove or raise the **150-char client-side truncation** in `cmd/cli/main.go` `ru
 | `NormalizeExcerpt` | `internal/search/excerpt_test.go` | Strip `<b>` tags; truncate; empty input; whitespace |
 | `ToSearchHits` | existing `dto_test.go` | Pass-through of normalized excerpt (if wired there) |
 
-### With Postgres (integration — recommended)
+### ~~With Postgres (integration)~~ — superseded
 
 Extend `DOCS/task-db-integration-tests.md` Phase 1:
 
@@ -168,7 +170,7 @@ Extend `DOCS/task-db-integration-tests.md` Phase 1:
 | `TestSearchPages_excerptTitleMatch` | Short body, distinctive title | Excerpt reflects title term |
 | `TestSearchPages_multiWordQuery` | `content` matches second term only | Excerpt includes that term |
 
-Run: `TEST_DATABASE_URL=... go test -tags=integration ./internal/db/...`
+Use: `go test -race -tags=integration ./internal/app/...` (SQLite in-process).
 
 **Default CI** stays `go test ./...` without integration tag — no Docker required for merge if unit tests + manual smoke suffice; integration tests strongly recommended before closing task.
 
@@ -221,6 +223,6 @@ _None — resolved for this task._
 |-----|--------------|
 | `DOCS/issues/mcp-issues.md` | Source issue #2 |
 | `DOCS/task-mcp-confluence-id.md` | Search hit shape (`SearchHit.excerpt`) — already aligned |
-| `DOCS/task-db-integration-tests.md` | Postgres tests for `SearchPages` |
+| `DOCS/task-db-integration-tests.md` | Superseded — Postgres tests not planned |
 | `DOCS/task-dockerless-migrations.md` | Future: FTS5 `snippet()` for SQLite |
 | `space-mosquito/migrations/004_fts.up.sql` | Existing `content_vector` definition |

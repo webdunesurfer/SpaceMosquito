@@ -45,8 +45,8 @@ Driver-specific FTS
 
 | Driver | Index | Query | Match semantics |
 |--------|-------|-------|-----------------|
-| **SQLite** (dockerless) | FTS5 `pages_fts(title, content)` Porter stemmer | `buildFTSQuery()` → `"w1" OR "w2" OR ...` | Any token matches |
-| **Postgres** (Docker) | `tsvector` on title (weight A) + content (B) | `plainto_tsquery('english', q)` | All tokens (minus stop words) |
+| **SQLite** | FTS5 `pages_fts(title, content)` Porter stemmer | AND multi-word + BM25 title boost | All terms must match |
+| ~~**Postgres** (Docker)~~ | Removed — SQLite-only | — | — |
 
 **Indexed source:** `pages.title` + `pages.content` (text extracted at crawl/import). **Not** live Confluence.
 
@@ -230,7 +230,7 @@ Fixture: page title `Alpha Beta Gamma`, many decoy pages each mentioning one wor
 
 | Doc | Update |
 |-----|--------|
-| `README-dockerless.md` | AND semantics; `?limit=` / MCP `limit` |
+| `README.md` | AND semantics; `?limit=` / MCP `limit` |
 | `DEVELOPMENT.md` | Ranking behavior; diagnostic SQL |
 
 ---
@@ -339,7 +339,7 @@ No change to response shape (`SearchHit`).
 | File | Role |
 |------|------|
 | `internal/store/sqlite/sqlite.go` | `SearchPages`, `buildFTSQuery`, `IndexAllPageContents` |
-| `internal/db/models.go` | Postgres `SearchPages`, `IndexAllPageContents` |
+| ~~`internal/db/models.go`~~ | Removed with Postgres store |
 | `migrations/sqlite/004_fts.up.sql` | FTS5 schema + triggers |
 | `internal/bootstrap/import_saved.go` | Post-import reindex call |
 | `internal/api/search.go` | REST handler |

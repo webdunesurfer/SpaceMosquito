@@ -288,7 +288,7 @@ Print usage in `printUsage()`.
 
 | Doc | Update |
 |-----|--------|
-| `README-dockerless.md` | Section: migrating from Docker using `import_saved` |
+| `README.md` | Coming from Docker / `import_saved` |
 | `DOCS/task-dockerless-data-bootstrap-modes.md` | Link to this task; mark `import_saved` spec as canonical |
 | `DEVELOPMENT.md` | How to run importer locally against fixture tree |
 
