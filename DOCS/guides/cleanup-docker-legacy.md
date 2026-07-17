@@ -72,8 +72,9 @@ Point the Pirate Mosquito extension at `http://localhost:8081`.
 
 ## After packaging removal
 
-Once `docker-compose.yml` is deleted from the repo (Phase 2), keep using the same script with `--project-name` if your Compose project name differs from the directory basename:
+Once `docker-compose.yml` is gone from the repo, the script still works via `--project-name` (normalized to lowercase):
 
 ```sh
 ./scripts/cleanup-docker-legacy.sh --project-name SpaceMosquito --dry-run
+./scripts/cleanup-docker-legacy.sh
 ```

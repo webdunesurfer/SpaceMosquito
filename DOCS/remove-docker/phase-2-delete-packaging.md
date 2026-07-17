@@ -22,21 +22,23 @@ Remove all Docker / Compose packaging and Docker-centric helper scripts from the
 
 ## Makefile
 
-- [ ] Remove targets: `docker-up`, `docker-down`, `docker-logs`, `docker-build`, `docker-migrate`, `serve-docker`, `crawl-docker`
-- [ ] Fix or remove broken `config-example` heredoc (parse failure)
-- [ ] Leave SQLite-oriented targets for Phase 3 rewrite if needed (`build`, `test`, `lint`, extension) — or minimal stub until Phase 3
+- [x] Remove targets: `docker-up`, `docker-down`, `docker-logs`, `docker-build`, `docker-migrate`, `serve-docker`, `crawl-docker`
+- [x] Fix or remove broken `config-example` heredoc (parse failure)
+- [x] Leave SQLite-oriented targets for Phase 3 rewrite if needed (`build`, `test`, `lint`, extension) — or minimal stub until Phase 3
 
 ## Config examples
 
-- [ ] Delete root Postgres-oriented `config.yaml.example` if duplicated
-- [ ] Keep **one** SQLite-first example (`space-mosquito/config.yaml.example` or data-dir docs) — final polish in Phase 5
+- [x] Delete root Postgres-oriented `config.yaml.example` if duplicated
+- [x] Keep **one** SQLite-first example (`space-mosquito/config.yaml.example` or data-dir docs) — final polish in Phase 5
 
 ## Acceptance criteria
 
-- [ ] Listed packaging files hard-deleted
-- [ ] No Docker Compose scripts remain (except Phase 1 `cleanup-docker-legacy.sh`)
-- [ ] Makefile has no `docker-*` / `serve-docker` / `crawl-docker` targets
-- [ ] `make` parses successfully (if Makefile retained)
+- [x] Listed packaging files hard-deleted
+- [x] No Docker Compose scripts remain (except Phase 1 `cleanup-docker-legacy.sh`)
+- [x] Makefile has no `docker-*` / `serve-docker` / `crawl-docker` targets
+- [x] `make` parses successfully (if Makefile retained)
+
+**Shipped:** packaging deleted; Makefile SQLite-oriented; `space-mosquito/config.yaml.example` sqlite-first.
 
 ## Out of scope
 
