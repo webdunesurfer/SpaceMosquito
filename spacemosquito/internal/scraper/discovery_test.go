@@ -125,7 +125,7 @@ func TestParseSidebar(t *testing.T) {
 func TestFetchPageListAPI_cloud(t *testing.T) {
 	page := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !strings.Contains(r.URL.Path, "/wiki/rest/api/space/SK/content/page") {
+		if !strings.Contains(r.URL.Path, "/wiki/rest/api/space/DEMO/content/page") {
 			http.NotFound(w, r)
 			return
 		}
@@ -142,7 +142,7 @@ func TestFetchPageListAPI_cloud(t *testing.T) {
 	defer srv.Close()
 
 	s := testScraper()
-	pages, err := s.fetchPageListAPI(srv.URL, "SK", map[string]string{}, session.FlavorCloud)
+	pages, err := s.fetchPageListAPI(srv.URL, "DEMO", map[string]string{}, session.FlavorCloud)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -163,7 +163,7 @@ func TestFetchPageListAPI_server(t *testing.T) {
 			http.NotFound(w, r)
 			return
 		}
-		if r.URL.Query().Get("spaceKey") != "SK" {
+		if r.URL.Query().Get("spaceKey") != "DEMO" {
 			t.Errorf("spaceKey = %q", r.URL.Query().Get("spaceKey"))
 		}
 		w.Write([]byte(loadFixture(t, "confluence_page_list.json")))
@@ -171,7 +171,7 @@ func TestFetchPageListAPI_server(t *testing.T) {
 	defer srv.Close()
 
 	s := testScraper()
-	pages, err := s.fetchPageListAPI(srv.URL, "SK", map[string]string{}, session.FlavorServer)
+	pages, err := s.fetchPageListAPI(srv.URL, "DEMO", map[string]string{}, session.FlavorServer)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -188,7 +188,7 @@ func TestFetchPageListAPI_errors(t *testing.T) {
 			http.Error(w, "nope", http.StatusForbidden)
 		}))
 		defer srv.Close()
-		_, err := s.fetchPageListAPI(srv.URL, "SK", nil, session.FlavorCloud)
+		_, err := s.fetchPageListAPI(srv.URL, "DEMO", nil, session.FlavorCloud)
 		if err == nil {
 			t.Fatal("expected error")
 		}
@@ -199,7 +199,7 @@ func TestFetchPageListAPI_errors(t *testing.T) {
 			w.Write([]byte("not json"))
 		}))
 		defer srv.Close()
-		_, err := s.fetchPageListAPI(srv.URL, "SK", nil, session.FlavorCloud)
+		_, err := s.fetchPageListAPI(srv.URL, "DEMO", nil, session.FlavorCloud)
 		if err == nil {
 			t.Fatal("expected error")
 		}
@@ -210,7 +210,7 @@ func TestFetchPageListAPI_errors(t *testing.T) {
 			w.Write([]byte(`{"results":[],"size":0}`))
 		}))
 		defer srv.Close()
-		pages, err := s.fetchPageListAPI(srv.URL, "SK", nil, session.FlavorCloud)
+		pages, err := s.fetchPageListAPI(srv.URL, "DEMO", nil, session.FlavorCloud)
 		if err != nil {
 			t.Fatal(err)
 		}

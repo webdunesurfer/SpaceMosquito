@@ -94,11 +94,13 @@ Or trigger a crawl via the extension or MCP at `http://localhost:8081/mcp`.
 
 Multi-word queries match **all** terms (AND). Title matches rank above body-only hits. Default: 10 results.
 
-Page **content** is stored as Markdown (`content.md` on disk, `pages.content` in the DB). After upgrading, regenerate existing pages:
+Page **content** is stored as Markdown (`content.md` on disk, `pages.content` in the DB). API-crawled pages are converted from **Confluence Storage Format** via a rule-based converter (macros, tables, code, images, draw.io, links); browser-fallback pages use generic HTML→Markdown. After upgrading, regenerate existing pages:
 
 ```sh
 ./spacemosquito reindex --content
 ```
+
+`reindex --content` re-converts each saved page from the right source — Storage Format (`raw.html`) through the CSF converter, rendered HTML (`index.html`) through the generic one — routing by the `body_format` recorded in `metadata.json` (or a content sniff for older pages). It regenerates Markdown offline; image/diagram **assets** are (re)downloaded on the next crawl.
 
 ```sh
 ./spacemosquito search "your query"

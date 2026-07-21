@@ -47,3 +47,7 @@ Thumbs.db
 firefox-extension/node_modules/
 firefox-extension/dist/
 firefox-extension/*.xpi
+
+
+# Agents
+.claude/

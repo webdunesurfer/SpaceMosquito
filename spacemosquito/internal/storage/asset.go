@@ -57,22 +57,7 @@ func (d *AssetDownloader) Download(destDir, rawURL string) (string, error) {
 			time.Sleep(retryDelay)
 		}
 
-		// Rate limiting
-		d.mu.Lock()
-		sinceLast := time.Since(d.lastReq)
-		if sinceLast < d.rateLimit {
-			wait := d.rateLimit - sinceLast
-			d.mu.Unlock()
-			if d.log.Enabled() && attempt == 0 {
-				d.log.Debugw("rate limit wait", "wait_ms", wait.Milliseconds())
-			}
-			time.Sleep(wait)
-		} else {
-			d.mu.Unlock()
-		}
-		d.mu.Lock()
-		d.lastReq = time.Now()
-		d.mu.Unlock()
+		d.rateLimitWait()
 
 		resp, err := d.client.Get(rawURL)
 		if err != nil {
@@ -174,6 +159,72 @@ func (d *AssetDownloader) Download(destDir, rawURL string) (string, error) {
 	}
 
 	return "", fmt.Errorf("download %s: failed after %d attempts: %w", rawURL, d.maxRetries+1, lastErr)
+}
+
+// rateLimitWait blocks until at least rateLimit has elapsed since the last
+// request, then records the current time as the last request.
+func (d *AssetDownloader) rateLimitWait() {
+	d.mu.Lock()
+	sinceLast := time.Since(d.lastReq)
+	if sinceLast < d.rateLimit {
+		wait := d.rateLimit - sinceLast
+		d.mu.Unlock()
+		time.Sleep(wait)
+	} else {
+		d.mu.Unlock()
+	}
+	d.mu.Lock()
+	d.lastReq = time.Now()
+	d.mu.Unlock()
+}
+
+// DownloadAs fetches rawURL and writes it to the exact destPath (creating parent
+// dirs), reusing the same retry and rate-limit policy as Download. Unlike
+// Download, the caller controls the filename — used by the CSF converter, whose
+// rules emit Markdown links to a known local path before download happens.
+func (d *AssetDownloader) DownloadAs(destPath, rawURL string) error {
+	var lastErr error
+	for attempt := 0; attempt <= d.maxRetries; attempt++ {
+		if attempt > 0 {
+			time.Sleep(time.Duration(attempt) * d.retryDelay)
+		}
+		d.rateLimitWait()
+
+		resp, err := d.client.Get(rawURL)
+		if err != nil {
+			lastErr = fmt.Errorf("request error: %w", err)
+			continue
+		}
+		if resp.StatusCode != http.StatusOK {
+			resp.Body.Close()
+			lastErr = fmt.Errorf("HTTP %d", resp.StatusCode)
+			continue
+		}
+		if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
+			resp.Body.Close()
+			lastErr = fmt.Errorf("create asset dir: %w", err)
+			continue
+		}
+		f, err := os.Create(destPath)
+		if err != nil {
+			resp.Body.Close()
+			lastErr = fmt.Errorf("create asset file: %w", err)
+			continue
+		}
+		_, err = io.Copy(f, resp.Body)
+		resp.Body.Close()
+		f.Close()
+		if err != nil {
+			_ = os.Remove(destPath)
+			lastErr = fmt.Errorf("write asset: %w", err)
+			continue
+		}
+		if d.log.Enabled() {
+			d.log.Infow("asset downloaded", "url", rawURL, "path", destPath)
+		}
+		return nil
+	}
+	return fmt.Errorf("download %s: failed after %d attempts: %w", rawURL, d.maxRetries+1, lastErr)
 }
 
 func (d *AssetDownloader) RewriteURL(rawURL, assetBase string) string {

@@ -231,7 +231,7 @@ func parseRecord(metaPath string) (importRecord, string, error) {
 
 	rec.htmlPath = filepath.Join(rec.fileDir, "index.html")
 	rec.rawHTMLPath = filepath.Join(rec.fileDir, "raw.html")
-	content, skipReason, err := extractContent(rec.htmlPath, rec.rawHTMLPath)
+	content, skipReason, err := contentmd.RenderDirMarkdown(rec.fileDir)
 	if err != nil {
 		return rec, "", err
 	}
@@ -301,28 +301,6 @@ func applyRecords(ctx context.Context, db store.Store, records []importRecord, l
 	}
 
 	return len(spaceCreated), imported, errs
-}
-
-func extractContent(indexPath, rawPath string) (string, string, error) {
-	md, err := contentmd.HTMLFileToMarkdown(indexPath)
-	if err == nil && strings.TrimSpace(md) != "" {
-		return md, "", nil
-	}
-	if err != nil && !os.IsNotExist(err) {
-		return "", "", err
-	}
-
-	md, err = contentmd.HTMLFileToMarkdown(rawPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return "", "missing index.html and raw.html", nil
-		}
-		return "", "", err
-	}
-	if strings.TrimSpace(md) == "" {
-		return "", "empty content in index.html and raw.html", nil
-	}
-	return md, "", nil
 }
 
 func parseConfluenceID(confluenceURL string) int {

@@ -2,13 +2,13 @@ package scraper
 
 import (
 	"fmt"
-	"net/url"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
 
 	"github.com/PuerkitoBio/goquery"
+	"github.com/vkh/spacemosquito/internal/confluence"
 	"github.com/vkh/spacemosquito/internal/storage"
 )
 
@@ -292,14 +292,5 @@ func (s *Scraper) cleanupEmptyElements(doc *goquery.Document) {
 }
 
 func extractConfluenceBaseURL(urlStr string) string {
-	if urlStr == "" {
-		return ""
-	}
-
-	u, err := url.Parse(urlStr)
-	if err != nil {
-		return ""
-	}
-
-	return fmt.Sprintf("%s://%s", u.Scheme, u.Host)
+	return confluence.BaseURL(urlStr)
 }

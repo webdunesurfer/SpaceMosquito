@@ -20,8 +20,13 @@ type Metadata struct {
 	CreatedAt     time.Time  `json:"created_at"`
 	UpdatedAt     time.Time  `json:"updated_at"`
 	Images        []AssetRef `json:"images,omitempty"`
+	Diagrams      []AssetRef `json:"diagrams,omitempty"`
 	Attachments   []AssetRef `json:"attachments,omitempty"`
-	SavedAt       time.Time  `json:"saved_at"`
+	// BodyFormat records the source format of raw.html: "storage" (Confluence
+	// Storage Format, API crawl) or "rendered" (browser fallback). Used to route
+	// reindex/import to the right converter.
+	BodyFormat string    `json:"body_format,omitempty"`
+	SavedAt    time.Time `json:"saved_at"`
 }
 
 type AssetRef struct {

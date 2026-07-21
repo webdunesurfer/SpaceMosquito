@@ -8,11 +8,13 @@ import (
 	"github.com/go-rod/rod/lib/proto"
 	"github.com/vkh/spacemosquito/internal/config"
 	"github.com/vkh/spacemosquito/internal/contentmd"
+	"github.com/vkh/spacemosquito/internal/contentmd/csf"
 	"github.com/vkh/spacemosquito/internal/session"
 	"github.com/vkh/spacemosquito/internal/storage"
 	"github.com/vkh/spacemosquito/internal/store"
 	"github.com/vkh/spacemosquito/pkg/logging"
 	"net/http"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -379,11 +381,11 @@ func (s *Scraper) ScrapePageAPI(pg *Page, spaceKey, spaceURL string, sess *sessi
 	pg.Attachments = attachments
 
 	// Save to disk and DB (shared logic with browser scraping)
-	return s.savePageMetadata(pg, spaceKey, spaceURL)
+	return s.savePageMetadata(pg, spaceKey, spaceURL, sess.Flavor == session.FlavorCloud)
 }
 
 // savePageMetadata saves the scraped page to disk and database.
-func (s *Scraper) savePageMetadata(pg *Page, spaceKey, spaceURL string) error {
+func (s *Scraper) savePageMetadata(pg *Page, spaceKey, spaceURL string, cloud bool) error {
 	dir, err := s.storage.MakePageDir(spaceKey, pg.Title)
 	if err != nil {
 		return fmt.Errorf("make page dir: %w", err)
@@ -395,13 +397,18 @@ func (s *Scraper) savePageMetadata(pg *Page, spaceKey, spaceURL string) error {
 	}
 	pg.HTMLPath = dir + "/index.html"
 
-	contentMD, err := contentmd.HTMLToMarkdown(pg.CleanHTML)
+	contentMD, assets, err := s.renderMarkdown(pg, spaceURL, cloud)
 	if err != nil {
 		return fmt.Errorf("convert content markdown: %w", err)
 	}
 	if err := s.storage.SaveMarkdown(dir, contentMD); err != nil {
 		return fmt.Errorf("save content markdown: %w", err)
 	}
+
+	// CSF conversion schedules asset downloads (images, diagrams); fetch them
+	// into the page dir and record them alongside any HTML-path images.
+	csfImages, csfDiagrams := s.downloadCSFAssets(dir, assets)
+	pg.Images = append(pg.Images, csfImages...)
 
 	if err := s.storage.SaveRawHTML(dir, pg.RawHTML); err != nil {
 		s.log.Warnw("save raw html failed",
@@ -411,6 +418,10 @@ func (s *Scraper) savePageMetadata(pg *Page, spaceKey, spaceURL string) error {
 	}
 	pg.RawHTMLPath = dir + "/raw.html"
 
+	bodyFormat := "rendered"
+	if csf.IsStorageFormat(pg.RawHTML) {
+		bodyFormat = "storage"
+	}
 	meta := &storage.Metadata{
 		Title:         pg.Title,
 		ConfluenceURL: pg.URL,
@@ -419,7 +430,9 @@ func (s *Scraper) savePageMetadata(pg *Page, spaceKey, spaceURL string) error {
 		CreatedAt:     time.Now(),
 		UpdatedAt:     time.Now(),
 		Images:        pg.Images,
+		Diagrams:      csfDiagrams,
 		Attachments:   pg.Attachments,
+		BodyFormat:    bodyFormat,
 		SavedAt:       time.Now(),
 	}
 	if pg.ParentID != nil {
@@ -481,6 +494,54 @@ func (s *Scraper) savePageMetadata(pg *Page, spaceKey, spaceURL string) error {
 	return nil
 }
 
+// renderMarkdown produces the page's Markdown, routing by input format: pages
+// whose raw body is Confluence Storage Format go through the rule-based CSF
+// converter; browser-fallback rendered HTML uses the generic converter.
+func (s *Scraper) renderMarkdown(pg *Page, spaceURL string, cloud bool) (string, []csf.AssetRequest, error) {
+	if csf.IsStorageFormat(pg.RawHTML) {
+		ctx := &csf.RenderContext{
+			PageID:  pg.ConfluenceID,
+			BaseURL: extractConfluenceBaseURL(spaceURL),
+			Cloud:   cloud,
+		}
+		md, assets, err := csf.CSFToMarkdown(pg.RawHTML, ctx)
+		if err != nil {
+			return "", nil, fmt.Errorf("csf to markdown: %w", err)
+		}
+		return md, assets, nil
+	}
+	md, err := contentmd.HTMLToMarkdown(pg.CleanHTML)
+	return md, nil, err
+}
+
+// downloadCSFAssets fetches the assets a CSF conversion requested into the
+// page directory and returns their metadata refs, split by kind (images vs
+// draw.io diagrams). Failures are logged and skipped (best-effort, like the
+// HTML image path); the emitted Markdown alt text still degrades gracefully.
+func (s *Scraper) downloadCSFAssets(dir string, reqs []csf.AssetRequest) (images, diagrams []storage.AssetRef) {
+	for _, r := range reqs {
+		if r.URL == "" || r.Filename == "" {
+			continue
+		}
+		sub := "images"
+		if r.Kind == "diagram" {
+			sub = "diagrams"
+		}
+		rel := filepath.Join("assets", sub, r.Filename)
+		if err := s.assets.DownloadAs(filepath.Join(dir, rel), r.URL); err != nil {
+			s.log.Warnw("csf asset download failed", "url", r.URL, "kind", r.Kind, "error", err)
+			continue
+		}
+		ref := storage.AssetRef{OriginalURL: r.URL, LocalPath: rel}
+		if r.Kind == "diagram" {
+			diagrams = append(diagrams, ref)
+		} else {
+			images = append(images, ref)
+		}
+	}
+	return images, diagrams
+}
+
 // ScrapePage scrapes a single page using a headless browser (legacy fallback).
 func (s *Scraper) ScrapePage(pg *Page, spaceKey, spaceURL string) error {
 	baseURL := extractConfluenceBaseURL(spaceURL)
@@ -511,5 +572,6 @@ func (s *Scraper) ScrapePage(pg *Page, spaceKey, spaceURL string) error {
 	pg.Images = images
 	pg.Attachments = attachments
 
-	return s.savePageMetadata(pg, spaceKey, spaceURL)
+	// Browser fallback yields rendered HTML (not CSF); flavor is irrelevant.
+	return s.savePageMetadata(pg, spaceKey, spaceURL, false)
 }

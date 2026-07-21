@@ -67,14 +67,15 @@ func TestHTMLToMarkdown_scopesWikiContent(t *testing.T) {
 	}
 }
 
-func TestHTMLToMarkdown_truncation(t *testing.T) {
+func TestHTMLToMarkdown_noLengthCap(t *testing.T) {
+	// Content is no longer truncated (Epic OQ#6): full Markdown is preserved.
 	html := "<p>" + strings.Repeat("a", 60000) + "</p>"
 	md, err := HTMLToMarkdown(html)
 	if err != nil {
 		t.Fatalf("HTMLToMarkdown: %v", err)
 	}
-	if len(md) != MaxContentLen {
-		t.Fatalf("len = %d, want %d", len(md), MaxContentLen)
+	if len(md) < 60000 {
+		t.Fatalf("content was truncated: len = %d, want >= 60000", len(md))
 	}
 }
 

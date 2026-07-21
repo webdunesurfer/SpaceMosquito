@@ -3,7 +3,8 @@
 ## Ground rules
 
 - Breaking changes in API are acceptable.
-- For documentation use Mermaid for diagrams.
+- When writing documentation use Mermaid for diagrams.
+
 
 ## Local Development & Build
 

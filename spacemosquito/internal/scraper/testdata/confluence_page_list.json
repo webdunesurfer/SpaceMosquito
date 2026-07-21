@@ -1,18 +1,18 @@
 {
   "results": [
     {
-      "id": "515393957",
+      "id": "100000001",
       "type": "page",
-      "title": "Schnittstellen",
+      "title": "Getting Started",
       "version": { "number": 11 },
-      "_links": { "webui": "/spaces/SK/pages/515393957/Schnittstellen" }
+      "_links": { "webui": "/spaces/DEMO/pages/100000001/Getting+Started" }
     },
     {
-      "id": "533664653",
+      "id": "100000002",
       "type": "page",
-      "title": "Stempelkarte Home",
+      "title": "Team Home",
       "version": { "number": 3 },
-      "_links": { "webui": "/spaces/SK/pages/533664653/Stempelkarte+Home" }
+      "_links": { "webui": "/spaces/DEMO/pages/100000002/Team+Home" }
     }
   ],
   "size": 2

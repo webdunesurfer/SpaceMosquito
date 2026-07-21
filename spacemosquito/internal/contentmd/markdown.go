@@ -17,8 +17,6 @@ import (
 const (
 	// ContentFileName is the on-disk markdown artifact per ADR-015.
 	ContentFileName = "content.md"
-	// MaxContentLen matches the historical plain-text extraction cap.
-	MaxContentLen = 50000
 )
 
 var multiNewline = regexp.MustCompile(`\n{3,}`)
@@ -107,8 +105,5 @@ func normalizeMarkdown(s string) string {
 	}
 	s = strings.TrimSpace(strings.Join(lines, "\n"))
 	s = multiNewline.ReplaceAllString(s, "\n\n")
-	if len(s) > MaxContentLen {
-		s = s[:MaxContentLen]
-	}
 	return s
 }

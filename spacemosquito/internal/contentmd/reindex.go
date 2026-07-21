@@ -32,26 +32,28 @@ func ReindexAll(ctx context.Context, db store.Store, savedBase string) (ReindexR
 		default:
 		}
 
-		htmlPath := resolveHTMLPath(page, savedBase)
-		if htmlPath == "" {
+		dir := resolveDir(page, savedBase)
+		if dir == "" {
 			result.Skipped++
 			continue
 		}
 
-		md, err := HTMLFileToMarkdown(htmlPath)
-		if err != nil || strings.TrimSpace(md) == "" {
+		md, skip, err := RenderDirMarkdown(dir)
+		if err != nil {
+			result.Errors = append(result.Errors, fmt.Sprintf("%s: %v", dir, err))
 			result.Skipped++
-			if err != nil {
-				result.Errors = append(result.Errors, fmt.Sprintf("%s: %v", htmlPath, err))
+			continue
+		}
+		if strings.TrimSpace(md) == "" {
+			result.Skipped++
+			if skip != "" {
+				result.Errors = append(result.Errors, fmt.Sprintf("%s: %s", dir, skip))
 			}
 			continue
 		}
 
-		dir := pageDir(page, htmlPath)
-		if dir != "" {
-			if err := WriteFile(dir, md); err != nil {
-				result.Errors = append(result.Errors, fmt.Sprintf("%s: write content.md: %v", dir, err))
-			}
+		if err := WriteFile(dir, md); err != nil {
+			result.Errors = append(result.Errors, fmt.Sprintf("%s: write content.md: %v", dir, err))
 		}
 
 		page.Content = md
@@ -65,16 +67,18 @@ func ReindexAll(ctx context.Context, db store.Store, savedBase string) (ReindexR
 	return result, nil
 }
 
-func resolveHTMLPath(page store.Page, savedBase string) string {
+// resolveDir returns the saved page directory, trying the recorded FileDir
+// first and then remapping under savedBase for catalogs moved between machines.
+func resolveDir(page store.Page, savedBase string) string {
 	candidates := []string{}
-	if page.HTMLPath != "" {
-		candidates = append(candidates, page.HTMLPath)
-	}
 	if page.FileDir != "" {
-		candidates = append(candidates, filepath.Join(page.FileDir, "index.html"))
+		candidates = append(candidates, page.FileDir)
+	}
+	if page.HTMLPath != "" {
+		candidates = append(candidates, filepath.Dir(page.HTMLPath))
 	}
 	if savedBase != "" && page.FileDir != "" {
-		candidates = append(candidates, filepath.Join(savedBase, filepath.Base(filepath.Dir(page.FileDir)), filepath.Base(page.FileDir), "index.html"))
+		candidates = append(candidates, filepath.Join(savedBase, filepath.Base(filepath.Dir(page.FileDir)), filepath.Base(page.FileDir)))
 	}
 
 	seen := map[string]bool{}
@@ -83,19 +87,9 @@ func resolveHTMLPath(page store.Page, savedBase string) string {
 			continue
 		}
 		seen[c] = true
-		if _, err := os.Stat(c); err == nil {
+		if st, err := os.Stat(c); err == nil && st.IsDir() {
 			return c
 		}
-	}
-	return ""
-}
-
-func pageDir(page store.Page, htmlPath string) string {
-	if page.FileDir != "" {
-		return page.FileDir
-	}
-	if htmlPath != "" {
-		return filepath.Dir(htmlPath)
 	}
 	return ""
 }
