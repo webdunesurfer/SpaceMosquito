@@ -316,6 +316,10 @@ func (s *Scraper) CrawlSpace(spaceURL string, sess *session.Session) error {
 func (s *Scraper) ScrapePageAPI(pg *Page, spaceKey, spaceURL string, sess *session.Session) error {
 	baseURL := extractConfluenceBaseURL(spaceURL)
 
+	// Attach the session to attachment downloads too — without it, SSO-protected
+	// instances answer /download/attachments/ with a login page, not the file.
+	s.assets.SetAuthHeaders(sess.AsHeaders())
+
 	var apiURL string
 	if sess.Flavor == session.FlavorCloud {
 		apiURL = fmt.Sprintf("%s/wiki/rest/api/content/%d?expand=body.storage,version,ancestors", baseURL, pg.ConfluenceID)

@@ -25,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Broadened URL detection for custom domains.
 
 ### Fixed
+- Asset downloads (images, diagrams, attachments) now send the session cookies, so SSO-protected instances return the file instead of a login page. Responses that are HTML (a login/redirect page) are rejected as a loud error rather than saved as a corrupt image.
 - "Page Not Found" errors by using direct API extraction.
 - "Device or resource busy" mount errors.
 - Standardized MCP JSON-RPC handshake.

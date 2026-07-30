@@ -22,13 +22,49 @@ const (
 )
 
 type AssetDownloader struct {
-	client     *http.Client
-	log        logging.Sugar
-	maxRetries int
-	retryDelay time.Duration
-	rateLimit  time.Duration
-	mu         sync.Mutex
-	lastReq    time.Time
+	client      *http.Client
+	log         logging.Sugar
+	maxRetries  int
+	retryDelay  time.Duration
+	rateLimit   time.Duration
+	mu          sync.Mutex
+	lastReq     time.Time
+	authHeaders map[string]string
+}
+
+// SetAuthHeaders sets the headers (e.g. the session Cookie) attached to every
+// asset request. Without them, attachment downloads on SSO-protected instances
+// receive a login/redirect page instead of the file. The scraper sets these
+// from the active session at crawl time.
+func (d *AssetDownloader) SetAuthHeaders(h map[string]string) {
+	m := make(map[string]string, len(h))
+	for k, v := range h {
+		m[k] = v
+	}
+	d.mu.Lock()
+	d.authHeaders = m
+	d.mu.Unlock()
+}
+
+// get issues an authenticated GET, attaching any configured auth headers.
+func (d *AssetDownloader) get(rawURL string) (*http.Response, error) {
+	req, err := http.NewRequest(http.MethodGet, rawURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	d.mu.Lock()
+	for k, v := range d.authHeaders {
+		req.Header.Set(k, v)
+	}
+	d.mu.Unlock()
+	return d.client.Do(req)
+}
+
+// looksLikeLoginPage reports whether a response is an HTML page rather than the
+// requested binary asset — the tell-tale sign of an unauthenticated request
+// being answered with an SSO login/redirect page.
+func looksLikeLoginPage(resp *http.Response) bool {
+	return strings.Contains(resp.Header.Get("Content-Type"), "text/html")
 }
 
 func NewAssetDownloader(log logging.Sugar) *AssetDownloader {
@@ -59,7 +95,7 @@ func (d *AssetDownloader) Download(destDir, rawURL string) (string, error) {
 
 		d.rateLimitWait()
 
-		resp, err := d.client.Get(rawURL)
+		resp, err := d.get(rawURL)
 		if err != nil {
 			lastErr = fmt.Errorf("request error: %w", err)
 			if d.log.Enabled() {
@@ -81,6 +117,11 @@ func (d *AssetDownloader) Download(destDir, rawURL string) (string, error) {
 					"attempt", attempt+1)
 			}
 			continue
+		}
+
+		if looksLikeLoginPage(resp) {
+			resp.Body.Close()
+			return "", fmt.Errorf("download %s: got an HTML page (not the asset) — session likely missing or expired", rawURL)
 		}
 
 		ext := filepath.Ext(rawURL)
@@ -190,7 +231,7 @@ func (d *AssetDownloader) DownloadAs(destPath, rawURL string) error {
 		}
 		d.rateLimitWait()
 
-		resp, err := d.client.Get(rawURL)
+		resp, err := d.get(rawURL)
 		if err != nil {
 			lastErr = fmt.Errorf("request error: %w", err)
 			continue
@@ -199,6 +240,10 @@ func (d *AssetDownloader) DownloadAs(destPath, rawURL string) error {
 			resp.Body.Close()
 			lastErr = fmt.Errorf("HTTP %d", resp.StatusCode)
 			continue
+		}
+		if looksLikeLoginPage(resp) {
+			resp.Body.Close()
+			return fmt.Errorf("download %s: got an HTML page (not the asset) — session likely missing or expired", rawURL)
 		}
 		if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
 			resp.Body.Close()

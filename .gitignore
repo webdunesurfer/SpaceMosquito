@@ -10,6 +10,7 @@ tmp/
 
 # Compiled binaries
 spacemosquito/cli
+spacemosquito/assets/
 spacemosquito/server
 spacemosquito/spacemosquito
 
@@ -51,3 +52,4 @@ firefox-extension/*.xpi
 
 # Agents
 .claude/
+

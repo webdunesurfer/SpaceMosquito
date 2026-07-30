@@ -304,7 +304,7 @@ After implementation, verify on each target:
 
 | Doc | Relationship |
 |-----|--------------|
-| `docs/task-validation-sso-fix.md` | SSO false positives affect self-hosted enterprises too |
+| `dev/task-validation-sso-fix.md` | SSO false positives affect self-hosted enterprises too |
 | `CHANGELOG.md` | "Broadened URL detection for custom domains" — complete the Chrome-only partial work |
 | `ADR-002` | Hybrid auth still applies; extension captures cookies on real browser |
 

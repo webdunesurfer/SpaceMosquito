@@ -123,6 +123,64 @@ func TestAssetDownloader_Download_retriesOnFailure(t *testing.T) {
 	}
 }
 
+func TestAssetDownloader_Download_rejectsHTMLLoginPage(t *testing.T) {
+	// SSO-protected instances answer an unauthenticated attachment request with
+	// a 200 HTML login/redirect page; that must be a loud failure, not a saved
+	// "image".
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Write([]byte(`<html><head><meta http-equiv="refresh" content="1;URL='/login'"/></head></html>`))
+	}))
+	defer srv.Close()
+
+	d := testDownloader(srv.Client())
+	dest := t.TempDir()
+	if _, err := d.Download(dest, srv.URL+"/img.png"); err == nil {
+		t.Fatal("expected error for HTML login page, got nil")
+	}
+	// No file should have been written.
+	entries, _ := os.ReadDir(dest)
+	for _, e := range entries {
+		t.Fatalf("unexpected file written: %s", e.Name())
+	}
+}
+
+func TestAssetDownloader_DownloadAs_rejectsHTMLLoginPage(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		w.Write([]byte(`<html>login</html>`))
+	}))
+	defer srv.Close()
+
+	d := testDownloader(srv.Client())
+	dest := t.TempDir() + "/assets/images/pic.png"
+	if err := d.DownloadAs(dest, srv.URL+"/pic.png"); err == nil {
+		t.Fatal("expected error for HTML login page")
+	}
+	if _, err := os.Stat(dest); err == nil {
+		t.Fatal("file should not have been written")
+	}
+}
+
+func TestAssetDownloader_sendsAuthHeaders(t *testing.T) {
+	var gotCookie string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotCookie = r.Header.Get("Cookie")
+		w.Header().Set("Content-Type", "image/png")
+		w.Write([]byte("png"))
+	}))
+	defer srv.Close()
+
+	d := testDownloader(srv.Client())
+	d.SetAuthHeaders(map[string]string{"Cookie": "JSESSIONID=abc123"})
+	if _, err := d.Download(t.TempDir(), srv.URL+"/i.png"); err != nil {
+		t.Fatal(err)
+	}
+	if gotCookie != "JSESSIONID=abc123" {
+		t.Fatalf("auth header not sent, got Cookie=%q", gotCookie)
+	}
+}
+
 func TestAssetDownloader_Download_contentTypeExtension(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "image/jpeg")
