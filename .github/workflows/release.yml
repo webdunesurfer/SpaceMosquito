@@ -92,6 +92,5 @@ jobs:
           files: |
             dist/spacemosquito-*
             dist/SHA256SUMS
-            README-dockerless.md
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
