@@ -23,14 +23,7 @@ make build
 # binary: spacemosquito/spacemosquito
 ```
 
-Or:
-
-```sh
-cd spacemosquito
-go build -o spacemosquito ./cmd/spacemosquito
-```
-
-### Pre-built release (optional)
+### Pre-built release
 
 1. Download the binary for your platform from [GitHub Releases](https://github.com/webdunesurfer/SpaceMosquito/releases).
 2. Verify the checksum against `SHA256SUMS` in the release assets.
@@ -66,7 +59,7 @@ SPACEMOSQUITO_DATA_DIR=./data ./spacemosquito serve
 2. Load the Pirate Mosquito extension (see below).
 3. Open Confluence and use the extension to send cookies to `http://localhost:8081`.
 
-### Firefox (temporary)
+### Firefox
 
 ```sh
 cd firefox-extension && npm install && npm run build
@@ -74,7 +67,7 @@ cd firefox-extension && npm install && npm run build
 
 Open `about:debugging` → **This Firefox** → **Load Temporary Add-on…** → select `firefox-extension/dist/manifest.json`.
 
-### Chrome (temporary)
+### Chrome
 
 ```sh
 cd chrome-extension && npm install && npm run build
