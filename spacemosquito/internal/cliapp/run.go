@@ -94,11 +94,17 @@ func Run(args []string) int {
 		}
 		runSave(cfg, args[2], log)
 	case "crawl":
-		if len(args) < 3 {
-			fmt.Fprintln(os.Stderr, "usage: spacemosquito crawl <space-url>")
+		fs := flag.NewFlagSet("crawl", flag.ExitOnError)
+		force := fs.Bool("force", false, "re-scrape all pages and re-download all assets")
+		fs.SetOutput(os.Stderr)
+		if err := fs.Parse(args[2:]); err != nil {
 			return 1
 		}
-		runCrawl(cfg, args[2], log)
+		if fs.NArg() < 1 {
+			fmt.Fprintln(os.Stderr, "usage: spacemosquito crawl [--force] <space-url>")
+			return 1
+		}
+		runCrawl(cfg, fs.Arg(0), *force, log)
 	case "reindex":
 		withContent := false
 		for _, arg := range args[2:] {
@@ -398,11 +404,12 @@ func runServe(cfg *config.Config, log *zap.Logger) {
 	}
 }
 
-func runCrawl(cfg *config.Config, spaceURL string, log *zap.Logger) {
+func runCrawl(cfg *config.Config, spaceURL string, force bool, log *zap.Logger) {
 	requestID := fmt.Sprintf("crawl-%d", time.Now().Unix())
 	sugar := logging.New("crawl", log)
 	sugar.Infow("crawl command initiated",
 		"space_url", spaceURL,
+		"force", force,
 		"request_id", requestID)
 
 	database, err := datastore.Open(cfg, log)
@@ -436,8 +443,10 @@ func runCrawl(cfg *config.Config, spaceURL string, log *zap.Logger) {
 
 	storageWriter := storage.NewWriter(cfg.Storage.BasePath, sugar)
 	assetDownloader := storage.NewAssetDownloader(sugar)
+	assetDownloader.SetForce(force)
 
 	s := scraper.New(cfg, database, storageWriter, assetDownloader, sugar)
+	s.SetForce(force)
 
 	if err := s.CrawlSpace(spaceURL, sess); err != nil {
 		sugar.Errorw("crawl failed", "error", err)
@@ -711,7 +720,7 @@ func printUsage() {
 	fmt.Println("    --dry-run                 Scan and report only")
 	fmt.Println("  migrate-down   Rollback last migration")
 	fmt.Println("  save <url>     Save a Confluence page")
-	fmt.Println("  crawl <url>    Crawl a full Confluence space")
+	fmt.Println("  crawl [--force] <url>  Crawl a Confluence space (--force re-scrapes all pages and assets)")
 	fmt.Println("  search <q>     Search pages (optional: <space-key> [--limit N])")
 	fmt.Println("  get-page <id>  Get page by Confluence ID (optional: <space-key>)")
 	fmt.Println("  reindex        Rebuild FTS indexes (--content regenerates Markdown too)")

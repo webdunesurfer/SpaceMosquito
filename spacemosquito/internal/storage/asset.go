@@ -30,6 +30,7 @@ type AssetDownloader struct {
 	mu          sync.Mutex
 	lastReq     time.Time
 	authHeaders map[string]string
+	force       bool
 }
 
 // SetAuthHeaders sets the headers (e.g. the session Cookie) attached to every
@@ -44,6 +45,26 @@ func (d *AssetDownloader) SetAuthHeaders(h map[string]string) {
 	d.mu.Lock()
 	d.authHeaders = m
 	d.mu.Unlock()
+}
+
+// SetForce controls whether existing on-disk assets are re-downloaded.
+// When false (default), non-empty destination files are skipped before any
+// HTTP request. When true, every asset is fetched and overwritten.
+func (d *AssetDownloader) SetForce(force bool) {
+	d.mu.Lock()
+	d.force = force
+	d.mu.Unlock()
+}
+
+func (d *AssetDownloader) shouldSkip(path string) bool {
+	d.mu.Lock()
+	force := d.force
+	d.mu.Unlock()
+	if force {
+		return false
+	}
+	fi, err := os.Stat(path)
+	return err == nil && fi.Size() > 0
 }
 
 // get issues an authenticated GET, attaching any configured auth headers.
@@ -77,7 +98,71 @@ func NewAssetDownloader(log logging.Sugar) *AssetDownloader {
 	}
 }
 
+// urlPathExt returns the file extension of the URL path (ignoring query/fragment).
+func urlPathExt(rawURL string) string {
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return filepath.Ext(rawURL)
+	}
+	return filepath.Ext(parsed.Path)
+}
+
+// existingByHashPrefix finds a non-empty file in destDir whose name starts with
+// the 8-byte hex hash prefix (e.g. "a1b2c3d4.*"). Used to skip extensionless
+// Downloads before the GET when the Content-Type-derived ext is unknown.
+func (d *AssetDownloader) existingByHashPrefix(destDir, hashPrefix string) (string, bool) {
+	matches, err := filepath.Glob(filepath.Join(destDir, hashPrefix+".*"))
+	if err != nil || len(matches) == 0 {
+		return "", false
+	}
+	var found []string
+	for _, m := range matches {
+		fi, err := os.Stat(m)
+		if err == nil && fi.Size() > 0 {
+			found = append(found, m)
+		}
+	}
+	if len(found) == 0 {
+		return "", false
+	}
+	if len(found) > 1 && d.log.Enabled() {
+		d.log.Warnw("multiple existing assets for hash prefix; using first",
+			"prefix", hashPrefix,
+			"matches", found)
+	}
+	return found[0], true
+}
+
 func (d *AssetDownloader) Download(destDir, rawURL string) (string, error) {
+	hash := sha256.Sum256([]byte(rawURL))
+	hashPrefix := fmt.Sprintf("%x", hash[:8])
+	ext := urlPathExt(rawURL)
+
+	if ext != "" {
+		destPath := filepath.Join(destDir, hashPrefix+ext)
+		if d.shouldSkip(destPath) {
+			if d.log.Enabled() {
+				d.log.Debugw("asset already exists, skipping download",
+					"url", rawURL,
+					"path", destPath)
+			}
+			return destPath, nil
+		}
+	} else if path, ok := d.existingByHashPrefix(destDir, hashPrefix); ok {
+		// existingByHashPrefix only returns non-empty files; still honor --force.
+		d.mu.Lock()
+		force := d.force
+		d.mu.Unlock()
+		if !force {
+			if d.log.Enabled() {
+				d.log.Debugw("asset already exists, skipping download",
+					"url", rawURL,
+					"path", path)
+			}
+			return path, nil
+		}
+	}
+
 	var lastErr error
 
 	for attempt := 0; attempt <= d.maxRetries; attempt++ {
@@ -124,26 +209,24 @@ func (d *AssetDownloader) Download(destDir, rawURL string) (string, error) {
 			return "", fmt.Errorf("download %s: got an HTML page (not the asset) — session likely missing or expired", rawURL)
 		}
 
-		ext := filepath.Ext(rawURL)
-		if ext == "" {
+		fileExt := ext
+		if fileExt == "" {
 			contentType := resp.Header.Get("Content-Type")
 			switch {
 			case strings.Contains(contentType, "image/png"):
-				ext = ".png"
+				fileExt = ".png"
 			case strings.Contains(contentType, "image/jpeg"):
-				ext = ".jpg"
+				fileExt = ".jpg"
 			case strings.Contains(contentType, "image/gif"):
-				ext = ".gif"
+				fileExt = ".gif"
 			case strings.Contains(contentType, "image/webp"):
-				ext = ".webp"
+				fileExt = ".webp"
 			default:
-				ext = ".bin"
+				fileExt = ".bin"
 			}
 		}
 
-		hash := sha256.Sum256([]byte(rawURL))
-		filename := fmt.Sprintf("%x%s", hash[:8], ext)
-		destPath := filepath.Join(destDir, filename)
+		destPath := filepath.Join(destDir, hashPrefix+fileExt)
 
 		if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
 			lastErr = fmt.Errorf("create asset dir: %w", err)
@@ -152,16 +235,6 @@ func (d *AssetDownloader) Download(destDir, rawURL string) (string, error) {
 					"path", filepath.Dir(destPath), "error", err)
 			}
 			continue
-		}
-
-		if _, err := os.Stat(destPath); err == nil {
-			resp.Body.Close()
-			if d.log.Enabled() {
-				d.log.Debugw("asset already exists, skipping download",
-					"url", rawURL,
-					"path", destPath)
-			}
-			return destPath, nil
 		}
 
 		f, err := os.Create(destPath)
@@ -224,6 +297,15 @@ func (d *AssetDownloader) rateLimitWait() {
 // Download, the caller controls the filename — used by the CSF converter, whose
 // rules emit Markdown links to a known local path before download happens.
 func (d *AssetDownloader) DownloadAs(destPath, rawURL string) error {
+	if d.shouldSkip(destPath) {
+		if d.log.Enabled() {
+			d.log.Debugw("asset already exists, skipping download",
+				"url", rawURL,
+				"path", destPath)
+		}
+		return nil
+	}
+
 	var lastErr error
 	for attempt := 0; attempt <= d.maxRetries; attempt++ {
 		if attempt > 0 {

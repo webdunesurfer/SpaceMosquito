@@ -26,9 +26,9 @@ Detail lives in `dev/tasks/<task-id>.md` when needed.
 
 ## task-asset-skip-and-force
 - status: ready
-- goal: Skip already-downloaded crawl assets before the HTTP GET; add `crawl --force` to re-download.
-- done_when: Existing non-empty assets are not re-fetched (no GET / rate-limit wait); `--force` overwrites; unit tests cover skip/force/zero-byte.
-- notes: Detail in [`tasks/task-asset-skip-and-force.md`](tasks/task-asset-skip-and-force.md). Post-0.1.0.
+- goal: Skip already-downloaded crawl assets before the HTTP GET; `crawl --force` re-scrapes all pages and re-downloads all assets.
+- done_when: Existing non-empty assets are not re-fetched (no GET / rate-limit wait); `--force` bypasses page version skip and asset skip; unit tests cover skip/force/zero-byte/page-force.
+- notes: **Implemented** (awaiting release). Detail in [`tasks/task-asset-skip-and-force.md`](tasks/task-asset-skip-and-force.md).
 
 ## task-page-dir-collision
 - status: ready

@@ -61,6 +61,15 @@ type Scraper struct {
 	log     logging.Sugar
 	stats   CrawlStats
 	mu      sync.Mutex
+	force   bool
+}
+
+// SetForce makes the next crawl re-scrape every page, ignoring the unchanged
+// version skip. Pair with AssetDownloader.SetForce so assets are re-fetched too.
+func (s *Scraper) SetForce(force bool) {
+	s.mu.Lock()
+	s.force = force
+	s.mu.Unlock()
 }
 
 // New creates a new Scraper with the given config and dependencies.
@@ -176,6 +185,15 @@ func (s *Scraper) CloseBrowser() {
 	}
 }
 
+// skipUnchangedPage reports whether a discovered page should be skipped because
+// the catalog already has the same or newer version. Force crawls never skip.
+func skipUnchangedPage(force bool, discoveredVersion int, existing *store.Page, err error) bool {
+	if force || discoveredVersion <= 0 || err != nil || existing == nil {
+		return false
+	}
+	return existing.Version >= discoveredVersion
+}
+
 // CrawlSpace performs a full crawl of a Confluence space.
 func (s *Scraper) CrawlSpace(spaceURL string, sess *session.Session) error {
 	crawlStart := time.Now()
@@ -224,10 +242,13 @@ func (s *Scraper) CrawlSpace(spaceURL string, sess *session.Session) error {
 			"version", pg.Version,
 			"title", pg.Title)
 
-		// Check if page needs scraping
+		// Check if page needs scraping (bypassed when crawl --force)
+		s.mu.Lock()
+		force := s.force
+		s.mu.Unlock()
 		if pg.Version > 0 {
 			existingPage, err := s.db.GetPage(s.ctx, pageInfo.SpaceKey, pg.ConfluenceID)
-			if err == nil && existingPage.Version >= pg.Version {
+			if skipUnchangedPage(force, pg.Version, existingPage, err) {
 				if s.log.Enabled() {
 					s.log.Infow("skipping unchanged page", "page_id", pg.ConfluenceID, "version", pg.Version)
 				}

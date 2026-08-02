@@ -1,9 +1,12 @@
 package storage
 
 import (
+	"crypto/sha256"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -81,19 +84,23 @@ func TestAssetDownloader_Download_success(t *testing.T) {
 }
 
 func TestAssetDownloader_Download_skipsExisting(t *testing.T) {
-	body := []byte("cached")
+	hits := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write(body)
+		hits++
+		w.Write([]byte("cached"))
 	}))
 	defer srv.Close()
 
 	d := testDownloader(srv.Client())
 	dest := t.TempDir()
-	url := srv.URL + "/asset"
+	url := srv.URL + "/asset.bin"
 
 	path1, err := d.Download(dest, url)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if hits != 1 {
+		t.Fatalf("hits after first download = %d, want 1", hits)
 	}
 
 	path2, err := d.Download(dest, url)
@@ -102,6 +109,9 @@ func TestAssetDownloader_Download_skipsExisting(t *testing.T) {
 	}
 	if path1 != path2 {
 		t.Errorf("paths differ: %q vs %q", path1, path2)
+	}
+	if hits != 1 {
+		t.Errorf("second call should not hit server; hits = %d", hits)
 	}
 }
 
@@ -195,5 +205,155 @@ func TestAssetDownloader_Download_contentTypeExtension(t *testing.T) {
 	}
 	if !strings.HasSuffix(path, ".jpg") {
 		t.Errorf("path %q should have .jpg extension", path)
+	}
+}
+
+func TestAssetDownloader_DownloadAs_skipsExisting(t *testing.T) {
+	hits := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits++
+		w.Write([]byte("new-bytes"))
+	}))
+	defer srv.Close()
+
+	d := testDownloader(srv.Client())
+	dest := filepath.Join(t.TempDir(), "assets", "images", "pic.png")
+	if err := os.MkdirAll(filepath.Dir(dest), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dest, []byte("cached"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := d.DownloadAs(dest, srv.URL+"/pic.png"); err != nil {
+		t.Fatal(err)
+	}
+	if hits != 0 {
+		t.Errorf("expected no HTTP request, hits=%d", hits)
+	}
+	got, _ := os.ReadFile(dest)
+	if string(got) != "cached" {
+		t.Errorf("file was overwritten: %q", got)
+	}
+}
+
+func TestAssetDownloader_DownloadAs_redownloadsZeroByte(t *testing.T) {
+	hits := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits++
+		w.Write([]byte("fresh"))
+	}))
+	defer srv.Close()
+
+	d := testDownloader(srv.Client())
+	dest := filepath.Join(t.TempDir(), "empty.png")
+	if err := os.WriteFile(dest, nil, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := d.DownloadAs(dest, srv.URL+"/empty.png"); err != nil {
+		t.Fatal(err)
+	}
+	if hits != 1 {
+		t.Errorf("hits=%d, want 1", hits)
+	}
+	got, _ := os.ReadFile(dest)
+	if string(got) != "fresh" {
+		t.Errorf("got %q, want fresh", got)
+	}
+}
+
+func TestAssetDownloader_DownloadAs_forceOverwrites(t *testing.T) {
+	hits := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits++
+		w.Write([]byte("forced"))
+	}))
+	defer srv.Close()
+
+	d := testDownloader(srv.Client())
+	d.SetForce(true)
+	dest := filepath.Join(t.TempDir(), "pic.png")
+	if err := os.WriteFile(dest, []byte("old"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := d.DownloadAs(dest, srv.URL+"/pic.png"); err != nil {
+		t.Fatal(err)
+	}
+	if hits != 1 {
+		t.Errorf("hits=%d, want 1", hits)
+	}
+	got, _ := os.ReadFile(dest)
+	if string(got) != "forced" {
+		t.Errorf("got %q, want forced", got)
+	}
+}
+
+func TestAssetDownloader_Download_skipsExtensionlessViaGlob(t *testing.T) {
+	hits := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits++
+		w.Header().Set("Content-Type", "image/jpeg")
+		w.Write([]byte("jpeg"))
+	}))
+	defer srv.Close()
+
+	d := testDownloader(srv.Client())
+	dest := t.TempDir()
+	rawURL := srv.URL + "/noext"
+	hash := sha256.Sum256([]byte(rawURL))
+	existing := filepath.Join(dest, fmt.Sprintf("%x.jpg", hash[:8]))
+	if err := os.WriteFile(existing, []byte("cached"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	path, err := d.Download(dest, rawURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if path != existing {
+		t.Errorf("path=%q, want %q", path, existing)
+	}
+	if hits != 0 {
+		t.Errorf("expected no HTTP request, hits=%d", hits)
+	}
+}
+
+func TestAssetDownloader_Download_queryStringExt(t *testing.T) {
+	hits := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits++
+		w.Write([]byte("png"))
+	}))
+	defer srv.Close()
+
+	d := testDownloader(srv.Client())
+	dest := t.TempDir()
+	rawURL := srv.URL + "/img.png?width=100"
+	hash := sha256.Sum256([]byte(rawURL))
+	existing := filepath.Join(dest, fmt.Sprintf("%x.png", hash[:8]))
+	if err := os.WriteFile(existing, []byte("cached"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	path, err := d.Download(dest, rawURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if path != existing {
+		t.Errorf("path=%q, want %q", path, existing)
+	}
+	if hits != 0 {
+		t.Errorf("expected skip via path ext, hits=%d", hits)
+	}
+}
+
+func TestURLPathExt(t *testing.T) {
+	if got := urlPathExt("https://x/a/b.png?w=1"); got != ".png" {
+		t.Errorf("got %q, want .png", got)
+	}
+	if got := urlPathExt("https://x/a/noext"); got != "" {
+		t.Errorf("got %q, want empty", got)
 	}
 }

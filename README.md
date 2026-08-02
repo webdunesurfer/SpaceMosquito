@@ -79,6 +79,9 @@ Open `chrome://extensions` → Developer mode → **Load unpacked** → select `
 
 ```sh
 ./spacemosquito crawl "https://your-domain.atlassian.net/wiki/spaces/SPACEKEY"
+
+# Full refresh: re-scrape every page and re-download every asset
+./spacemosquito crawl --force "https://your-domain.atlassian.net/wiki/spaces/SPACEKEY"
 ```
 
 Or trigger a crawl via the extension or MCP at `http://localhost:8081/mcp`.
@@ -120,7 +123,7 @@ curl -s "http://localhost:8081/api/pages/42?space_key=TST"
 | `init` | Create data directory, config, migrations |
 | `bootstrap import-saved` | Rebuild SQLite catalog from existing `saved/` files |
 | `serve` | Start API + MCP server |
-| `crawl <url>` | Crawl a Confluence space |
+| `crawl [--force] <url>` | Crawl a Confluence space (`--force` re-scrapes all pages and assets) |
 | `search <query>` | Full-text search (`--limit N`; multi-word AND) |
 | `get-page <id>` | Get page by Confluence ID (optional space key) |
 | `reindex` | Rebuild FTS indexes (`--content` regenerates Markdown from saved HTML) |
