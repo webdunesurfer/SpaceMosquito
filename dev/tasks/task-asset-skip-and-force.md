@@ -6,11 +6,11 @@ Asset downloading re-fetches files that are already on disk, and the one skip
 that exists doesn't actually save anything.
 
 - **`DownloadAs`** (the CSF path — all images and draw.io diagrams) has **no
-  skip at all** ([asset.go](../spacemosquito/internal/storage/asset.go)). Every
+  skip at all** ([asset.go](../../spacemosquito/internal/storage/asset.go)). Every
   crawl re-fetches and **overwrites** every asset via `os.Create` (truncate).
 - **`Download`** (legacy `<img>`/`<a href>` path) *does* skip, but the
   `os.Stat` check runs **after** the HTTP GET and the ≥5s rate-limit wait
-  ([asset.go:157](../spacemosquito/internal/storage/asset.go#L157)) — so it only
+  ([asset.go:157](../../spacemosquito/internal/storage/asset.go#L157)) — so it only
   avoids the final disk write, not the network request or the wait.
 
 At ≥5s per asset (shared, serial rate limit), re-crawling a space with hundreds
@@ -29,7 +29,7 @@ Default behaviour becomes: existing file → skip; missing → download. `--forc
 
 ## Design
 
-### Downloader changes ([internal/storage/asset.go](../spacemosquito/internal/storage/asset.go))
+### Downloader changes ([internal/storage/asset.go](../../spacemosquito/internal/storage/asset.go))
 
 - Add a `force bool` field + `SetForce(bool)` on `AssetDownloader` (set once per
   crawl; shared instance, guard with the existing mutex).
@@ -65,12 +65,12 @@ Default behaviour becomes: existing file → skip; missing → download. `--forc
   prevents creating new ones; `--force` clears old ones. Note this in `--force`
   help text.
 
-### CLI wiring ([internal/cliapp/run.go](../spacemosquito/internal/cliapp/run.go))
+### CLI wiring ([internal/cliapp/run.go](../../spacemosquito/internal/cliapp/run.go))
 
-- `crawl` currently takes only `<url>` ([run.go:96](../spacemosquito/internal/cliapp/run.go#L96),
-  [runCrawl](../spacemosquito/internal/cliapp/run.go#L401)). Add a `flag.FlagSet`
+- `crawl` currently takes only `<url>` ([run.go:96](../../spacemosquito/internal/cliapp/run.go#L96),
+  [runCrawl](../../spacemosquito/internal/cliapp/run.go#L401)). Add a `flag.FlagSet`
   parsing `--force` (like `bootstrap import-saved` already does).
-- After building the downloader ([run.go:438](../spacemosquito/internal/cliapp/run.go#L438)),
+- After building the downloader ([run.go:438](../../spacemosquito/internal/cliapp/run.go#L438)),
   call `assetDownloader.SetForce(force)` before `CrawlSpace`.
 - Same wiring for the server/API-triggered and cron crawl paths if we want
   `--force` there (out of scope for v1 — CLI only; see Open Questions).

@@ -3,7 +3,7 @@
 ## Problem
 
 On-disk page directories are named from the **sanitized, truncated title**
-([writer.go `MakePageDir`](../spacemosquito/internal/storage/writer.go#L46)):
+([writer.go `MakePageDir`](../../spacemosquito/internal/storage/writer.go#L46)):
 
 ```
 {basePath}/{spaceKey}/{sanitizeFilename(title)}
@@ -55,17 +55,17 @@ Alternatives considered:
 ### Code changes
 
 - **`MakePageDir(spaceKey, pageTitle string, confluenceID int)`**
-  ([writer.go:46](../spacemosquito/internal/storage/writer.go#L46)) — new param;
+  ([writer.go:46](../../spacemosquito/internal/storage/writer.go#L46)) — new param;
   build the suffixed name. Truncate title to 100, then append `-{id}`.
 - **`sanitizeFilename`** — keep as-is (still folds unsafe chars); the ID suffix
   is added by `MakePageDir`.
 - **Callers:**
-  - `savePageMetadata` ([scraper.go:393](../spacemosquito/internal/scraper/scraper.go#L393))
+  - `savePageMetadata` ([scraper.go:393](../../spacemosquito/internal/scraper/scraper.go#L393))
     — pass `pg.ConfluenceID`. (Primary path.)
-  - `runSave` ([run.go:362](../spacemosquito/internal/cliapp/run.go#L362)) — a
+  - `runSave` ([run.go:362](../../spacemosquito/internal/cliapp/run.go#L362)) — a
     stub with placeholder title/space and no ID; pass `0` or leave clearly
     marked as a dev stub.
-- **`GetSavedPath`** ([writer.go:148](../spacemosquito/internal/storage/writer.go#L148))
+- **`GetSavedPath`** ([writer.go:148](../../spacemosquito/internal/storage/writer.go#L148))
   — production-dead (only referenced by a test). Either update it to the new
   scheme (needs the ID) or delete it + its test. *Recommend delete.*
 
@@ -75,7 +75,7 @@ Alternatives considered:
   of the schema needed.
 - **`bootstrap import-saved`** — derives `fileDir` by walking existing
   `metadata.json` files (`filepath.Dir(metaPath)`,
-  [import_saved.go:195](../spacemosquito/internal/bootstrap/import_saved.go#L195)),
+  [import_saved.go:195](../../spacemosquito/internal/bootstrap/import_saved.go#L195)),
   so it reads whatever dir names exist (old or new). No change.
 - **`reindex --content`** — resolves via the stored `file_dir`, so existing
   pages keep working without re-crawl.
