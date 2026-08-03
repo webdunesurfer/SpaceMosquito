@@ -11,6 +11,9 @@ OUT_DIR="${2:-$REPO_ROOT/dist}"
 MANIFEST_VERSION="${VERSION#v}"
 
 mkdir -p "$OUT_DIR"
+# Absolute path: zip runs from <ext>/dist, so a relative OUT_DIR like "dist"
+# would resolve to <ext>/dist/dist/... and fail.
+OUT_DIR="$(cd "$OUT_DIR" && pwd)"
 
 stamp_manifest() {
   local path="$1"
