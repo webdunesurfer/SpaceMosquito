@@ -16,16 +16,27 @@ git tag v0.1.0          # use the version from CHANGELOG
 git push origin v0.1.0
 ```
 
-Watch **Actions → Release**. It tests, builds four binaries, uploads them + `SHA256SUMS`, and creates the GitHub Release for that tag.
+Watch **Actions → Release**. It tests, builds four binaries + Firefox/Chrome
+extension zips, uploads them + `SHA256SUMS`, and creates the GitHub Release for
+that tag.
 
 Alternative: GitHub **Releases → Draft a new release → create tag `v0.1.0` → Publish**. That also pushes the tag and triggers the same workflow (assets attach to the release).
 
 ## After
 
-1. Confirm assets on the release page.
-2. Set [`STATUS.md`](STATUS.md) next focus (usually next backlog item).
+1. Confirm assets on the release page:
+   - `spacemosquito-{darwin,linux,windows}-*` binaries
+   - `spacemosquito-firefox-v*.zip` and `spacemosquito-chrome-v*.zip`
+   - `SHA256SUMS` covering all of the above
+2. Spot-check: unzip an extension zip — `manifest.json` must be at the archive root.
+3. Set [`STATUS.md`](STATUS.md) next focus (usually next backlog item).
 
-## Local binaries only (no GitHub)
+Install docs: [`docs/INSTALL.md`](../docs/INSTALL.md) (release) /
+[`docs/INSTALL-FROM-SOURCE.md`](../docs/INSTALL-FROM-SOURCE.md) (from clone).
+
+## Local release artifacts (no GitHub)
+
+Produces the same binary + extension zip layout as CI:
 
 ```sh
 cd spacemosquito

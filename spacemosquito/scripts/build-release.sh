@@ -2,6 +2,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+REPO_ROOT="$(cd "$ROOT/.." && pwd)"
 cd "$ROOT"
 
 VERSION="${1:-dev}"
@@ -27,6 +28,8 @@ for entry in "${targets[@]}"; do
   GOOS="$goos" GOARCH="$goarch" CGO_ENABLED=0 \
     go build -ldflags "$LDFLAGS" -o "$OUT_DIR/$name" ./cmd/spacemosquito
 done
+
+"$REPO_ROOT/scripts/build-extension-zips.sh" "$VERSION" "$OUT_DIR"
 
 (
   cd "$OUT_DIR"

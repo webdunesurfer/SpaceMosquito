@@ -1,7 +1,11 @@
 package scraper
 
 import (
+	"context"
+	"errors"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/vkh/spacemosquito/internal/config"
 	"github.com/vkh/spacemosquito/pkg/logging"
@@ -80,6 +84,95 @@ func TestCrawlJobManager_CancelJob(t *testing.T) {
 	}
 }
 
+func TestCrawlJobManager_CancelJob_cancelsRunningContext(t *testing.T) {
+	m := testJobManager(t)
+	job, _ := m.CreateJob("https://a")
+
+	started := make(chan struct{})
+	done := make(chan error, 1)
+
+	go func() {
+		done <- m.runJob(context.Background(), job.ID, func(ctx context.Context, j *CrawlJob) error {
+			close(started)
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(5 * time.Second):
+				return errors.New("timed out waiting for cancel")
+			}
+		})
+	}()
+
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("run did not start")
+	}
+
+	if err := m.CancelJob(job.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("run err = %v, want context.Canceled", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("run did not exit after cancel")
+	}
+
+	got, _ := m.GetJob(job.ID)
+	if got.Status != JobStatusCancelled {
+		t.Fatalf("status = %q, want cancelled", got.Status)
+	}
+}
+
+func TestCrawlJobManager_RunJob_doesNotOverwriteCancelled(t *testing.T) {
+	m := testJobManager(t)
+	job, _ := m.CreateJob("https://a")
+
+	var once sync.Once
+	cancelGate := make(chan struct{})
+
+	err := m.runJob(context.Background(), job.ID, func(ctx context.Context, j *CrawlJob) error {
+		once.Do(func() {
+			if cerr := m.CancelJob(j.ID); cerr != nil {
+				t.Errorf("CancelJob: %v", cerr)
+			}
+			close(cancelGate)
+		})
+		<-cancelGate
+		// Simulate a normal successful finish after cancel was requested —
+		// finishJob must still leave status as cancelled.
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("runJob err = %v", err)
+	}
+
+	got, _ := m.GetJob(job.ID)
+	if got.Status != JobStatusCancelled {
+		t.Fatalf("status = %q, want cancelled (must not overwrite to completed)", got.Status)
+	}
+}
+
+func TestCrawlJobManager_RunJob_contextCanceledSetsCancelled(t *testing.T) {
+	m := testJobManager(t)
+	job, _ := m.CreateJob("https://a")
+
+	err := m.runJob(context.Background(), job.ID, func(ctx context.Context, j *CrawlJob) error {
+		return context.Canceled
+	})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v", err)
+	}
+	got, _ := m.GetJob(job.ID)
+	if got.Status != JobStatusCancelled {
+		t.Fatalf("status = %q, want cancelled", got.Status)
+	}
+}
+
 func TestCrawlJobManager_Cleanup(t *testing.T) {
 	m := testJobManager(t)
 	done, _ := m.CreateJob("https://done")
@@ -108,5 +201,21 @@ func TestCrawlJobManager_RunJob_notPending(t *testing.T) {
 	err := m.RunJob(t.Context(), job.ID)
 	if err == nil {
 		t.Fatal("expected error when job is not pending")
+	}
+}
+
+func TestCrawlJobManager_RunJob_alreadyCancelled(t *testing.T) {
+	m := testJobManager(t)
+	job, _ := m.CreateJob("https://a")
+	if err := m.CancelJob(job.ID); err != nil {
+		t.Fatal(err)
+	}
+	err := m.RunJob(context.Background(), job.ID)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, want context.Canceled", err)
+	}
+	got, _ := m.GetJob(job.ID)
+	if got.Status != JobStatusCancelled {
+		t.Fatalf("status = %q", got.Status)
 	}
 }

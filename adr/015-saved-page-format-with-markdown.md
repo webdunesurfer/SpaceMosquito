@@ -39,4 +39,4 @@
   - Prior HTML-only ADR-006 is removed; this ADR is the on-disk contract.
   - Search and MCP consumers should treat `content` as Markdown (plain text with lightweight markup), not HTML.
 
-- **Related**: ADR-010, `DEVELOPMENT.md` (page content / reindex)
+- **Related**: ADR-010, [`docs/DEVELOPMENT.md`](../docs/DEVELOPMENT.md) (page content / reindex)

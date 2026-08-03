@@ -88,9 +88,8 @@ export class ApiClient {
   }
 
   async cancelCrawl(jobId: string): Promise<void> {
-    await this.request('/api/crawl/cancel', {
+    await this.request(`/api/crawl/cancel?id=${encodeURIComponent(jobId)}`, {
       method: 'POST',
-      body: JSON.stringify({ job_id: jobId }),
     });
   }
 

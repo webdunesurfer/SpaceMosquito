@@ -69,8 +69,36 @@ jobs:
           name: spacemosquito-${{ matrix.goos }}-${{ matrix.goarch }}
           path: dist/spacemosquito-*
 
+  build-extensions:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: |
+            firefox-extension/package-lock.json
+            chrome-extension/package-lock.json
+
+      - name: Build extension zips
+        env:
+          VERSION: ${{ github.ref_name }}
+        run: |
+          chmod +x scripts/build-extension-zips.sh
+          ./scripts/build-extension-zips.sh "$VERSION" dist
+
+      - name: Upload extension artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: spacemosquito-extensions
+          path: |
+            dist/spacemosquito-firefox-*.zip
+            dist/spacemosquito-chrome-*.zip
+
   release:
-    needs: build
+    needs: [build, build-extensions]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

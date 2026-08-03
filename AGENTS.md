@@ -1,3 +1,3 @@
 # Agents
 
-Follow `DEVELOPMENT.md`
+Follow [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md)

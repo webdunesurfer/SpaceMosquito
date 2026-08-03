@@ -220,6 +220,44 @@ func TestCrawlHandler_validation(t *testing.T) {
 		}
 	})
 
+	t.Run("cancel body alone does not work", func(t *testing.T) {
+		job, err := mgr.CreateJob("https://example.atlassian.net/wiki/spaces/X")
+		if err != nil {
+			t.Fatal(err)
+		}
+		body := `{"job_id":"` + job.ID + `"}`
+		req := httptest.NewRequest(http.MethodPost, "/api/crawl/cancel", strings.NewReader(body))
+		rec := httptest.NewRecorder()
+		h.Cancel(rec, req)
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("status = %d, want 400 (query id required)", rec.Code)
+		}
+		got, _ := mgr.GetJob(job.ID)
+		if got.Status != scraper.JobStatusPending {
+			t.Errorf("status = %q, want still pending", got.Status)
+		}
+	})
+
+	t.Run("cancel with query id", func(t *testing.T) {
+		job, err := mgr.CreateJob("https://example.atlassian.net/wiki/spaces/Y")
+		if err != nil {
+			t.Fatal(err)
+		}
+		req := httptest.NewRequest(http.MethodPost, "/api/crawl/cancel?id="+job.ID, nil)
+		rec := httptest.NewRecorder()
+		h.Cancel(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+		}
+		got, err := mgr.GetJob(job.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.Status != scraper.JobStatusCancelled {
+			t.Errorf("status = %q, want cancelled", got.Status)
+		}
+	})
+
 	t.Run("create method not allowed", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/api/crawl", nil)
 		rec := httptest.NewRecorder()

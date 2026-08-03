@@ -82,4 +82,4 @@ curl -s "http://localhost:8081/api/pages/42?space_key=TST"
 
 ## Coming from Docker
 
-Docker / Postgres packaging is removed. See [README.md](README.md#coming-from-docker).
+Docker / Postgres packaging is removed. See [README.md](../README.md#coming-from-docker).

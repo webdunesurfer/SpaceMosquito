@@ -3,7 +3,7 @@
 build:
 	cd spacemosquito && go build -o spacemosquito ./cmd/spacemosquito
 
-run: build
+serve: build
 	cd spacemosquito && ./spacemosquito serve
 
 test:

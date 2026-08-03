@@ -2,6 +2,7 @@ package scraper
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -50,6 +51,7 @@ type JobSnapshot struct {
 
 type CrawlJobManager struct {
 	jobs    map[string]*CrawlJob
+	cancels map[string]context.CancelFunc
 	mu      sync.RWMutex
 	log     logging.Sugar
 	cfg     *config.Config
@@ -67,6 +69,7 @@ type CrawlRunner struct {
 func NewJobManager(cfg *config.Config, database store.Store, store *session.Store, storageWriter *storage.Writer, assetDownloader *storage.AssetDownloader, log logging.Sugar) *CrawlJobManager {
 	return &CrawlJobManager{
 		jobs:    make(map[string]*CrawlJob),
+		cancels: make(map[string]context.CancelFunc),
 		log:     log,
 		cfg:     cfg,
 		db:      database,
@@ -139,19 +142,27 @@ func (m *CrawlJobManager) ListJobs() *JobSnapshot {
 
 func (m *CrawlJobManager) CancelJob(jobID string) error {
 	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	job, exists := m.jobs[jobID]
 	if !exists {
+		m.mu.Unlock()
 		return fmt.Errorf("job not found: %s", jobID)
 	}
 
 	if job.Status != JobStatusPending && job.Status != JobStatusRunning {
+		m.mu.Unlock()
 		return fmt.Errorf("cannot cancel job with status: %s", job.Status)
 	}
 
 	job.Status = JobStatusCancelled
 	job.UpdatedAt = time.Now()
+	now := time.Now()
+	job.CompletedAt = &now
+	cancel := m.cancels[jobID]
+	m.mu.Unlock()
+
+	if cancel != nil {
+		cancel()
+	}
 
 	if m.log.Enabled() {
 		m.log.Infow("crawl job cancelled", "job_id", jobID)
@@ -160,7 +171,14 @@ func (m *CrawlJobManager) CancelJob(jobID string) error {
 	return nil
 }
 
+// RunJob starts a pending crawl. parent may be context.Background(); a
+// child context is cancelled by CancelJob so the page loop can stop between pages.
 func (m *CrawlJobManager) RunJob(ctx context.Context, jobID string) error {
+	return m.runJob(ctx, jobID, nil)
+}
+
+// runJob is the testable entrypoint. If run is nil, the real CrawlRunner is used.
+func (m *CrawlJobManager) runJob(ctx context.Context, jobID string, run func(context.Context, *CrawlJob) error) error {
 	m.mu.Lock()
 	job, exists := m.jobs[jobID]
 	if !exists {
@@ -168,27 +186,35 @@ func (m *CrawlJobManager) RunJob(ctx context.Context, jobID string) error {
 		return fmt.Errorf("job not found: %s", jobID)
 	}
 
+	if job.Status == JobStatusCancelled {
+		m.mu.Unlock()
+		return context.Canceled
+	}
+
 	if job.Status != JobStatusPending {
 		m.mu.Unlock()
 		return fmt.Errorf("job is not pending: %s", job.Status)
 	}
 
+	jobCtx, cancel := context.WithCancel(ctx)
 	job.Status = JobStatusRunning
-	job.StartedAt = &time.Time{}
 	now := time.Now()
 	job.StartedAt = &now
 	job.UpdatedAt = now
+	m.cancels[jobID] = cancel
 	m.mu.Unlock()
+
+	defer func() {
+		cancel()
+		m.mu.Lock()
+		delete(m.cancels, jobID)
+		m.mu.Unlock()
+	}()
 
 	if m.log.Enabled() {
 		m.log.Infow("crawl job started",
 			"job_id", jobID,
 			"space_url", job.SpaceURL)
-	}
-
-	runner := &CrawlRunner{
-		manager: m,
-		log:     m.log,
 	}
 
 	defer func() {
@@ -201,26 +227,31 @@ func (m *CrawlJobManager) RunJob(ctx context.Context, jobID string) error {
 		}
 	}()
 
-	err := runner.Run(ctx, job)
-
-	m.mu.Lock()
-	job.UpdatedAt = time.Now()
-	if err != nil {
-		job.Status = JobStatusFailed
-		job.Error = err.Error()
-	} else {
-		job.Status = JobStatusCompleted
-		completedTime := time.Now()
-		job.CompletedAt = &completedTime
+	if run == nil {
+		run = func(c context.Context, j *CrawlJob) error {
+			runner := &CrawlRunner{manager: m, log: m.log}
+			return runner.Run(c, j)
+		}
 	}
-	m.mu.Unlock()
+
+	err := run(jobCtx, job)
+	m.finishJob(job, err)
 
 	if m.log.Enabled() {
-		if err != nil {
+		m.mu.RLock()
+		status := job.Status
+		m.mu.RUnlock()
+		switch status {
+		case JobStatusCancelled:
+			m.log.Infow("crawl job cancelled",
+				"job_id", jobID,
+				"completed", job.Completed,
+				"failed", job.Failed)
+		case JobStatusFailed:
 			m.log.Errorw("crawl job failed",
 				"job_id", jobID,
 				"error", err)
-		} else {
+		default:
 			m.log.Infow("crawl job completed",
 				"job_id", jobID,
 				"completed", job.Completed,
@@ -229,6 +260,31 @@ func (m *CrawlJobManager) RunJob(ctx context.Context, jobID string) error {
 	}
 
 	return err
+}
+
+func (m *CrawlJobManager) finishJob(job *CrawlJob, err error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	job.UpdatedAt = time.Now()
+	if job.Status == JobStatusCancelled {
+		return
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		job.Status = JobStatusCancelled
+		now := time.Now()
+		job.CompletedAt = &now
+		job.Error = ""
+		return
+	}
+	if err != nil {
+		job.Status = JobStatusFailed
+		job.Error = err.Error()
+		return
+	}
+	job.Status = JobStatusCompleted
+	now := time.Now()
+	job.CompletedAt = &now
 }
 
 func (r *CrawlRunner) Run(ctx context.Context, job *CrawlJob) error {
@@ -253,6 +309,12 @@ func (r *CrawlRunner) Run(ctx context.Context, job *CrawlJob) error {
 	sess, err := r.manager.store.Load(encKey)
 	if err != nil {
 		return fmt.Errorf("load session: %w", err)
+	}
+
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
 	}
 
 	// Discover and crawl
@@ -379,6 +441,7 @@ func (m *CrawlJobManager) Cleanup() {
 	for id, job := range m.jobs {
 		if job.Status == JobStatusCompleted || job.Status == JobStatusFailed || job.Status == JobStatusCancelled {
 			delete(m.jobs, id)
+			delete(m.cancels, id)
 		}
 	}
 

@@ -317,7 +317,11 @@ function updateCrawlProgress(job: CrawlJob) {
 (document.getElementById('btn-cancel-crawl') as HTMLButtonElement)?.addEventListener('click', async () => {
   if (!activeJobId) return;
   try {
-    await browser.runtime.sendMessage({ type: 'cancel-crawl', jobId: activeJobId });
+    const result: any = await browser.runtime.sendMessage({ type: 'cancel-crawl', jobId: activeJobId });
+    if (!result?.success) {
+      alert('Cancel failed: ' + (result?.error || 'unknown error'));
+      return;
+    }
     await browser.storage.local.remove('active_job_id');
     (document.getElementById('crawl-progress') as HTMLDivElement)?.classList.add('hidden');
   } catch (error) {

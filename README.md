@@ -6,33 +6,10 @@ Confluence space scraper, indexer, and search engine. Uses the Confluence REST A
 
 All state lives under `~/.spacemosquito/` (or a portable `--data-dir`).
 
-## Requirements
-
-- Go 1.25+ (to build from source)
-- Npx and npm for building extensions
-- Firefox or Chrome (for the Pirate Mosquito extension)
-
 ## Install
 
-### From source
-
-```sh
-git clone https://github.com/webdunesurfer/SpaceMosquito.git
-cd SpaceMosquito
-make build
-# binary: spacemosquito/spacemosquito
-```
-
-### Pre-built release
-
-1. Download the binary for your platform from [GitHub Releases](https://github.com/webdunesurfer/SpaceMosquito/releases).
-2. Verify the checksum against `SHA256SUMS` in the release assets.
-3. Install onto your `PATH` (example for macOS/Linux):
-
-```sh
-chmod +x spacemosquito-darwin-arm64
-sudo mv spacemosquito-darwin-arm64 /usr/local/bin/spacemosquito
-```
+- **[Install](docs/INSTALL.md)** — download binary + extension zips from GitHub Releases
+- **[Install from source](docs/INSTALL-FROM-SOURCE.md)** — build with Go and npm
 
 ## First run
 
@@ -56,24 +33,8 @@ SPACEMOSQUITO_DATA_DIR=./data ./spacemosquito serve
 ## Capture a Confluence session
 
 1. Start the server: `./spacemosquito serve`
-2. Load the Pirate Mosquito extension (see below).
+2. Load the Pirate Mosquito extension ([Install](docs/INSTALL.md#browser-extension) or [from source](docs/INSTALL-FROM-SOURCE.md#browser-extensions)).
 3. Open Confluence and use the extension to send cookies to `http://localhost:8081`.
-
-### Firefox
-
-```sh
-cd firefox-extension && npm install && npm run build
-```
-
-Open `about:debugging` → **This Firefox** → **Load Temporary Add-on…** → select `firefox-extension/dist/manifest.json`.
-
-### Chrome
-
-```sh
-cd chrome-extension && npm install && npm run build
-```
-
-Open `chrome://extensions` → Developer mode → **Load unpacked** → select `chrome-extension/dist/`.
 
 ## Crawl a space
 
@@ -163,7 +124,7 @@ Import does **not** read PostgreSQL. If you only have a Postgres volume and no `
 
 ## Development
 
-See [DEVELOPMENT.md](DEVELOPMENT.md). Quick checks:
+See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md). Quick checks:
 
 ```sh
 make test
