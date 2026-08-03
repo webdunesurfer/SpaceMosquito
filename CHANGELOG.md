@@ -7,8 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-08-03
+
 ### Added
 - GitHub Releases and local `build-release.sh` publish Firefox/Chrome extension zips (`spacemosquito-firefox-*.zip`, `spacemosquito-chrome-*.zip`) alongside binaries. See [`docs/INSTALL.md`](docs/INSTALL.md).
+- Install guides split into [`docs/INSTALL.md`](docs/INSTALL.md) (release) and [`docs/INSTALL-FROM-SOURCE.md`](docs/INSTALL-FROM-SOURCE.md).
 
 ### Fixed
 - Crawl Cancel from the extension now stops `/api/crawl` jobs between pages and keeps status `cancelled`. Cancel uses `POST /api/crawl/cancel?id=` only (extensions updated; JSON body no longer accepted).

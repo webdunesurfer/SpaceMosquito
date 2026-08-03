@@ -23,14 +23,14 @@ Cross-platform release artifacts (binaries + extension zips, same layout as CI):
 
 ```sh
 cd spacemosquito
-./scripts/build-release.sh v0.1.0
+./scripts/build-release.sh v0.2.0
 ls dist/
 ```
 
 Extension zips only:
 
 ```sh
-./scripts/build-extension-zips.sh v0.1.0
+./scripts/build-extension-zips.sh v0.2.0
 ```
 
 ## Browser extensions

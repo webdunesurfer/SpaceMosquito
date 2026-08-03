@@ -24,29 +24,11 @@ Detail lives in `dev/tasks/<task-id>.md` when needed.
 
 ---
 
-## task-release-extension-zips
-- status: ready
-- goal: Attach built Firefox and Chrome extension zips to each GitHub Release (`v*` tag) alongside binaries; extend local `build-release.sh` the same way.
-- done_when: Release + `build-release.sh` produce `spacemosquito-firefox-*.zip` and `spacemosquito-chrome-*.zip` (contents at root, `npm ci`); checksums include them; RELEASE.md checklist updated.
-- notes: **Implemented** (awaiting release). Detail in [`tasks/task-release-extension-zips.md`](tasks/task-release-extension-zips.md).
-
-## task-crawl-cancel
-- status: ready
-- goal: Make extension Crawl Cancel actually stop the running job and keep status `cancelled`.
-- done_when: `POST /api/crawl/cancel?id=` stops `/api/crawl` jobs between pages; status stays cancelled; popup surfaces API failures; Go unit tests cover query-only API + cooperative cancel.
-- notes: **Implemented** (awaiting release). Detail in [`tasks/task-crawl-cancel.md`](tasks/task-crawl-cancel.md).
-
-## task-asset-skip-and-force
-- status: ready
-- goal: Skip already-downloaded crawl assets before the HTTP GET; `crawl --force` re-scrapes all pages and re-downloads all assets.
-- done_when: Existing non-empty assets are not re-fetched (no GET / rate-limit wait); `--force` bypasses page version skip and asset skip; unit tests cover skip/force/zero-byte/page-force.
-- notes: **Implemented** (awaiting release). Detail in [`tasks/task-asset-skip-and-force.md`](tasks/task-asset-skip-and-force.md).
-
 ## task-page-dir-collision
 - status: ready
 - goal: Make per-page `saved/` dirs unique by appending Confluence ID (`{title}-{id}`).
 - done_when: Truncation/char-fold collisions no longer overwrite on-disk files; existing `file_dir` rows still work; tests cover colliding titles.
-- notes: Detail in [`tasks/task-page-dir-collision.md`](tasks/task-page-dir-collision.md). Post-0.1.0; no auto-migration of old dirs in v1.
+- notes: Detail in [`tasks/task-page-dir-collision.md`](tasks/task-page-dir-collision.md). No auto-migration of old dirs in v1.
 
 ## task-validation-sso-fix
 - status: backlog

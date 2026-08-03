@@ -19,7 +19,7 @@ Release binaries (cross-compile, embedded SQLite migrations):
 
 ```sh
 cd spacemosquito
-./scripts/build-release.sh v0.1.0
+./scripts/build-release.sh v0.2.0
 ls dist/
 ```
 
