@@ -98,6 +98,15 @@ func NewAssetDownloader(log logging.Sugar) *AssetDownloader {
 	}
 }
 
+// SetClientForTest swaps the HTTP client and disables rate limiting / retries
+// so scraper integration tests can drive httptest without waiting.
+func (d *AssetDownloader) SetClientForTest(c *http.Client) {
+	d.client = c
+	d.rateLimit = 0
+	d.retryDelay = time.Millisecond
+	d.maxRetries = 1
+}
+
 // urlPathExt returns the file extension of the URL path (ignoring query/fragment).
 func urlPathExt(rawURL string) string {
 	parsed, err := url.Parse(rawURL)

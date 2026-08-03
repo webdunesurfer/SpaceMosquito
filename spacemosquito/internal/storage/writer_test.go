@@ -53,6 +53,44 @@ func TestWriter_MakePageDir_and_GetSavedPath(t *testing.T) {
 	}
 }
 
+func TestWriter_ClearPageDir(t *testing.T) {
+	base := t.TempDir()
+	w := NewWriter(base, logging.Sugar{})
+	dir := filepath.Join(base, "PROJ", "Page")
+	if err := os.MkdirAll(filepath.Join(dir, "assets", "images"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "index.html"), []byte("old"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "assets", "images", "a.png"), []byte("img"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	stale := filepath.Join(dir, "stale.txt")
+	if err := os.WriteFile(stale, []byte("gone"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := w.ClearPageDir(dir); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(dir); err != nil {
+		t.Fatalf("directory itself should remain: %v", err)
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("expected empty dir after clear, got %d entries", len(entries))
+	}
+
+	missing := filepath.Join(base, "missing")
+	if err := w.ClearPageDir(missing); err != nil {
+		t.Fatalf("missing dir should be no-op: %v", err)
+	}
+}
+
 func TestWriter_SaveHTML_and_SaveRawHTML(t *testing.T) {
 	dir := t.TempDir()
 	w := NewWriter(t.TempDir(), logging.Sugar{})

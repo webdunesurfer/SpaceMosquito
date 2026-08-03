@@ -4,6 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync"
+	"time"
+
 	"github.com/go-rod/rod"
 	"github.com/go-rod/rod/lib/proto"
 	"github.com/vkh/spacemosquito/internal/config"
@@ -13,11 +20,6 @@ import (
 	"github.com/vkh/spacemosquito/internal/storage"
 	"github.com/vkh/spacemosquito/internal/store"
 	"github.com/vkh/spacemosquito/pkg/logging"
-	"net/http"
-	"path/filepath"
-	"strings"
-	"sync"
-	"time"
 )
 
 // Page represents a discovered Confluence page in the tree.
@@ -194,6 +196,80 @@ func skipUnchangedPage(force bool, discoveredVersion int, existing *store.Page, 
 	return existing.Version >= discoveredVersion
 }
 
+// CrawlPage refreshes a single page by space key and Confluence ID. Always
+// overwrites local text and assets (no version skip); reuses an existing
+// catalog file_dir when present so title renames do not orphan directories.
+func (s *Scraper) CrawlPage(spaceKey string, confluenceID int, sess *session.Session) error {
+	if spaceKey == "" {
+		return fmt.Errorf("space key is required")
+	}
+	if confluenceID <= 0 {
+		return fmt.Errorf("confluence id must be positive")
+	}
+	if sess == nil {
+		return fmt.Errorf("session is required")
+	}
+
+	s.SetForce(true)
+	if s.assets != nil {
+		s.assets.SetForce(true)
+	}
+	if s.ctx == nil {
+		s.ctx, s.cancel = context.WithCancel(context.Background())
+	}
+
+	spaceURL, err := s.resolveSpaceURL(spaceKey, sess)
+	if err != nil {
+		return err
+	}
+
+	pg := &Page{ConfluenceID: confluenceID}
+	existing, err := s.db.GetPage(s.ctx, spaceKey, confluenceID)
+	if err == nil && existing != nil && existing.FileDir != "" {
+		pg.FileDir = existing.FileDir
+		if existing.Title != "" {
+			pg.Title = existing.Title
+		}
+	}
+
+	if s.log.Enabled() {
+		s.log.Infow("crawl-page started",
+			"space_key", spaceKey,
+			"confluence_id", confluenceID,
+			"space_url", spaceURL,
+			"file_dir", pg.FileDir)
+	}
+
+	if err := s.ScrapePageAPI(pg, spaceKey, spaceURL, sess); err != nil {
+		return err
+	}
+
+	if s.log.Enabled() {
+		s.log.Infow("crawl-page completed",
+			"space_key", spaceKey,
+			"confluence_id", confluenceID,
+			"title", pg.Title,
+			"file_dir", pg.FileDir)
+	}
+	return nil
+}
+
+// resolveSpaceURL returns the space overview URL from the catalog, or derives
+// it from the session Confluence base URL when the space row is missing.
+func (s *Scraper) resolveSpaceURL(spaceKey string, sess *session.Session) (string, error) {
+	if space, err := s.db.GetSpaceByKey(context.Background(), spaceKey); err == nil && space != nil && space.URL != "" {
+		return space.URL, nil
+	}
+	base := strings.TrimRight(sess.ConfluenceURL, "/")
+	if base == "" {
+		return "", fmt.Errorf("cannot resolve space URL: space %q not in catalog and session has no confluence URL", spaceKey)
+	}
+	if sess.Flavor == session.FlavorCloud || sess.Flavor == "" {
+		return base + "/wiki/spaces/" + spaceKey, nil
+	}
+	return base + "/spaces/" + spaceKey, nil
+}
+
 // CrawlSpace performs a full crawl of a Confluence space.
 func (s *Scraper) CrawlSpace(spaceURL string, sess *session.Session) error {
 	crawlStart := time.Now()
@@ -343,9 +419,9 @@ func (s *Scraper) ScrapePageAPI(pg *Page, spaceKey, spaceURL string, sess *sessi
 
 	var apiURL string
 	if sess.Flavor == session.FlavorCloud {
-		apiURL = fmt.Sprintf("%s/wiki/rest/api/content/%d?expand=body.storage,version,ancestors", baseURL, pg.ConfluenceID)
+		apiURL = fmt.Sprintf("%s/wiki/rest/api/content/%d?expand=body.storage,version,ancestors,space", baseURL, pg.ConfluenceID)
 	} else {
-		apiURL = fmt.Sprintf("%s/rest/api/content/%d?expand=body.storage,version,ancestors", baseURL, pg.ConfluenceID)
+		apiURL = fmt.Sprintf("%s/rest/api/content/%d?expand=body.storage,version,ancestors,space", baseURL, pg.ConfluenceID)
 	}
 
 	req, err := http.NewRequest("GET", apiURL, nil)
@@ -364,27 +440,71 @@ func (s *Scraper) ScrapePageAPI(pg *Page, spaceKey, spaceURL string, sess *sessi
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode == http.StatusNotFound {
+		return fmt.Errorf("page %d not found", pg.ConfluenceID)
+	}
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("API request failed with status %d", resp.StatusCode)
 	}
 
 	var result struct {
-		ID    string `json:"id"`
-		Title string `json:"title"`
-		Body  struct {
+		ID      string `json:"id"`
+		Title   string `json:"title"`
+		Version struct {
+			Number int `json:"number"`
+		} `json:"version"`
+		Space struct {
+			Key string `json:"key"`
+		} `json:"space"`
+		Ancestors []struct {
+			ID string `json:"id"`
+		} `json:"ancestors"`
+		Body struct {
 			Storage struct {
 				Value string `json:"value"`
 			} `json:"storage"`
 		} `json:"body"`
+		Links struct {
+			Webui string `json:"webui"`
+		} `json:"_links"`
 	}
 
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return err
 	}
 
+	if result.Space.Key != "" && !strings.EqualFold(result.Space.Key, spaceKey) {
+		return fmt.Errorf("page %d is in space %q, not %q", pg.ConfluenceID, result.Space.Key, spaceKey)
+	}
+
 	storageHTML := result.Body.Storage.Value
 	if storageHTML == "" {
 		return fmt.Errorf("empty storage body")
+	}
+
+	if result.Title != "" {
+		pg.Title = result.Title
+	}
+	if result.Version.Number > 0 {
+		pg.Version = result.Version.Number
+	}
+	if len(result.Ancestors) > 0 {
+		var parentID int
+		if _, err := fmt.Sscanf(result.Ancestors[len(result.Ancestors)-1].ID, "%d", &parentID); err == nil && parentID > 0 {
+			pg.ParentID = &parentID
+		}
+	}
+	if pg.URL == "" {
+		webui := result.Links.Webui
+		if webui != "" {
+			if strings.HasPrefix(webui, "http") {
+				pg.URL = webui
+			} else {
+				pg.URL = strings.TrimRight(baseURL, "/") + webui
+			}
+		} else {
+			pg.URL = fmt.Sprintf("%s/spaces/%s/pages/%d", strings.TrimRight(baseURL, "/"), spaceKey, pg.ConfluenceID)
+		}
 	}
 
 	pg.RawHTML = storageHTML
@@ -410,12 +530,27 @@ func (s *Scraper) ScrapePageAPI(pg *Page, spaceKey, spaceURL string, sess *sessi
 }
 
 // savePageMetadata saves the scraped page to disk and database.
+// If pg.FileDir is already set (e.g. crawl-page reusing an existing catalog
+// path), that directory is wiped then reused; otherwise a new dir is created
+// from the title.
 func (s *Scraper) savePageMetadata(pg *Page, spaceKey, spaceURL string, cloud bool) error {
-	dir, err := s.storage.MakePageDir(spaceKey, pg.Title)
-	if err != nil {
-		return fmt.Errorf("make page dir: %w", err)
+	var dir string
+	var err error
+	if pg.FileDir != "" {
+		dir = pg.FileDir
+		if err := s.storage.ClearPageDir(dir); err != nil {
+			return fmt.Errorf("clear page dir: %w", err)
+		}
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return fmt.Errorf("ensure page dir: %w", err)
+		}
+	} else {
+		dir, err = s.storage.MakePageDir(spaceKey, pg.Title)
+		if err != nil {
+			return fmt.Errorf("make page dir: %w", err)
+		}
+		pg.FileDir = dir
 	}
-	pg.FileDir = dir
 
 	if err := s.storage.SaveHTML(dir, pg.CleanHTML); err != nil {
 		return fmt.Errorf("save clean html: %w", err)

@@ -65,6 +65,31 @@ func (w *Writer) MakePageDir(spaceKey, pageTitle string) (string, error) {
 	return dir, nil
 }
 
+// ClearPageDir removes all contents of dir but keeps the directory itself.
+// A missing directory is a no-op.
+func (w *Writer) ClearPageDir(dir string) error {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("read page dir: %w", err)
+	}
+	for _, e := range entries {
+		path := filepath.Join(dir, e.Name())
+		if err := os.RemoveAll(path); err != nil {
+			if w.log.Enabled() {
+				w.log.Errorw("clear page dir failed", "path", path, "error", err)
+			}
+			return fmt.Errorf("remove %s: %w", path, err)
+		}
+	}
+	if w.log.Enabled() {
+		w.log.Infow("page directory cleared", "path", dir)
+	}
+	return nil
+}
+
 func (w *Writer) SaveHTML(dir, html string) error {
 	path := filepath.Join(dir, "index.html")
 	if err := os.WriteFile(path, []byte(html), 0644); err != nil {

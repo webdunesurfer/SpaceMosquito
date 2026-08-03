@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `spacemosquito crawl-page <space-key> <confluence-id>` refreshes one page via the REST API, always overwriting local text and assets (wipes the page dir; reuses existing `file_dir` on title rename).
+
 ## [0.2.0] - 2026-08-03
 
 ### Added

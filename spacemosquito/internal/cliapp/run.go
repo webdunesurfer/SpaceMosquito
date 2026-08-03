@@ -105,6 +105,18 @@ func Run(args []string) int {
 			return 1
 		}
 		runCrawl(cfg, fs.Arg(0), *force, log)
+	case "crawl-page":
+		if len(args) < 4 {
+			fmt.Fprintln(os.Stderr, "usage: spacemosquito crawl-page <space-key> <confluence-id>")
+			return 1
+		}
+		confluenceID, err := strconv.Atoi(args[3])
+		if err != nil || confluenceID <= 0 {
+			fmt.Fprintln(os.Stderr, "usage: spacemosquito crawl-page <space-key> <confluence-id>")
+			fmt.Fprintln(os.Stderr, "confluence-id must be a positive integer")
+			return 1
+		}
+		runCrawlPage(cfg, args[2], confluenceID, log)
 	case "reindex":
 		withContent := false
 		for _, arg := range args[2:] {
@@ -460,6 +472,58 @@ func runCrawl(cfg *config.Config, spaceURL string, force bool, log *zap.Logger) 
 	fmt.Println()
 }
 
+func runCrawlPage(cfg *config.Config, spaceKey string, confluenceID int, log *zap.Logger) {
+	requestID := fmt.Sprintf("crawl-page-%d", time.Now().Unix())
+	sugar := logging.New("crawl-page", log)
+	sugar.Infow("crawl-page command initiated",
+		"space_key", spaceKey,
+		"confluence_id", confluenceID,
+		"request_id", requestID)
+
+	database, err := datastore.Open(cfg, log)
+	if err != nil {
+		sugar.Errorw("failed to connect to database", "error", err)
+		os.Exit(1)
+	}
+	defer database.Close()
+
+	store := session.NewStore(cfg.Session.FilePath, sugar)
+	if !store.HasSession() {
+		sugar.Errorw("no session found — run the Firefox extension to capture cookies first")
+		os.Exit(1)
+	}
+
+	encKey := cfg.Session.EncryptionKey
+	if encKey == "" {
+		sugar.Errorw("encryption key not configured")
+		os.Exit(1)
+	}
+
+	sess, err := store.Load(encKey)
+	if err != nil {
+		sugar.Errorw("failed to load session", "error", err)
+		os.Exit(1)
+	}
+
+	sugar.Infow("session loaded",
+		"cookie_count", len(sess.Cookies),
+		"confluence_url", sess.ConfluenceURL)
+
+	storageWriter := storage.NewWriter(cfg.Storage.BasePath, sugar)
+	assetDownloader := storage.NewAssetDownloader(sugar)
+
+	s := scraper.New(cfg, database, storageWriter, assetDownloader, sugar)
+
+	if err := s.CrawlPage(spaceKey, confluenceID, sess); err != nil {
+		sugar.Errorw("crawl-page failed", "error", err)
+		fmt.Fprintf(os.Stderr, "crawl-page failed: %v\n", err)
+		os.Exit(1)
+	}
+
+	sugar.Infow("crawl-page completed successfully", "request_id", requestID)
+	fmt.Printf("Refreshed page %d in space %s\n", confluenceID, spaceKey)
+}
+
 func runReindex(cfg *config.Config, withContent bool, log *zap.Logger) {
 	sugar := logging.New("reindex", log)
 
@@ -721,6 +785,7 @@ func printUsage() {
 	fmt.Println("  migrate-down   Rollback last migration")
 	fmt.Println("  save <url>     Save a Confluence page")
 	fmt.Println("  crawl [--force] <url>  Crawl a Confluence space (--force re-scrapes all pages and assets)")
+	fmt.Println("  crawl-page <space-key> <id>  Refresh one page (always overwrite text + assets)")
 	fmt.Println("  search <q>     Search pages (optional: <space-key> [--limit N])")
 	fmt.Println("  get-page <id>  Get page by Confluence ID (optional: <space-key>)")
 	fmt.Println("  reindex        Rebuild FTS indexes (--content regenerates Markdown too)")

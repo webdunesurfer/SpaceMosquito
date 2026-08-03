@@ -45,6 +45,12 @@ SPACEMOSQUITO_DATA_DIR=./data ./spacemosquito serve
 ./spacemosquito crawl --force "https://your-domain.atlassian.net/wiki/spaces/SPACEKEY"
 ```
 
+Refresh a single known page (always overwrites text + assets; no `--force`):
+
+```sh
+./spacemosquito crawl-page SPACEKEY 250347937
+```
+
 Or trigger a crawl via the extension or MCP at `http://localhost:8081/mcp`.
 
 ## Search
@@ -85,6 +91,7 @@ curl -s "http://localhost:8081/api/pages/42?space_key=TST"
 | `bootstrap import-saved` | Rebuild SQLite catalog from existing `saved/` files |
 | `serve` | Start API + MCP server |
 | `crawl [--force] <url>` | Crawl a Confluence space (`--force` re-scrapes all pages and assets) |
+| `crawl-page <space-key> <id>` | Refresh one page (always overwrite text + assets) |
 | `search <query>` | Full-text search (`--limit N`; multi-word AND) |
 | `get-page <id>` | Get page by Confluence ID (optional space key) |
 | `reindex` | Rebuild FTS indexes (`--content` regenerates Markdown from saved HTML) |
