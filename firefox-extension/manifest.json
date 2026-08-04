@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "SpaceMosquito",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Capture Confluence spaces for offline access",
   "permissions": [
     "cookies",
@@ -19,14 +19,14 @@
     }
   },
   "host_permissions": [
-    "https://*.atlassian.net/*",
+    "<all_urls>",
     "http://localhost:8081/*",
     "http://localhost:8081/*",
     "http://127.0.0.1:8081/*",
     "http://127.0.0.1:8081/*"
   ],
   "content_security_policy": {
-    "extension_pages": "script-src 'self'; style-src 'self'; object-src 'self'; connect-src https://*.atlassian.net http://localhost:8081 http://localhost:8081 http://127.0.0.1:8081 http://127.0.0.1:8081 ws://localhost:8081 ws://127.0.0.1:8081"
+    "extension_pages": "script-src 'self'; style-src 'self'; object-src 'self'; connect-src 'self' http://localhost:8081 http://localhost:8081 http://127.0.0.1:8081 http://127.0.0.1:8081 ws://localhost:8081 ws://127.0.0.1:8081"
   },
   "background": {
     "scripts": [

@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-08-04
+
+### Added
+- MCP client setup guide ([`docs/guides/configure-mcp.md`](docs/guides/configure-mcp.md)) with Cursor, Claude Code, and Gemini CLI examples; linked from the README.
+
+### Fixed
+- Firefox extension Capture Session on self-hosted Confluence (aligned URL checks, cookie capture by tab host, and host permissions with Chrome).
+
 ## [0.3.0] - 2026-08-04
 
 ### Added

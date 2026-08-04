@@ -19,17 +19,21 @@ function normalizeSameSite(value?: string): string {
   return value;
 }
 
-export async function captureCookies(): Promise<Cookie[]> {
+export async function captureCookies(tabUrl: string): Promise<Cookie[]> {
   try {
-    const rawCookies: any[] = await browser.cookies.getAll({ domain: '.atlassian.net' });
+    const url = new URL(tabUrl);
+    const domain = url.hostname;
+
+    // Get cookies for the specific Confluence domain (Cloud or self-hosted)
+    const rawCookies: any[] = await browser.cookies.getAll({ domain });
     const filtered = rawCookies.filter((c: any) => c.name && shouldKeepCookie(c.name));
 
     return filtered.map((c: any) => ({
       name: c.name,
       value: c.value,
-      domain: c.domain || '.atlassian.net',
+      domain: c.domain || domain,
       path: c.path || '/',
-      expires: c.expiry || undefined,
+      expires: c.expirationDate || c.expiry || undefined,
       secure: c.secure || false,
       httpOnly: c.httpOnly || false,
       sameSite: normalizeSameSite(c.sameSite),
@@ -42,7 +46,7 @@ export async function captureCookies(): Promise<Cookie[]> {
 
 export async function captureAndSave(confluenceUrl: string, apiClient: any): Promise<{ success: boolean; cookieCount: number }> {
   try {
-    const cookies = await captureCookies();
+    const cookies = await captureCookies(confluenceUrl);
 
     if (cookies.length === 0) {
       return { success: false, cookieCount: 0 };

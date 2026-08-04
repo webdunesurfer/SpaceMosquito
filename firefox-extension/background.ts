@@ -7,6 +7,17 @@ import { SpaceInfo, JobSnapshot } from './lib/types';
 
 const DEFAULT_BACKEND_URL = 'http://localhost:8081';
 
+function isConfluenceUrl(url: string): boolean {
+  if (!url) return false;
+  const lowerUrl = url.toLowerCase();
+  return (
+    lowerUrl.includes('atlassian.net') ||
+    lowerUrl.includes('/wiki/spaces/') ||
+    lowerUrl.includes('/spaces/') ||
+    lowerUrl.includes('/display/')
+  );
+}
+
 // Load settings from storage
 async function getSettings(): Promise<{ backendUrl: string }> {
   const data: any = await browser.storage.local.get('backend_url');
@@ -26,7 +37,7 @@ async function handleCaptureSession(tabUrl: string) {
     if (!tabUrl) {
       return { success: false, error: 'Empty tab URL' };
     }
-    if (!tabUrl.includes('atlassian.net')) {
+    if (!isConfluenceUrl(tabUrl)) {
       return { success: false, error: 'Not on a Confluence page' };
     }
 
@@ -214,16 +225,29 @@ browser.runtime.onMessage.addListener((msg: any, sender: any, sendResponse: (res
               console.error('[spacemosquito] get-space-info windows.getAll failed:', err);
             }
           }
-          if (!tabUrl || !tabUrl.includes('atlassian.net')) {
+          if (!tabUrl || !isConfluenceUrl(tabUrl)) {
             console.log('[spacemosquito] get-space-info: not on Confluence');
             resolve({ spaceKey: '', spaceName: '', spaceURL: '', pageTitle: '' });
             return;
           }
           const hostname = new URL(tabUrl).hostname;
-          const match = tabUrl.match(/\/wiki\/spaces\/([^/]+)/);
+          const protocol = new URL(tabUrl).protocol;
+
+          // Match /wiki/spaces/KEY or /spaces/KEY or /display/KEY
+          const match = tabUrl.match(/\/(?:wiki\/)?spaces\/([^/?#]+)/) || tabUrl.match(/\/display\/([^/?#]+)/);
           const spaceKey = match ? match[1] : '';
           const spaceName = spaceKey || 'Unknown';
-          const spaceURL = spaceKey ? `https://${hostname}/wiki/spaces/${spaceKey}/overview` : tabUrl;
+
+          let spaceURL = tabUrl;
+          if (spaceKey) {
+            if (tabUrl.includes('/wiki/spaces/')) {
+              spaceURL = `${protocol}//${hostname}/wiki/spaces/${spaceKey}/overview`;
+            } else if (tabUrl.includes('/spaces/')) {
+              spaceURL = `${protocol}//${hostname}/spaces/${spaceKey}/overview`;
+            } else if (tabUrl.includes('/display/')) {
+              spaceURL = `${protocol}//${hostname}/display/${spaceKey}`;
+            }
+          }
           const info = { spaceKey, spaceName, spaceURL, pageTitle: '' };
           console.log('[spacemosquito] get-space-info:', info);
           resolve(info);

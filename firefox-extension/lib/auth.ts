@@ -3,19 +3,23 @@
 
 export type AuthStatus = 'authenticated' | 'unauthenticated' | 'unknown';
 
-export async function checkAuthStatus(): Promise<AuthStatus> {
+export async function checkAuthStatus(tabUrl: string): Promise<AuthStatus> {
   try {
-    const sessionCookie = await browser.cookies.get({
-      url: 'https://teamnetconomy.atlassian.net',
-      name: 'tenant.session.token',
-    });
+    const url = new URL(tabUrl);
+    const domain = url.hostname;
+
+    const cookies = await browser.cookies.getAll({ domain });
+    const sessionCookie = cookies.find((c: any) =>
+      c.name === 'tenant.session.token' ||
+      c.name === 'JSESSIONID' ||
+      c.name === 'seraph.confluence'
+    );
 
     if (!sessionCookie) {
       return 'unauthenticated';
     }
 
-    // Check if expired (expiry is Unix timestamp in seconds)
-    const expiry = (sessionCookie as any).expiry;
+    const expiry = (sessionCookie as any).expirationDate || (sessionCookie as any).expiry;
     if (expiry && expiry < Math.floor(Date.now() / 1000)) {
       return 'unauthenticated';
     }
