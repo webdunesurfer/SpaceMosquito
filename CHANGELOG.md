@@ -7,34 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.3.1] - 2026-08-04
-
-### Added
-- MCP client setup guide ([`docs/guides/configure-mcp.md`](docs/guides/configure-mcp.md)) with Cursor, Claude Code, and Gemini CLI examples; linked from the README.
+## [0.3.2] - 2026-08-04
 
 ### Fixed
-- Firefox extension Capture Session on self-hosted Confluence (aligned URL checks, cookie capture by tab host, and host permissions with Chrome).
+- Firefox extension Capture Session fixes.
+
+## [0.3.1] - 2026-08-04
+
+### Fixed
+- Firefox extension Capture Session fixes.
 
 ## [0.3.0] - 2026-08-04
 
 ### Added
-- `spacemosquito crawl-page <space-key> <confluence-id>` refreshes one page via the REST API, always overwriting local text and assets (wipes the page dir; reuses existing `file_dir` on title rename).
+- `spacemosquito crawl-page <space-key> <confluence-id>` refreshes one page via the REST API, always overwriting local text and assets.
 
 ### Fixed
-- Session Validate no longer treats Azure AD / SSO HTML (or redirects) as authenticated. Requires JSON + `displayName`/`username`; continues past a bogus Cloud-path 200 to Server probes; Server/DC URL shapes probe Server endpoints first.
-- `GET /api/cron/config` no longer panics when `cron.full_crawl` / `cron.incremental` are omitted (extension popup open).
+- Session Validate fixes.
+- `GET /api/cron/config` panics fixes.
 
 ## [0.2.0] - 2026-08-03
 
 ### Added
-- GitHub Releases and local `build-release.sh` publish Firefox/Chrome extension zips (`spacemosquito-firefox-*.zip`, `spacemosquito-chrome-*.zip`) alongside binaries. See [`docs/INSTALL.md`](docs/INSTALL.md).
-- Install guides split into [`docs/INSTALL.md`](docs/INSTALL.md) (release) and [`docs/INSTALL-FROM-SOURCE.md`](docs/INSTALL-FROM-SOURCE.md).
+- GitHub Releases and local `build-release.sh` publish Firefox/Chrome extension zips.
 
 ### Fixed
-- Crawl Cancel from the extension now stops `/api/crawl` jobs between pages and keeps status `cancelled`. Cancel uses `POST /api/crawl/cancel?id=` only (extensions updated; JSON body no longer accepted).
+- Crawl Cancel now really cancels the started crawl.
 
 ### Changed
-- Crawl skips already-downloaded non-empty assets before the HTTP GET (and rate-limit wait). `crawl --force` re-scrapes every page and re-downloads every asset.
+- Crawl skips already-downloaded non-empty assets. `crawl --force` re-scrapes every page and re-downloads every asset.
 
 ## [0.1.0] - 2026-08-02
 

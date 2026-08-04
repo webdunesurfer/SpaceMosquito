@@ -3,7 +3,7 @@
 ## Prepare
 
 1. Ensure the build is green: `make test`
-2. Update [`CHANGELOG.md`](../CHANGELOG.md) to the new version (move items out of Unreleased).
+2. Update [`CHANGELOG.md`](../CHANGELOG.md) to the new version (move items out of Unreleased). Keep changeloge entries conscise, focus on user-facing functionality changes, skip technical details.
 3. Clear shipped items from [`BACKLOG.md`](BACKLOG.md); leave open work.
 4. Update [`STATUS.md`](STATUS.md) if the focus changes.
 5. Bump firefox-extension and chrome-extension `manifest.json` + `package.json` to X.Y.Z
