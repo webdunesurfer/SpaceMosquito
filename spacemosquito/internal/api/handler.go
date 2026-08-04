@@ -82,7 +82,10 @@ func (h *Handler) CreateSession(w http.ResponseWriter, r *http.Request) {
 	var req createSessionRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		h.log.Warnw("create session: invalid request body", "error", err)
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
+		writeJSON(w, http.StatusBadRequest, map[string]string{
+			"error":   "invalid request body",
+			"details": err.Error(),
+		})
 		return
 	}
 

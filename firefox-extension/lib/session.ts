@@ -138,16 +138,25 @@ export async function captureCookies(
       keptNames: filtered.map((c: any) => c.name),
     });
 
-    const cookies = filtered.map((c: any) => ({
-      name: c.name,
-      value: c.value,
-      domain: c.domain || domain,
-      path: c.path || '/',
-      expires: c.expirationDate || c.expiry || undefined,
-      secure: c.secure || false,
-      httpOnly: c.httpOnly || false,
-      sameSite: normalizeSameSite(c.sameSite),
-    }));
+    const cookies = filtered.map((c: any) => {
+      const expRaw = c.expirationDate ?? c.expiry;
+      let expires: number | undefined;
+      if (expRaw != null && expRaw !== undefined && expRaw !== -1) {
+        // Firefox often returns a float; Go Cookie.Expires is int64.
+        const n = Math.floor(Number(expRaw));
+        if (Number.isFinite(n) && n > 0) expires = n;
+      }
+      return {
+        name: String(c.name),
+        value: String(c.value ?? ''),
+        domain: String(c.domain || domain),
+        path: String(c.path || '/'),
+        expires,
+        secure: Boolean(c.secure),
+        httpOnly: Boolean(c.httpOnly),
+        sameSite: normalizeSameSite(c.sameSite),
+      };
+    });
 
     return { cookies, rawCount: rawCookies.length, rawNames };
   } catch (error) {
