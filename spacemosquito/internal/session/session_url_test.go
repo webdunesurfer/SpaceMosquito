@@ -122,7 +122,7 @@ func TestValidateWithConfluence_mockServer(t *testing.T) {
 		defer srv.Close()
 
 		sess := &Session{
-			ConfluenceURL: srv.URL,
+			ConfluenceURL: srv.URL + "/wiki/spaces/PROJ",
 			Cookies:       []Cookie{{Name: "t", Value: "v"}},
 		}
 		result, err := sess.ValidateWithConfluence("", 5, "127.0.0.1")
@@ -134,6 +134,9 @@ func TestValidateWithConfluence_mockServer(t *testing.T) {
 		}
 		if !strings.Contains(result.Message, "Ada Lovelace") {
 			t.Errorf("message = %q", result.Message)
+		}
+		if sess.ValidatedAt == nil {
+			t.Fatal("expected ValidatedAt set on success")
 		}
 	})
 
@@ -156,6 +159,9 @@ func TestValidateWithConfluence_mockServer(t *testing.T) {
 		}
 		if !strings.Contains(result.Message, "expired") {
 			t.Errorf("message = %q", result.Message)
+		}
+		if sess.ValidatedAt != nil {
+			t.Fatal("ValidatedAt must not be set on failure")
 		}
 	})
 
@@ -199,4 +205,181 @@ func TestValidateWithConfluence_mockServer(t *testing.T) {
 			t.Errorf("message = %q", result.Message)
 		}
 	})
+
+	t.Run("cloud path SSO html then server json", func(t *testing.T) {
+		// Cloud-first URL shape: Cloud probe returns Azure AD HTML 200;
+		// must continue and accept Server JSON (must not short-circuit).
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			switch r.URL.Path {
+			case "/wiki/rest/api/user/current":
+				w.Header().Set("Content-Type", "text/html; charset=utf-8")
+				w.Write([]byte(`<!DOCTYPE html><html><body>login.microsoftonline.com</body></html>`))
+			case "/rest/api/latest/myself", "/rest/api/user/current":
+				w.Header().Set("Content-Type", "application/json")
+				w.Write([]byte(`{"displayName":"Ruslan Bes"}`))
+			default:
+				http.NotFound(w, r)
+			}
+		}))
+		defer srv.Close()
+
+		sess := &Session{
+			ConfluenceURL: srv.URL + "/wiki/spaces/PROJ/pages/1",
+			Cookies:       []Cookie{{Name: "JSESSIONID", Value: "stale"}},
+		}
+		result, err := sess.ValidateWithConfluence("", 5, "127.0.0.1")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !result.Valid || result.Flavor != FlavorServer {
+			t.Fatalf("result = %+v", result)
+		}
+		if !strings.Contains(result.Message, "Ruslan Bes") {
+			t.Errorf("message = %q", result.Message)
+		}
+	})
+
+	t.Run("server url prefers server probe", func(t *testing.T) {
+		var paths []string
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			paths = append(paths, r.URL.Path)
+			if r.URL.Path == "/rest/api/latest/myself" {
+				w.Header().Set("Content-Type", "application/json")
+				w.Write([]byte(`{"displayName":"Server User"}`))
+				return
+			}
+			w.Header().Set("Content-Type", "text/html")
+			w.Write([]byte(`<html>should not matter</html>`))
+		}))
+		defer srv.Close()
+
+		sess := &Session{
+			ConfluenceURL: srv.URL + "/spaces/MAPI/pages/1/Home",
+			Cookies:       []Cookie{{Name: "t", Value: "v"}},
+		}
+		result, err := sess.ValidateWithConfluence("", 5, "127.0.0.1")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !result.Valid || result.Flavor != FlavorServer {
+			t.Fatalf("result = %+v", result)
+		}
+		if len(paths) == 0 || paths[0] != "/rest/api/latest/myself" {
+			t.Fatalf("expected server probe first, got %v", paths)
+		}
+	})
+
+	t.Run("sso html only is invalid", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "text/html")
+			w.Write([]byte(`<html>login</html>`))
+		}))
+		defer srv.Close()
+
+		prev := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
+		sess := &Session{
+			ConfluenceURL: srv.URL + "/spaces/MAPI/pages/1",
+			Cookies:       []Cookie{{Name: "t", Value: "v"}},
+			ValidatedAt:   &prev,
+			Flavor:        FlavorServer,
+		}
+		result, err := sess.ValidateWithConfluence("", 5, "127.0.0.1")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.Valid {
+			t.Fatal("expected invalid")
+		}
+		if !strings.Contains(result.Message, "SSO") {
+			t.Errorf("message = %q", result.Message)
+		}
+		// Must not refresh ValidatedAt on failure (handler only saves when Valid).
+		if sess.ValidatedAt == nil || !sess.ValidatedAt.Equal(prev) {
+			t.Fatalf("ValidatedAt mutated: %v", sess.ValidatedAt)
+		}
+	})
+
+	t.Run("redirect not followed", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			http.Redirect(w, r, "https://login.microsoftonline.com/", http.StatusFound)
+		}))
+		defer srv.Close()
+
+		sess := &Session{
+			ConfluenceURL: srv.URL + "/spaces/X",
+			Cookies:       []Cookie{{Name: "t", Value: "v"}},
+		}
+		result, err := sess.ValidateWithConfluence("", 5, "127.0.0.1")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.Valid {
+			t.Fatal("expected invalid on redirect")
+		}
+		if !strings.Contains(result.Message, "SSO") {
+			t.Errorf("message = %q", result.Message)
+		}
+	})
+
+	t.Run("json without identity is invalid", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte(`{}`))
+		}))
+		defer srv.Close()
+
+		sess := &Session{
+			ConfluenceURL: srv.URL + "/wiki/spaces/PROJ",
+			Cookies:       []Cookie{{Name: "t", Value: "v"}},
+		}
+		result, err := sess.ValidateWithConfluence("", 5, "127.0.0.1")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.Valid {
+			t.Fatal("expected invalid without displayName")
+		}
+	})
+
+	t.Run("followed redirect html formerly false positive", func(t *testing.T) {
+		// Old client followed 302→200 HTML and treated it as authenticated.
+		login := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "text/html")
+			w.Write([]byte(`<html>Azure AD</html>`))
+		}))
+		defer login.Close()
+
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			http.Redirect(w, r, login.URL, http.StatusFound)
+		}))
+		defer srv.Close()
+
+		sess := &Session{
+			ConfluenceURL: srv.URL + "/spaces/MAPI/pages/1",
+			Cookies:       []Cookie{{Name: "t", Value: "v"}},
+		}
+		result, err := sess.ValidateWithConfluence("", 5, "127.0.0.1")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.Valid {
+			t.Fatalf("false positive: %+v", result)
+		}
+	})
 }
+
+func TestPreferServerProbes(t *testing.T) {
+	if !preferServerProbes(FlavorServer, "https://x.atlassian.net/wiki/spaces/A") {
+		t.Fatal("FlavorServer should prefer server")
+	}
+	if preferServerProbes(FlavorCloud, "https://wiki.example.com/spaces/A") {
+		t.Fatal("FlavorCloud should prefer cloud")
+	}
+	if !preferServerProbes("", "https://wiki.example.net/spaces/MAPI/pages/1") {
+		t.Fatal("server URL shape should prefer server")
+	}
+	if preferServerProbes("", "https://ex.atlassian.net/wiki/spaces/P") {
+		t.Fatal("cloud URL should prefer cloud")
+	}
+}
+

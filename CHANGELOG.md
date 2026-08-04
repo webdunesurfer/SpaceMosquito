@@ -10,6 +10,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - `spacemosquito crawl-page <space-key> <confluence-id>` refreshes one page via the REST API, always overwriting local text and assets (wipes the page dir; reuses existing `file_dir` on title rename).
 
+### Fixed
+- Session Validate no longer treats Azure AD / SSO HTML (or redirects) as authenticated. Requires JSON + `displayName`/`username`; continues past a bogus Cloud-path 200 to Server probes; Server/DC URL shapes probe Server endpoints first.
+
 ## [0.2.0] - 2026-08-03
 
 ### Added

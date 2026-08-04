@@ -30,12 +30,6 @@ Detail lives in `dev/tasks/<task-id>.md` when needed.
 - done_when: Truncation/char-fold collisions no longer overwrite on-disk files; existing `file_dir` rows still work; tests cover colliding titles.
 - notes: Detail in [`tasks/task-page-dir-collision.md`](tasks/task-page-dir-collision.md). No auto-migration of old dirs in v1.
 
-## task-validation-sso-fix
-- status: backlog
-- goal: Stop false-positive “authenticated” when Confluence/SSO returns HTML via redirect.
-- done_when: `ValidateWithConfluence` fails closed on redirects, non-JSON bodies, and JSON decode errors.
-- notes: Detail in [`tasks/task-validation-sso-fix.md`](tasks/task-validation-sso-fix.md).
-
 ## task-self-hosted-confluence
 - status: backlog
 - goal: End-to-end support for self-hosted / custom-domain Confluence (not only `*.atlassian.net`).

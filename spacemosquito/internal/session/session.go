@@ -85,19 +85,23 @@ func (s *Session) ValidateWithConfluence(confluenceURL string, timeoutSeconds in
 		return &ValidationResult{Valid: false, Message: "no cookies in session"}, nil
 	}
 
-	// Try standard endpoints
-	type probe struct {
-		path   string
-		flavor SessionFlavor
+	pageURL := confluenceURL
+	if pageURL == "" {
+		pageURL = s.ConfluenceURL
 	}
+	probes := validationProbes(s.Flavor, pageURL)
 
-	probes := []probe{
-		{"/wiki/rest/api/user/current", FlavorCloud},
-		{"/rest/api/latest/myself", FlavorServer},
-		{"/rest/api/user/current", FlavorServer},
+	client := &http.Client{
+		Timeout: time.Duration(timeoutSeconds) * time.Second,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
 	}
 
 	var lastErr error
+	sawUnauthorized := false
+	sawSSOIntercept := false
+
 	for _, p := range probes {
 		testURL := fmt.Sprintf("%s%s", rootURL, p.path)
 		if s.log.Enabled() {
@@ -116,46 +120,159 @@ func (s *Session) ValidateWithConfluence(confluenceURL string, timeoutSeconds in
 			})
 		}
 
-		client := &http.Client{Timeout: time.Duration(timeoutSeconds) * time.Second}
 		resp, err := client.Do(req)
 		if err != nil {
 			lastErr = err
 			continue
 		}
-		defer resp.Body.Close()
 
-		if resp.StatusCode == http.StatusOK {
+		outcome := classifyValidationResponse(resp)
+		resp.Body.Close()
+
+		switch outcome.kind {
+		case validationOK:
 			now := time.Now()
 			s.ValidatedAt = &now
 			s.Flavor = p.flavor
-
-			var myself map[string]interface{}
-			json.NewDecoder(resp.Body).Decode(&myself)
-
-			msg := "authenticated"
-			if name, ok := (myself["displayName"].(string)); ok {
-				msg = fmt.Sprintf("authenticated as %s", name)
-			} else if name, ok := (myself["username"].(string)); ok {
-				msg = fmt.Sprintf("authenticated as %s", name)
-			}
-
 			return &ValidationResult{
 				Valid:   true,
-				Message: msg,
+				Message: fmt.Sprintf("authenticated as %s", outcome.name),
 				Flavor:  p.flavor,
 			}, nil
-		}
-
-		if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
-			return &ValidationResult{Valid: false, Message: "authentication failed — session expired"}, nil
+		case validationUnauthorized:
+			sawUnauthorized = true
+		case validationSSOIntercept:
+			sawSSOIntercept = true
+			if s.log.Enabled() {
+				s.log.Infow("validation probe rejected (SSO/non-JSON)",
+					"url", testURL,
+					"status", outcome.status,
+					"reason", outcome.reason)
+			}
+		case validationNotFound:
+			// try next probe
 		}
 	}
 
+	if sawUnauthorized {
+		return &ValidationResult{Valid: false, Message: "authentication failed — session expired"}, nil
+	}
+	if sawSSOIntercept {
+		return &ValidationResult{Valid: false, Message: "authentication failed — SSO or non-JSON response (session expired or incomplete)"}, nil
+	}
 	if lastErr != nil {
 		return &ValidationResult{Valid: false, Message: fmt.Sprintf("request failed: %v", lastErr)}, nil
 	}
 
 	return &ValidationResult{Valid: false, Message: "confluence API not found (404) at probed endpoints"}, nil
+}
+
+type validationProbe struct {
+	path   string
+	flavor SessionFlavor
+}
+
+func validationProbes(flavor SessionFlavor, pageURL string) []validationProbe {
+	cloud := validationProbe{"/wiki/rest/api/user/current", FlavorCloud}
+	server := []validationProbe{
+		{"/rest/api/latest/myself", FlavorServer},
+		{"/rest/api/user/current", FlavorServer},
+	}
+	if preferServerProbes(flavor, pageURL) {
+		return append(server, cloud)
+	}
+	return append([]validationProbe{cloud}, server...)
+}
+
+// preferServerProbes puts Server/DC endpoints first when flavor or URL shape
+// indicates non-Cloud Confluence, so a bogus Cloud-path HTML 200 from SSO does
+// not short-circuit before a real Server probe.
+func preferServerProbes(flavor SessionFlavor, pageURL string) bool {
+	if flavor == FlavorServer {
+		return true
+	}
+	if flavor == FlavorCloud {
+		return false
+	}
+	u := strings.ToLower(pageURL)
+	if strings.Contains(u, "atlassian.net") || strings.Contains(u, "/wiki/") {
+		return false
+	}
+	if strings.Contains(u, "/spaces/") || strings.Contains(u, "/display/") {
+		return true
+	}
+	// Custom host with unknown path: Server-first is safer for SSO/DC.
+	if u != "" {
+		if parsed, err := url.Parse(pageURL); err == nil && parsed.Host != "" && !strings.Contains(parsed.Host, "atlassian.net") {
+			return true
+		}
+	}
+	return false
+}
+
+type validationKind int
+
+const (
+	validationOK validationKind = iota
+	validationUnauthorized
+	validationSSOIntercept
+	validationNotFound
+)
+
+type validationOutcome struct {
+	kind   validationKind
+	name   string
+	status int
+	reason string
+}
+
+func classifyValidationResponse(resp *http.Response) validationOutcome {
+	status := resp.StatusCode
+	if status == http.StatusMovedPermanently ||
+		status == http.StatusFound ||
+		status == http.StatusSeeOther ||
+		status == http.StatusTemporaryRedirect ||
+		status == http.StatusPermanentRedirect {
+		return validationOutcome{kind: validationSSOIntercept, status: status, reason: "redirect"}
+	}
+	if status == http.StatusUnauthorized || status == http.StatusForbidden {
+		return validationOutcome{kind: validationUnauthorized, status: status}
+	}
+	if status == http.StatusNotFound {
+		return validationOutcome{kind: validationNotFound, status: status}
+	}
+	if status != http.StatusOK {
+		return validationOutcome{kind: validationSSOIntercept, status: status, reason: "non-200"}
+	}
+
+	ct := resp.Header.Get("Content-Type")
+	if !strings.Contains(strings.ToLower(ct), "application/json") {
+		return validationOutcome{kind: validationSSOIntercept, status: status, reason: "non-json content-type"}
+	}
+
+	var myself map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&myself); err != nil {
+		return validationOutcome{kind: validationSSOIntercept, status: status, reason: "json decode failed"}
+	}
+	name, ok := identityFromMyself(myself)
+	if !ok {
+		return validationOutcome{kind: validationSSOIntercept, status: status, reason: "missing displayName/username"}
+	}
+	return validationOutcome{kind: validationOK, name: name, status: status}
+}
+
+func identityFromMyself(myself map[string]interface{}) (string, bool) {
+	if name, ok := myself["displayName"].(string); ok {
+		if name = strings.TrimSpace(name); name != "" {
+			return name, true
+		}
+	}
+	if name, ok := myself["username"].(string); ok {
+		if name = strings.TrimSpace(name); name != "" {
+			return name, true
+		}
+	}
+	return "", false
 }
 
 // GetSpaceKeyFromURL extracts space key from Confluence URL
