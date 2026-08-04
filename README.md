@@ -51,7 +51,11 @@ Refresh a single known page (always overwrites text + assets; no `--force`):
 ./spacemosquito crawl-page SPACEKEY 250347937
 ```
 
-Or trigger a crawl via the extension or MCP at `http://localhost:8081/mcp`.
+Or trigger a crawl via the extension or `POST /api/crawl`.
+
+## MCP (agents)
+
+SpaceMosquito serves MCP over HTTP+SSE at `http://127.0.0.1:8081/mcp` (same process as `serve`). Agents can search and read the local catalog — see **[Configure MCP](docs/guides/configure-mcp.md)**.
 
 ## Search
 
