@@ -6,7 +6,9 @@
   "permissions": [
     "cookies",
     "storage",
-    "activeTab"
+    "activeTab",
+    "tabs",
+    "contextualIdentities"
   ],
   "icons": {
     "48": "assets/icon.svg",

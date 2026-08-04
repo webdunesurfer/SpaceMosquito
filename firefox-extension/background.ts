@@ -27,8 +27,8 @@ async function getSettings(): Promise<{ backendUrl: string }> {
 }
 
 // Handle session capture flow
-async function handleCaptureSession(tabUrl: string) {
-  console.log('[spacemosquito] handleCaptureSession(tabUrl):', tabUrl);
+async function handleCaptureSession(tabUrl: string, cookieStoreId?: string) {
+  console.log('[spacemosquito] handleCaptureSession(tabUrl):', tabUrl, 'cookieStoreId:', cookieStoreId);
   try {
     const settings = await getSettings();
     console.log('[spacemosquito] settings:', settings);
@@ -41,8 +41,8 @@ async function handleCaptureSession(tabUrl: string) {
       return { success: false, error: 'Not on a Confluence page' };
     }
 
-    // Capture cookies and save
-    const result = await captureAndSave(tabUrl, api);
+    // Capture cookies and save (cookieStoreId = Multi-Account Container jar)
+    const result = await captureAndSave(tabUrl, api, cookieStoreId);
 
     // Update session status
     if (result.success) {
@@ -141,27 +141,37 @@ browser.runtime.onMessage.addListener((msg: any, sender: any, sendResponse: (res
       return new Promise(resolve => {
         (async () => {
           let tabUrl: string | undefined;
+          let cookieStoreId: string | undefined;
           console.log('[spacemosquito] sender.tab:', sender?.tab);
           if (sender?.tab?.url) {
             tabUrl = sender.tab.url;
+            cookieStoreId = sender.tab.cookieStoreId;
           } else {
             console.log('[spacemosquito] No sender.tab, querying windows...');
             try {
-              const windows: any[] = await browser.windows.getAll({ populate: true });
-              console.log('[spacemosquito] Found', windows.length, 'windows');
-              for (const w of windows) {
-                for (const t of w.tabs || []) {
-                  console.log('[spacemosquito] checking tab:', t.id, t.active, t.url?.substring(0, 60));
-                  if (t.active && t.url) {
-                    tabUrl = t.url;
-                    console.log('[spacemosquito] Found active tab:', tabUrl);
-                    break;
+              const tabs: any[] = await browser.tabs.query({ active: true, currentWindow: true });
+              const tab = tabs[0];
+              if (tab?.url) {
+                tabUrl = tab.url;
+                cookieStoreId = tab.cookieStoreId;
+                console.log('[spacemosquito] Found active tab:', tabUrl, 'store:', cookieStoreId);
+              } else {
+                const windows: any[] = await browser.windows.getAll({ populate: true });
+                console.log('[spacemosquito] Found', windows.length, 'windows');
+                for (const w of windows) {
+                  for (const t of w.tabs || []) {
+                    if (t.active && t.url) {
+                      tabUrl = t.url;
+                      cookieStoreId = t.cookieStoreId;
+                      console.log('[spacemosquito] Found active tab:', tabUrl, 'store:', cookieStoreId);
+                      break;
+                    }
                   }
+                  if (tabUrl) break;
                 }
-                if (tabUrl) break;
               }
             } catch (err) {
-              console.error('[spacemosquito] windows.getAll failed:', err);
+              console.error('[spacemosquito] tab lookup failed:', err);
             }
           }
           if (!tabUrl) {
@@ -169,7 +179,7 @@ browser.runtime.onMessage.addListener((msg: any, sender: any, sendResponse: (res
             resolve({ success: false, error: 'No active tab' });
             return;
           }
-          const result = await handleCaptureSession(tabUrl);
+          const result = await handleCaptureSession(tabUrl, cookieStoreId);
           console.log('[spacemosquito] capture result:', result);
           resolve(result);
         })().catch(err => {
