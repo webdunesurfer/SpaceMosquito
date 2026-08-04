@@ -60,23 +60,37 @@ func (h *CronAPIHandler) ConfigGet(w http.ResponseWriter, r *http.Request) {
 	overrides := h.manager.List()
 
 	result := map[string]interface{}{
-		"yaml_full_crawl": map[string]interface{}{
-			"enabled":      h.cfg.Cron.FullCrawl != nil && h.cfg.Cron.FullCrawl.Enabled,
-			"interval":     h.cfg.Cron.FullCrawl.Interval,
-			"spaces":       h.cfg.Cron.FullCrawl.Spaces,
-			"max_duration": h.cfg.Cron.FullCrawl.MaxDuration,
-		},
-		"yaml_incremental": map[string]interface{}{
-			"enabled":      h.cfg.Cron.Incremental != nil && h.cfg.Cron.Incremental.Enabled,
-			"interval":     h.cfg.Cron.Incremental.Interval,
-			"detection":    h.cfg.Cron.Incremental.Detection,
-			"spaces":       h.cfg.Cron.Incremental.Spaces,
-			"max_duration": h.cfg.Cron.Incremental.MaxDuration,
-		},
+		"yaml_full_crawl":     cronJobYAMLView(h.cfg.Cron.FullCrawl),
+		"yaml_incremental":    cronJobYAMLView(h.cfg.Cron.Incremental),
 		"per_space_overrides": overrides,
 	}
 
 	writeJSON(w, http.StatusOK, result)
+}
+
+// cronJobYAMLView maps a YAML cron job block for the API. A nil pointer
+// (omitted config) returns disabled defaults without dereferencing.
+func cronJobYAMLView(c *config.CronJobConfig) map[string]interface{} {
+	if c == nil {
+		return map[string]interface{}{
+			"enabled":      false,
+			"interval":     "",
+			"spaces":       []string{},
+			"detection":    "",
+			"max_duration": "",
+		}
+	}
+	spaces := c.Spaces
+	if spaces == nil {
+		spaces = []string{}
+	}
+	return map[string]interface{}{
+		"enabled":      c.Enabled,
+		"interval":     c.Interval,
+		"spaces":       spaces,
+		"detection":    c.Detection,
+		"max_duration": c.MaxDuration,
+	}
 }
 
 // ConfigUpdate handles POST /api/cron/config — update per-space cron config.

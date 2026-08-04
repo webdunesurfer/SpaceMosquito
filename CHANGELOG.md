@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - Session Validate no longer treats Azure AD / SSO HTML (or redirects) as authenticated. Requires JSON + `displayName`/`username`; continues past a bogus Cloud-path 200 to Server probes; Server/DC URL shapes probe Server endpoints first.
+- `GET /api/cron/config` no longer panics when `cron.full_crawl` / `cron.incremental` are omitted (extension popup open).
 
 ## [0.2.0] - 2026-08-03
 

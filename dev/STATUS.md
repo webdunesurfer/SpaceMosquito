@@ -4,7 +4,7 @@ Last updated: 2026-08-04
 
 ## Current focus
 
-**`task-validation-sso-fix` shipped** (Unreleased). Next: [`task-page-dir-collision`](BACKLOG.md).
+**`task-cron-config-nil-panic` shipped** (Unreleased). Next: [`task-page-dir-collision`](BACKLOG.md).
 
 ## Active task
 
