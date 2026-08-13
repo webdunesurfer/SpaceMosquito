@@ -24,6 +24,12 @@ Detail lives in `dev/tasks/<task-id>.md` when needed.
 
 ---
 
+## task-cme-markdown-gap-analysis
+- status: ready
+- goal: Extract confluence-markdown-exporter conversion behaviors (tests + Converter) and gap-analyze vs our CSF→Markdown rules; recommend follow-ups only.
+- done_when: CME capability inventory, ours crosswalk, severity-rated gap matrix, and ≤10 ranked implement/defer/ignore recommendations; no port in this task.
+- notes: Detail in [`tasks/task-cme-markdown-gap-analysis.md`](tasks/task-cme-markdown-gap-analysis.md). CME is HTML+markdownify (MIT); ours is CSF — map intent, not drop-in rules.
+
 ## task-page-dir-collision
 - status: ready
 - goal: Make per-page `saved/` dirs unique by appending Confluence ID (`{title}-{id}`).
