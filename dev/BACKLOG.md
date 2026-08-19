@@ -1,6 +1,6 @@
 # Backlog
 
-Flat task list. Status values: `backlog` | `ready` | `in_progress` | `blocked` | `cancelled`.
+Flat task list. Status values: `backlog` | `ready` | `in_progress` | `blocked` | `done` | `cancelled`.
 
 On release, move shipped work to [`CHANGELOG.md`](../CHANGELOG.md) and clean the backlog — see [`RELEASE.md`](RELEASE.md).
 
@@ -23,6 +23,12 @@ Each task:
 Detail lives in `dev/tasks/<task-id>.md` when needed.
 
 ---
+
+## task-firefox-persistent-install
+- status: ready
+- goal: Support persistent Firefox extension install via "Install Add-on From File" (XPI) instead of temporary `about:debugging` load.
+- done_when: Extension installs from XPI via `about:addons`, survives restart; INSTALL.md updated; release artifacts include XPI.
+- notes: Detail in [`tasks/task-firefox-persistent-install.md`](tasks/task-firefox-persistent-install.md). Manifest already has `gecko.id`; main decision is signed (AMO unlisted) vs unsigned (Dev Edition only).
 
 ## task-cme-markdown-gap-analysis
 - status: ready

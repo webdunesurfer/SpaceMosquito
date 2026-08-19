@@ -30,4 +30,4 @@ JSON+="]"
 echo "Sending session to API..."
 curl -s -X POST http://localhost:8080/api/session \
   -H "Content-Type: application/json" \
-  -d "{\"confluence_url\":\"https://teamnetconomy.atlassian.net/wiki/spaces/NCHB\",\"cookies\":$JSON}" | python3 -m json.tool
+  -d "{\"confluence_url\":\"https://example.atlassian.net/wiki/spaces/DEMO\",\"cookies\":$JSON}" | python3 -m json.tool

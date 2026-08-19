@@ -222,7 +222,7 @@ If no JS test runner exists, add **manual test checklist** in this doc's Test Pl
 |-----|--------|
 | `README.md` | Add self-hosted examples (`wiki.mycompany.com/display/KEY`) alongside Cloud |
 | `docs/ARCHITECTURE.md` | Diagram: custom domain + Server flavor |
-| `docs/DEVELOPMENT.md` | Extension dev on non-Atlassian URL |
+| `dev/README.md` | Extension dev on non-Atlassian URL |
 | `CHANGELOG.md` | Under `[Unreleased]` |
 
 ---

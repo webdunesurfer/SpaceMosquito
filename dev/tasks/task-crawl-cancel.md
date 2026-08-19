@@ -46,7 +46,7 @@ flowchart LR
 
 ### 1. Cancel API — query only ([internal/api/crawl.go](../../spacemosquito/internal/api/crawl.go))
 
-**One way to cancel** (breaking change OK per [DEVELOPMENT.md](../../docs/DEVELOPMENT.md)):
+**One way to cancel** (breaking change OK per [README.md](../README.md)):
 
 ```http
 POST /api/crawl/cancel?id=<job_id>
@@ -137,7 +137,7 @@ clear is fine. Pending cancel: same UI path as running (status `cancelled`).
 ## Decisions
 
 - **API:** `POST /api/crawl/cancel?id=…` only. No body `job_id`. Breaking
-  change accepted ([DEVELOPMENT.md](../../docs/DEVELOPMENT.md)).
+  change accepted ([README.md](../README.md)).
 - **Stop granularity:** between pages; mid-page may finish.
 - **Pending cancel:** immediate status flip; no special UX.
 - **Scope:** jobs created via `/api/crawl` only (extension/API).

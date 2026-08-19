@@ -1,0 +1,33 @@
+# ADR-009: Database Migrations — golang-migrate
+
+- **Status:** Accepted
+- **Date:** 2025-01-17
+
+## Context
+
+The SQLite schema needs version control and reproducible migrations for local installs and release binaries.
+
+## Decision
+
+Use `github.com/golang-migrate/migrate` for database migrations.
+
+- Well-established, battle-tested Go migration tool
+- Simple CLI (`migrate up`, `migrate down`) that integrates into the Go build process
+- Version-controlled SQL migration files in `migrations/` directory
+- Supports SQLite (file:// / modernc) used by this project
+- Applied via `./spacemosquito init` / embedded migrations on serve
+
+## Alternatives considered
+
+| Option | Why not |
+|--------|---------|
+| `goose` | Similar feature set, but golang-migrate has a cleaner API and more widespread adoption |
+| SQLx raw migrations | Possible but adds boilerplate for tracking migration versions |
+| Migration libraries in other languages (Flyway, Liquibase) | Not native to Go |
+
+## Consequences
+
+- Migration files live in `spacemosquito/migrations/sqlite/` with numbered up/down SQL files
+- Migration version is stored in a `schema_migrations` table in SQLite
+- Migrations should be run before the MCP server and API server start
+- Release builds embed SQLite migrations; `./spacemosquito init` applies them

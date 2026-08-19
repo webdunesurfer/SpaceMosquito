@@ -135,7 +135,7 @@ Import does **not** read PostgreSQL. If you only have a Postgres volume and no `
 
 ## Development
 
-See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md). Quick checks:
+See [dev/README.md](dev/README.md). Quick checks:
 
 ```sh
 make test
