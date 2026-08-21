@@ -7,9 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.3] - 2026-08-21
+
 ### Changed
-- Firefox releases changed to signed `.xpi`.
-- Browser extension display name is **Space Mosquito** (was Pirate Mosquito / SpaceMosquito).
+- Firefox releases ship a signed `.xpi` for persistent install via Install Add-on From File (replacing temporary zip + `about:debugging` for end users).
+- Browser extension display name is **Space Mosquito**.
 
 ## [0.3.2] - 2026-08-04
 
