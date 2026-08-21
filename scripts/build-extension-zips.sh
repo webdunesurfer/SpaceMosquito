@@ -20,6 +20,33 @@ mkdir -p "$OUT_DIR"
 # would resolve to <ext>/dist/dist/... and fail.
 OUT_DIR="$(cd "$OUT_DIR" && pwd)"
 
+# Manifest backup paths must be global: EXIT traps run after function locals
+# are torn down (set -e), so locals would be unbound under `set -u`.
+_SM_MANIFEST_PATH=""
+_SM_MANIFEST_BAK=""
+
+restore_manifest() {
+  if [[ -n "${_SM_MANIFEST_BAK}" && -n "${_SM_MANIFEST_PATH}" && -f "${_SM_MANIFEST_BAK}" ]]; then
+    mv "${_SM_MANIFEST_BAK}" "${_SM_MANIFEST_PATH}" 2>/dev/null || true
+  fi
+  _SM_MANIFEST_PATH=""
+  _SM_MANIFEST_BAK=""
+}
+
+begin_stamped_manifest() {
+  local dir="$1"
+  _SM_MANIFEST_PATH="$dir/manifest.json"
+  _SM_MANIFEST_BAK="${_SM_MANIFEST_PATH}.bak.$$"
+  cp "${_SM_MANIFEST_PATH}" "${_SM_MANIFEST_BAK}"
+  trap restore_manifest EXIT
+  stamp_manifest "${_SM_MANIFEST_PATH}" "$MANIFEST_VERSION"
+}
+
+end_stamped_manifest() {
+  trap - EXIT
+  restore_manifest
+}
+
 stamp_manifest() {
   local path="$1"
   local ver="$2"
@@ -36,14 +63,9 @@ stamp_manifest() {
 build_chrome() {
   local dir="$REPO_ROOT/chrome-extension"
   local zip_path="$OUT_DIR/spacemosquito-chrome-${VERSION}.zip"
-  local mf="$dir/manifest.json"
-  local bak="$mf.bak.$$"
 
   echo "Building chrome-extension (manifest version $MANIFEST_VERSION)"
-  cp "$mf" "$bak"
-  restore_manifest() { mv "$bak" "$mf" 2>/dev/null || true; }
-  trap restore_manifest EXIT
-  stamp_manifest "$mf" "$MANIFEST_VERSION"
+  begin_stamped_manifest "$dir"
   (
     cd "$dir"
     npm ci
@@ -51,25 +73,20 @@ build_chrome() {
   )
   rm -f "$zip_path"
   ( cd "$dir/dist" && zip -r "$zip_path" . )
-  trap - EXIT
-  restore_manifest
+  end_stamped_manifest
   echo "Wrote $zip_path"
 }
 
 build_firefox_xpi() {
   local dir="$REPO_ROOT/firefox-extension"
   local xpi_path="$OUT_DIR/spacemosquito-firefox-${VERSION}.xpi"
-  local mf="$dir/manifest.json"
-  local bak="$mf.bak.$$"
   local artifacts_dir
   local source_zip
+  local source_base
   local signed
 
   echo "Building firefox-extension (manifest version $MANIFEST_VERSION)"
-  cp "$mf" "$bak"
-  restore_manifest() { mv "$bak" "$mf" 2>/dev/null || true; }
-  trap restore_manifest EXIT
-  stamp_manifest "$mf" "$MANIFEST_VERSION"
+  begin_stamped_manifest "$dir"
   (
     cd "$dir"
     npm ci
@@ -77,8 +94,7 @@ build_firefox_xpi() {
   )
 
   if [[ -z "${AMO_JWT_ISSUER:-}" || -z "${AMO_JWT_SECRET:-}" ]]; then
-    trap - EXIT
-    restore_manifest
+    end_stamped_manifest
     if [[ "${REQUIRE_FIREFOX_XPI:-}" == "1" ]]; then
       echo "error: AMO_JWT_ISSUER and AMO_JWT_SECRET are required to sign the Firefox XPI" >&2
       exit 1
@@ -88,7 +104,10 @@ build_firefox_xpi() {
   fi
 
   artifacts_dir="$(mktemp -d "${TMPDIR:-/tmp}/sm-ff-artifacts.XXXXXX")"
-  source_zip="$(mktemp "${TMPDIR:-/tmp}/sm-ff-source.XXXXXX.zip")"
+  # mktemp creates an empty file; zip refuses to treat that as a new archive.
+  source_base="$(mktemp "${TMPDIR:-/tmp}/sm-ff-source.XXXXXX")"
+  rm -f "$source_base"
+  source_zip="${source_base}.zip"
   # Human-readable sources for AMO (webpack production output is minified).
   (
     cd "$dir"
@@ -117,8 +136,7 @@ build_firefox_xpi() {
   if [[ -z "$signed" ]]; then
     echo "error: web-ext sign produced no .xpi in $artifacts_dir" >&2
     ls -la "$artifacts_dir" >&2 || true
-    trap - EXIT
-    restore_manifest
+    end_stamped_manifest
     rm -rf "$artifacts_dir"
     exit 1
   fi
@@ -127,8 +145,7 @@ build_firefox_xpi() {
   mv "$signed" "$xpi_path"
   rm -rf "$artifacts_dir"
 
-  trap - EXIT
-  restore_manifest
+  end_stamped_manifest
   echo "Wrote $xpi_path"
 }
 
