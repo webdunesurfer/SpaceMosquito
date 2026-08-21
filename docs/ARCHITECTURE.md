@@ -21,7 +21,7 @@ skinparam rectangle {
 
 package "Host Machine" {
   [Firefox / Chrome] as browser
-  browser --> "Pirate Mosquito Extension" : captures cookies, manages UI
+  browser --> "Space Mosquito Extension" : captures cookies, manages UI
 
   [spacemosquito binary :8081] as app
   app --> [HTTP API]
@@ -38,7 +38,7 @@ package "Host Machine" {
   }
 }
 
-[Pirate Mosquito Extension] --> [HTTP API] : REST API
+[Space Mosquito Extension] --> [HTTP API] : REST API
 [HTTP API] --> [Scraper]
 [Scraper] --> [Confluence Cloud\natlassian.net] : API / browser
 [Scraper] --> [Confluence Server\nself-hosted] : API / browser

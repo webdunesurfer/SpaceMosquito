@@ -8,7 +8,7 @@ All state lives under `~/.spacemosquito/` (or a portable `--data-dir`).
 
 ## Install
 
-- **[Install](docs/INSTALL.md)** — download binary + extension zips from GitHub Releases
+- **[Install](docs/INSTALL.md)** — download binary + Firefox XPI / Chrome zip from GitHub Releases
 - **[Install from source](docs/INSTALL-FROM-SOURCE.md)** — build with Go and npm
 
 ## First run
@@ -33,7 +33,7 @@ SPACEMOSQUITO_DATA_DIR=./data ./spacemosquito serve
 ## Capture a Confluence session
 
 1. Start the server: `./spacemosquito serve`
-2. Load the Pirate Mosquito extension ([Install](docs/INSTALL.md#browser-extension) or [from source](docs/INSTALL-FROM-SOURCE.md#browser-extensions)).
+2. Load the Space Mosquito extension ([Install](docs/INSTALL.md#browser-extension) or [from source](docs/INSTALL-FROM-SOURCE.md#browser-extensions)).
 3. Open Confluence and use the extension to send cookies to `http://localhost:8081`.
 
 ## Crawl a space

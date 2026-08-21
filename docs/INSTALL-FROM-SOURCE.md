@@ -2,13 +2,13 @@
 
 Build the `spacemosquito` binary and browser extensions from a git clone.
 
-For pre-built binaries and extension zips, see [Install](INSTALL.md).
+For pre-built binaries and extension packages, see [Install](INSTALL.md).
 
 ## Requirements
 
 - Go 1.25+
 - npm (and npx) for building extensions
-- Firefox or Chrome (for the Pirate Mosquito extension)
+- Firefox or Chrome (for the Space Mosquito extension)
 
 ## Binary
 
@@ -19,18 +19,22 @@ make build
 # binary: spacemosquito/spacemosquito
 ```
 
-Cross-platform release artifacts (binaries + extension zips, same layout as CI):
+Cross-platform release artifacts (binaries + extensions, same layout as CI):
 
 ```sh
 cd spacemosquito
+# Firefox XPI signing needs AMO_JWT_ISSUER + AMO_JWT_SECRET in the environment;
+# without them the script skips the Firefox XPI and still builds Chrome.
 ./scripts/build-release.sh v0.2.0
 ls dist/
 ```
 
-Extension zips only:
+Extension packages only:
 
 ```sh
 ./scripts/build-extension-zips.sh v0.2.0
+# With signing:
+#   AMO_JWT_ISSUER=… AMO_JWT_SECRET=… ./scripts/build-extension-zips.sh v0.2.0
 ```
 
 ## Browser extensions
@@ -42,10 +46,14 @@ make build-extensions
 #   cd chrome-extension && npm ci && npm run build
 ```
 
-### Firefox
+### Firefox (development)
 
 Open `about:debugging` → **This Firefox** → **Load Temporary Add-on…** → select
-`firefox-extension/dist/manifest.json`.
+`firefox-extension/dist/manifest.json`. Temporary add-ons are removed when
+Firefox restarts.
+
+For a persistent install of a **release** build, use the signed `.xpi` from
+GitHub Releases ([Install](INSTALL.md#firefox)).
 
 ### Chrome
 
@@ -61,4 +69,4 @@ Open `chrome://extensions` → **Developer mode** → **Load unpacked** → sele
 
 Then capture a Confluence session with the extension (see [README](../README.md#capture-a-confluence-session)).
 
-Contributor workflows, tests, and tooling: [DEVELOPMENT.md](DEVELOPMENT.md).
+Contributor workflows, tests, and tooling: [dev/README.md](../dev/README.md).

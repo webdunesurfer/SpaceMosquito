@@ -5,7 +5,7 @@ Install SpaceMosquito from a [GitHub Release](https://github.com/webdunesurfer/S
 ## Requirements
 
 - A release asset for your OS/arch (`spacemosquito-*`)
-- Firefox or Chrome (for the Pirate Mosquito extension)
+- Firefox or Chrome (for the Space Mosquito extension)
 
 ## Binary
 
@@ -22,22 +22,21 @@ sudo mv spacemosquito-darwin-arm64 /usr/local/bin/spacemosquito
 
 Each release also includes:
 
-- `spacemosquito-firefox-*.zip`
-- `spacemosquito-chrome-*.zip`
-
-Unzip so `manifest.json` is at the top of the folder (do not load a parent directory that only contains another folder).
+- `spacemosquito-firefox-*.xpi` — signed Firefox add-on
+- `spacemosquito-chrome-*.zip` — Chrome unpacked package
 
 ### Firefox
 
-1. Unzip `spacemosquito-firefox-*.zip` into a folder.
-2. Open `about:debugging` → **This Firefox** → **Load Temporary Add-on…**
-3. Select that folder’s `manifest.json`.
+1. Download `spacemosquito-firefox-*.xpi` from the release.
+2. Open `about:addons` → gear icon → **Install Add-on From File…**
+3. Select the `.xpi` file and confirm.
 
-Temporary add-ons are removed when Firefox restarts; load again after a restart.
+The add-on stays installed across Firefox restarts.
 
 ### Chrome
 
-1. Unzip `spacemosquito-chrome-*.zip` into a folder.
+1. Unzip `spacemosquito-chrome-*.zip` into a folder so `manifest.json` is at the
+   top of that folder (do not load a parent that only contains another folder).
 2. Open `chrome://extensions` → enable **Developer mode** → **Load unpacked**
 3. Select that folder (the one that contains `manifest.json`).
 

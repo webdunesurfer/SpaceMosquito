@@ -23,25 +23,30 @@ survives browser restarts without reloading.
 
 | # | Topic | Status | Decision |
 |---|--------|--------|----------|
-| 1 | Signing vs unsigned | open | Option A: AMO self-hosted signing (`web-ext sign --channel unlisted`) — works on all Firefox channels. Option B: Unsigned XPI — requires Dev Edition / Nightly / ESR + `xpinstall.signatures.required = false`. |
-| 2 | Distribution format | open | `.xpi` file in GitHub Releases (rename current `.zip` to `.xpi`, or produce both)? |
+| 1 | Signing vs unsigned | locked | **AMO unlisted signing** (`web-ext sign --channel unlisted`). Works on all Firefox channels; no `about:config` override. |
+| 2 | Distribution format | locked | **XPI only** for Firefox releases — stop shipping `spacemosquito-firefox-*.zip`; ship signed `spacemosquito-firefox-*.xpi`. |
+| 3 | AMO credentials | locked | Store as GitHub **repository secrets**: `AMO_JWT_ISSUER`, `AMO_JWT_SECRET`. CI release job passes them to `web-ext sign`. |
 
 ## Non-goals
 
 - Publishing on addons.mozilla.org as a listed/public extension.
 - Changing Chrome extension install flow (already persistent via "Load unpacked").
+- Shipping an unsigned Firefox zip alongside the XPI.
 
 ## Implementation
 
 ### Already done (no work needed)
 
 - `manifest.json` has `browser_specific_settings.gecko.id` =
-  `spacemosquito@vkh.dev` — **required** for XPI install and already present.
+  `space@mosqui.to` — **required** for XPI install and already present.
 
-### Option A: AMO unlisted signing (recommended if viable)
+### AMO unlisted signing + XPI artifact
 
 1. Register at `addons.mozilla.org`, generate API key + secret.
-2. Add a build step (CI or Makefile):
+2. Configure GitHub repository secrets: `AMO_JWT_ISSUER`, `AMO_JWT_SECRET`
+   (Settings → Secrets and variables → Actions).
+3. Add a build / release step that injects those secrets into the
+   `build-extensions` (or successor) job:
 
    ```sh
    npx web-ext sign \
@@ -51,53 +56,39 @@ survives browser restarts without reloading.
      --api-secret "$AMO_JWT_SECRET"
    ```
 
-3. This produces a signed `.xpi` that installs on **any** Firefox (release,
-   ESR, Dev, Nightly) without signature overrides.
-4. Upload signed XPI to GitHub Releases alongside the unsigned zip.
-5. Update `docs/INSTALL.md` Firefox section.
+4. Produce a signed `.xpi` that installs on **any** Firefox (release, ESR,
+   Dev, Nightly) without signature overrides.
+5. GitHub Releases: ship **only** `spacemosquito-firefox-v*.xpi` (remove
+   Firefox zip from release assets / SHA256SUMS / docs).
+6. Update `docs/INSTALL.md` Firefox section: primary path = "Install Add-on
+   From File" with the XPI; keep `about:debugging` as **dev-only** fallback
+   (load unpacked `dist/` / unsigned build during development).
+7. Update `Makefile` / release scripts / CI that currently zip the Firefox
+   extension; README / release notes that mention the zip.
 
-**Trade-offs:**
+Local `build-release.sh` cannot sign without the secrets on the machine; either
+skip Firefox XPI locally, or document exporting the same env vars for a
+manual signed build.
+
+**Trade-offs (accepted):**
 - Requires Mozilla developer account + stored secrets.
-- AMO review (unlisted = automated scan, no human review, usually minutes).
+- AMO automated scan on each signed build (usually minutes).
 - Must re-sign on every version bump.
-
-### Option B: Unsigned XPI (simpler, limited audience)
-
-1. Rename or additionally produce `.xpi` from the existing zip build:
-
-   ```sh
-   cd dist && zip -r ../spacemosquito-firefox-v$VERSION.xpi .
-   ```
-
-2. Document that users need Firefox Developer Edition / Nightly / ESR and must
-   set `xpinstall.signatures.required = false` in `about:config`.
-3. Update `docs/INSTALL.md` with the new install path.
-
-**Trade-offs:**
-- Does **not** work on standard Firefox release channel.
-- Requires `about:config` change — extra friction, but one-time.
-- No external accounts or secrets needed.
-
-### Common changes (both options)
-
-- **`docs/INSTALL.md`** — rewrite Firefox section: primary path = "Install
-  Add-on From File"; keep `about:debugging` as fallback for development.
-- **`Makefile` / CI** — add `xpi` target or rename artifact extension.
-- **README** — mention persistence.
 
 ## Done when
 
-- [ ] Firefox extension installs via `about:addons` → "Install Add-on From
-      File" and survives restart.
-- [ ] `docs/INSTALL.md` updated with the new primary install path.
-- [ ] Release artifacts include the installable XPI (signed or unsigned per
-      decision #1).
-- [ ] `about:debugging` path documented as dev-only fallback.
+- [x] Firefox extension installs via `about:addons` → "Install Add-on From
+      File" and survives restart. *(release artifact path; verify on next tag)*
+- [x] `docs/INSTALL.md` updated with the new primary install path (XPI).
+- [x] Release artifacts include signed `spacemosquito-firefox-*.xpi` only
+      (no Firefox zip).
+- [x] `about:debugging` path documented as dev-only fallback.
 
 ## Notes
 
+- Implemented in `scripts/build-extension-zips.sh` + `.github/workflows/release.yml`.
+- CI sets `REQUIRE_FIREFOX_XPI=1` so missing AMO secrets fail the release job.
+- Local builds without secrets skip the Firefox XPI and still build Chrome.
 - The manifest already has `gecko.id` — the main technical prerequisite is met.
 - `web-ext sign` docs: https://extensionworkshop.com/documentation/develop/web-ext-command-reference/#web-ext-sign
-- Unsigned XPI requires: Dev Edition / Nightly / ESR + `xpinstall.signatures.required = false`.
-- Standard Firefox release channel **cannot** disable signature checking (since Firefox 47).
 - Chrome is unaffected — "Load unpacked" is already persistent (survives restart).

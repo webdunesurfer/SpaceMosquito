@@ -28,7 +28,7 @@ Detail lives in `dev/tasks/<task-id>.md` when needed.
 - status: ready
 - goal: Support persistent Firefox extension install via "Install Add-on From File" (XPI) instead of temporary `about:debugging` load.
 - done_when: Extension installs from XPI via `about:addons`, survives restart; INSTALL.md updated; release artifacts include XPI.
-- notes: Detail in [`tasks/task-firefox-persistent-install.md`](tasks/task-firefox-persistent-install.md). Manifest already has `gecko.id`; main decision is signed (AMO unlisted) vs unsigned (Dev Edition only).
+- notes: Implemented — AMO unlisted signing in CI; ship `.xpi` only. Requires repo secrets `AMO_JWT_ISSUER` / `AMO_JWT_SECRET`. Remove from backlog on next release. Detail in [`tasks/task-firefox-persistent-install.md`](tasks/task-firefox-persistent-install.md).
 
 ## task-cme-markdown-gap-analysis
 - status: ready

@@ -82,9 +82,13 @@ jobs:
             firefox-extension/package-lock.json
             chrome-extension/package-lock.json
 
-      - name: Build extension zips
+      - name: Build extension packages
+        timeout-minutes: 30
         env:
           VERSION: ${{ github.ref_name }}
+          AMO_JWT_ISSUER: ${{ secrets.AMO_JWT_ISSUER }}
+          AMO_JWT_SECRET: ${{ secrets.AMO_JWT_SECRET }}
+          REQUIRE_FIREFOX_XPI: "1"
         run: |
           chmod +x scripts/build-extension-zips.sh
           ./scripts/build-extension-zips.sh "$VERSION" dist
@@ -94,7 +98,7 @@ jobs:
         with:
           name: spacemosquito-extensions
           path: |
-            dist/spacemosquito-firefox-*.zip
+            dist/spacemosquito-firefox-*.xpi
             dist/spacemosquito-chrome-*.zip
 
   release:

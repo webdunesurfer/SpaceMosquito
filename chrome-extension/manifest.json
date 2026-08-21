@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "SpaceMosquito",
+  "name": "Space Mosquito",
   "version": "0.3.2",
   "description": "Capture Confluence spaces for offline access",
   "permissions": [
@@ -29,7 +29,7 @@
   },
   "action": {
     "default_popup": "popup.html",
-    "default_title": "SpaceMosquito",
+    "default_title": "Space Mosquito",
     "default_icon": {
       "16": "assets/icon.svg",
       "32": "assets/icon.svg"
