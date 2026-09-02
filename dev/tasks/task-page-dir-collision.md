@@ -1,4 +1,4 @@
-# Task: Make per-page directories collision-proof (append Confluence ID)
+# Task: Make per-page directories collision-proof (prefix Confluence ID)
 
 ## Problem
 
@@ -35,29 +35,31 @@ collision class. Keep directories human-readable/browsable.
 
 ## Design
 
-Name the directory `{sanitized-title}-{confluenceID}`, truncating the **title
-part** before appending the ID so the ID is never cut:
+Name the directory `{confluenceID}-{sanitized-title}`, truncating the **title
+part** after the ID so the ID is never cut:
 
 ```
-{basePath}/{spaceKey}/{sanitizeFilename(title, cap=100)}-{confluenceID}
+{basePath}/{spaceKey}/{confluenceID}-{sanitizeFilename(title, cap=100)}
 ```
 
 `confluence_id` is unique per space → directories are collision-free, and the
-title prefix keeps them recognizable. Example:
-`saved/SPACE/Test Report Long Title…-542576204`.
+title suffix keeps them recognizable. Example:
+`saved/SPACE/542576204-Test Report Long Title…`.
 
 Alternatives considered:
 - **ID-only dir** (`{confluenceID}`) — simplest and safe, but loses
   browsability. *Rejected for readability.*
 - **Collision suffix on demand** (`title`, then `title-2`, …) — non-deterministic
   across crawls (a page's dir could change if crawl order changes). *Rejected.*
+- **`{title}-{id}`** — also unique; rejected in favor of ID-first for stable
+  sort/prefix by Confluence ID.
 
 ### Code changes
 
 - **`MakePageDir(spaceKey, pageTitle string, confluenceID int)`**
   ([writer.go:46](../../spacemosquito/internal/storage/writer.go#L46)) — new param;
-  build the suffixed name. Truncate title to 100, then append `-{id}`.
-- **`sanitizeFilename`** — keep as-is (still folds unsafe chars); the ID suffix
+  build `{id}-{title}`. Truncate title to 100; ID is always the full prefix.
+- **`sanitizeFilename`** — keep as-is (still folds unsafe chars); the ID prefix
   is added by `MakePageDir`.
 - **Callers:**
   - `savePageMetadata` ([scraper.go:393](../../spacemosquito/internal/scraper/scraper.go#L393))
@@ -66,8 +68,7 @@ Alternatives considered:
     stub with placeholder title/space and no ID; pass `0` or leave clearly
     marked as a dev stub.
 - **`GetSavedPath`** ([writer.go:148](../../spacemosquito/internal/storage/writer.go#L148))
-  — production-dead (only referenced by a test). Either update it to the new
-  scheme (needs the ID) or delete it + its test. *Recommend delete.*
+  — **delete** (prod-dead) + its test.
 
 ### Not affected
 
@@ -87,28 +88,25 @@ scheme. After the change:
 
 - **Existing pages still work** — `reindex`/`get-page` use the stored
   `file_dir`, which still points at the old dir.
-- **Re-crawling a page** now creates a **new** `{title}-{id}` dir and updates the
+- **Re-crawling a page** now creates a **new** `{id}-{title}` dir and updates the
   row's `file_dir` (upsert sets `file_dir=excluded.file_dir`); the **old
   title-only dir is orphaned** on disk (harmless cruft, but duplicated bytes).
 - **Already-corrupted pages** (two pages that previously shared a dir) can't be
   recovered by any migration — the overwritten files are gone. Only a **re-crawl**
   restores both. Call this out in the changelog.
 
-Options:
-1. **No auto-migration (recommended for v1).** New scheme applies going forward;
-   document that a fresh crawl re-lays-out under `{title}-{id}` and that stale
-   old-scheme dirs can be deleted once a space is recrawled.
-2. **Optional one-time `migrate-page-dirs` helper.** For each DB row whose
-   `file_dir` is old-scheme, rename dir → `{title}-{id}` and update `file_dir`.
-   Skip/flag rows whose target already exists (the collision victims) for manual
-   re-crawl. More work; do only if orphaned dirs are a real concern.
+Options (locked — see Decisions):
+1. **No auto-migration.** New scheme applies going forward; document that a
+   fresh crawl re-lays-out under `{id}-{title}` and that stale old-scheme dirs
+   are left on disk (no cleanup command in v1).
+2. ~~Optional `migrate-page-dirs` helper~~ — deferred / out of scope for v1.
 
 ## Testing
 
-- `MakePageDir` returns `…/{title}-{id}` and is **unique** for two pages with
+- `MakePageDir` returns `…/{id}-{title}` and is **unique** for two pages with
   identical (or truncation-colliding) titles but different IDs → two distinct
   dirs, no overwrite.
-- Title > 100 chars: truncated title + full ID suffix (ID never cut).
+- Title > 100 chars: full ID prefix + truncated title (ID never cut).
 - Char-folding titles (`A/B` vs `A:B`) with different IDs → distinct dirs.
 - Existing scraper/storage tests updated for the new signature; `reindex` test
   (stored `file_dir`) stays green.
@@ -119,10 +117,15 @@ Options:
 - Changing the DB schema or the `file_dir` contract (still a full path string).
 - Renaming the space-level directory layout.
 
+## Decisions
+
+| # | Topic | Status | Decision |
+|---|--------|--------|----------|
+| 1 | Dir scheme | locked | `{id}-{title}` — `{basePath}/{spaceKey}/{confluenceID}-{sanitizeFilename(title, cap=100)}` |
+| 2 | Migration | locked | **Document-only** — no `migrate-page-dirs` helper in v1; fresh crawl re-lays-out under the new scheme. |
+| 3 | Orphaned old dirs | locked | **Leave them** — no cleanup step/command in v1. |
+| 4 | `GetSavedPath` | locked | **Delete** (prod-dead) + its test. |
+
 ## Open questions
 
-1. **Dir scheme** — `{title}-{id}` (recommended) vs `{id}`-only?
-2. **Migration** — ship the optional `migrate-page-dirs` helper, or document
-   manual recrawl only? *Recommend document-only for v1.*
-3. **Orphaned old dirs** — leave them, or add a cleanup step/command?
-4. **`GetSavedPath`** — delete (recommended, prod-dead) or keep and update?
+_None — all locked above._

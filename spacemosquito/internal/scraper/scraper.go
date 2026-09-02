@@ -532,7 +532,7 @@ func (s *Scraper) ScrapePageAPI(pg *Page, spaceKey, spaceURL string, sess *sessi
 // savePageMetadata saves the scraped page to disk and database.
 // If pg.FileDir is already set (e.g. crawl-page reusing an existing catalog
 // path), that directory is wiped then reused; otherwise a new dir is created
-// from the title.
+// as `{confluenceID}-{sanitizedTitle}`.
 func (s *Scraper) savePageMetadata(pg *Page, spaceKey, spaceURL string, cloud bool) error {
 	var dir string
 	var err error
@@ -545,7 +545,7 @@ func (s *Scraper) savePageMetadata(pg *Page, spaceKey, spaceURL string, cloud bo
 			return fmt.Errorf("ensure page dir: %w", err)
 		}
 	} else {
-		dir, err = s.storage.MakePageDir(spaceKey, pg.Title)
+		dir, err = s.storage.MakePageDir(spaceKey, pg.Title, pg.ConfluenceID)
 		if err != nil {
 			return fmt.Errorf("make page dir: %w", err)
 		}

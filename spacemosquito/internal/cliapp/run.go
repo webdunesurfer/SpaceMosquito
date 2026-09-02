@@ -385,7 +385,7 @@ func runSave(cfg *config.Config, pageURL string, log *zap.Logger) {
 	spaceKey := "unknown"
 	pageTitle := "untitled"
 
-	dir, err := w.MakePageDir(spaceKey, pageTitle)
+	dir, err := w.MakePageDir(spaceKey, pageTitle, 0) // stub: no Confluence ID
 	if err != nil {
 		sugar.Errorw("failed to create page dir", "error", err)
 		os.Exit(1)

@@ -43,14 +43,17 @@ func NewWriter(basePath string, log logging.Sugar) *Writer {
 	return &Writer{basePath: basePath, log: log}
 }
 
-func (w *Writer) MakePageDir(spaceKey, pageTitle string) (string, error) {
+func (w *Writer) MakePageDir(spaceKey, pageTitle string, confluenceID int) (string, error) {
+	// {id}-{title}: ID first so it is never truncated; title is sanitized/capped at 100.
 	safeTitle := sanitizeFilename(pageTitle)
-	dir := filepath.Join(w.basePath, spaceKey, safeTitle)
+	dirName := fmt.Sprintf("%d-%s", confluenceID, safeTitle)
+	dir := filepath.Join(w.basePath, spaceKey, dirName)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		if w.log.Enabled() {
 			w.log.Errorw("make page dir failed: directory creation",
 				"space", spaceKey,
 				"title", pageTitle,
+				"confluence_id", confluenceID,
 				"path", dir,
 				"error", err)
 		}
@@ -60,6 +63,7 @@ func (w *Writer) MakePageDir(spaceKey, pageTitle string) (string, error) {
 		w.log.Infow("page directory created",
 			"space", spaceKey,
 			"title", pageTitle,
+			"confluence_id", confluenceID,
 			"path", dir)
 	}
 	return dir, nil
@@ -168,10 +172,6 @@ func (w *Writer) SaveAsset(dir, url, localPath string) (string, error) {
 		w.log.Infow("asset directory created", "path", filepath.Dir(destDir), "url", url)
 	}
 	return destDir, nil
-}
-
-func (w *Writer) GetSavedPath(spaceKey, pageTitle string) string {
-	return filepath.Join(w.basePath, spaceKey, sanitizeFilename(pageTitle))
 }
 
 func sanitizeFilename(name string) string {

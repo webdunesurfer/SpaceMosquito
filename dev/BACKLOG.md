@@ -32,9 +32,9 @@ Detail lives in `dev/tasks/<task-id>.md` when needed.
 
 ## task-page-dir-collision
 - status: ready
-- goal: Make per-page `saved/` dirs unique by appending Confluence ID (`{title}-{id}`).
+- goal: Make per-page `saved/` dirs unique by prefixing Confluence ID (`{id}-{title}`).
 - done_when: Truncation/char-fold collisions no longer overwrite on-disk files; existing `file_dir` rows still work; tests cover colliding titles.
-- notes: Detail in [`tasks/task-page-dir-collision.md`](tasks/task-page-dir-collision.md). No auto-migration of old dirs in v1.
+- notes: Implemented — remove from backlog on next release. Detail in [`tasks/task-page-dir-collision.md`](tasks/task-page-dir-collision.md).
 
 ## task-self-hosted-confluence
 - status: backlog

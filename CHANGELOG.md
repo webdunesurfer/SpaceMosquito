@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- On-disk page directories naming switched to `{confluence-id}-{title}`
+
 ## [0.3.3] - 2026-08-21
 
 ### Changed
