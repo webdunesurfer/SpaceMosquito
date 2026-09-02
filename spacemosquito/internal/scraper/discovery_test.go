@@ -85,6 +85,10 @@ func TestExtractConfluenceBaseURL(t *testing.T) {
 	if got != "https://company.atlassian.net" {
 		t.Errorf("got %q", got)
 	}
+	got = extractConfluenceBaseURL("https://wiki.example.com/confluence/display/KEY")
+	if got != "https://wiki.example.com/confluence" {
+		t.Errorf("context path: got %q", got)
+	}
 	if extractConfluenceBaseURL("") != "" {
 		t.Error("empty url should return empty")
 	}

@@ -16,7 +16,8 @@ type AssetRequest struct {
 type RenderContext struct {
 	// PageID is the Confluence page ID, used to build attachment download URLs.
 	PageID int
-	// BaseURL is the Confluence base (scheme://host), used to build download URLs.
+	// BaseURL is the Confluence site/API base (scheme://host[/context]), used
+	// to build download URLs.
 	BaseURL string
 	// Cloud selects the attachment download URL shape: Cloud inserts a /wiki
 	// path prefix, Server/DC does not.

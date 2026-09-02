@@ -14,6 +14,7 @@ import (
 	"github.com/go-rod/rod"
 	"github.com/go-rod/rod/lib/proto"
 	"github.com/vkh/spacemosquito/internal/config"
+	"github.com/vkh/spacemosquito/internal/confluence"
 	"github.com/vkh/spacemosquito/internal/contentmd"
 	"github.com/vkh/spacemosquito/internal/contentmd/csf"
 	"github.com/vkh/spacemosquito/internal/session"
@@ -609,7 +610,12 @@ func (s *Scraper) savePageMetadata(pg *Page, spaceKey, spaceURL string, cloud bo
 		s.log.Infow("space not found, auto-creating", "space_key", spaceKey)
 		sURL := spaceURL
 		if sURL == "" {
-			sURL = "https://example.atlassian.net/wiki/spaces/" + spaceKey
+			sURL = confluence.DeriveSpaceURL(pg.URL, spaceKey)
+		}
+		if sURL == "" {
+			s.log.Warnw("failed to auto-create space: no space or page URL to derive from",
+				"space_key", spaceKey)
+			return nil
 		}
 		spaceID, err := s.db.CreateSpace(context.Background(), spaceKey, spaceKey, sURL)
 		if err != nil {

@@ -41,6 +41,9 @@ SPACEMOSQUITO_DATA_DIR=./data ./spacemosquito serve
 ```sh
 ./spacemosquito crawl "https://your-domain.atlassian.net/wiki/spaces/SPACEKEY"
 
+# Self-hosted / Server-DC (context path is auto-detected, e.g. /confluence/)
+./spacemosquito crawl "https://wiki.mycompany.com/confluence/display/SPACEKEY"
+
 # Full refresh: re-scrape every page and re-download every asset
 ./spacemosquito crawl --force "https://your-domain.atlassian.net/wiki/spaces/SPACEKEY"
 ```

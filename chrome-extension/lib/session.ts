@@ -2,6 +2,7 @@ import type { Cookie } from './types';
 
 const ATLASIAN_COOKIE_PATTERNS = [
   'session', 'token', 'sso', 'atlassian', 'aui',
+  'seraph', 'crowd', 'remember', 'jsession',
 ];
 
 function shouldKeepCookie(name: string): boolean {

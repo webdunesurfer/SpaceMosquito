@@ -373,14 +373,14 @@ func (d *AssetDownloader) RewriteURL(rawURL, assetBase string) string {
 	}
 
 	if strings.HasPrefix(parsed.Path, "/download/attachments/") {
-		ext := filepath.Ext(parsed.Path)
+		ext := urlPathExt(rawURL)
 		hash := sha256.Sum256([]byte(rawURL))
 		return filepath.Join(assetBase, "attachments", fmt.Sprintf("%x%s", hash[:8], ext))
 	}
 
 	if strings.HasPrefix(parsed.Host, "confluence-attachments") ||
 		strings.Contains(parsed.Path, "/plugins/attachments") {
-		ext := filepath.Ext(parsed.Path)
+		ext := urlPathExt(rawURL)
 		if ext == "" {
 			ext = ".bin"
 		}

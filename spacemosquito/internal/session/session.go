@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/vkh/spacemosquito/internal/confluence"
 	"github.com/vkh/spacemosquito/pkg/logging"
 )
 
@@ -310,18 +311,8 @@ func GetSpaceNameFromURL(url string) string {
 	return ""
 }
 
-// extractConfluenceRoot extracts the base URL (scheme + host) from a Confluence URL
+// extractConfluenceRoot extracts the Confluence site/API base (scheme + host +
+// context path) from a browse or space URL. See confluence.BaseURL.
 func extractConfluenceRoot(urlStr string) string {
-	if urlStr == "" {
-		return ""
-	}
-
-	u, err := url.Parse(urlStr)
-	if err != nil {
-		return ""
-	}
-
-	// Base is just scheme + host
-	root := fmt.Sprintf("%s://%s", u.Scheme, u.Host)
-	return root
+	return confluence.BaseURL(urlStr)
 }

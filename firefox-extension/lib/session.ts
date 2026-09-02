@@ -25,15 +25,8 @@ function cookieKey(c: any): string {
 }
 
 function domainVariants(hostname: string): string[] {
-  const out = new Set<string>([hostname, '.' + hostname]);
-  const parts = hostname.split('.');
-  // wiki.example.net → also example.net / .example.net (SSO cookies often land on parent)
-  if (parts.length >= 3) {
-    const parent = parts.slice(1).join('.');
-    out.add(parent);
-    out.add('.' + parent);
-  }
-  return Array.from(out);
+  // Hostname only (epic lock): do not scrape parent domains for SSO cookies.
+  return [hostname, '.' + hostname];
 }
 
 /**

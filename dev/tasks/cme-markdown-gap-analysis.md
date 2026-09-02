@@ -1,4 +1,7 @@
-# Task: Gap analysis — CME Markdown conversion vs CSF converter
+# Gap analysis — CME Markdown conversion vs CSF converter
+
+- **Task ID:** `cme-markdown-gap-analysis`
+- **Status:** ready
 
 ## Goal
 

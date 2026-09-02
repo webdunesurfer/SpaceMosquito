@@ -355,7 +355,13 @@ func (s *Scheduler) runIncremental(ctx context.Context, jobID, spaceKey, spaceUR
 		default:
 		}
 
-		pageURL := fmt.Sprintf("https://teamnetconomy.atlassian.net/wiki/spaces/%s/pages/%d", spaceKey, page.ConfluenceID)
+		pageURL := ResolvePageBrowseURL(page, spaceKey, spaceURL)
+		if pageURL == "" {
+			s.log.Warnw("could not resolve page browse URL, skipping",
+				"job_id", jobID, "page_id", page.ConfluenceID, "space_url", spaceURL)
+			skipped++
+			continue
+		}
 
 		var isChanged bool
 		switch detection {

@@ -71,8 +71,9 @@ func TestExtractConfluenceRoot(t *testing.T) {
 	}{
 		{"https://company.atlassian.net/wiki/spaces/PROJ", "https://company.atlassian.net"},
 		{"https://confluence.example.com:8443/display/KEY", "https://confluence.example.com:8443"},
+		{"https://wiki.example.com/confluence/display/KEY", "https://wiki.example.com/confluence"},
 		{"", ""},
-		{"not-a-url", "://"},
+		{"not-a-url", ""},
 	}
 	for _, tc := range tests {
 		if got := extractConfluenceRoot(tc.url); got != tc.want {
