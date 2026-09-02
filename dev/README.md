@@ -1,10 +1,23 @@
 # Development
 
+How we run this project: ground rules, setup, cleanup, release, and product-specific notes.
+
 ## Ground rules
 
 - Breaking changes in API are acceptable.
 - When writing documentation use Mermaid for diagrams.
+- When cleaning finished or cancelled work, follow [`CLEANUP.md`](CLEANUP.md). When cutting a version, follow [`RELEASE.md`](RELEASE.md).
 
+## What's in this folder
+
+| Doc | Role | Lifetime |
+|-----|------|----------|
+| [`README.md`](README.md) (this file) | Setup, ground rules, product notes | Durable |
+| [`CLEANUP.md`](CLEANUP.md) | Promote durable content; remove finished tasks | Durable |
+| [`RELEASE.md`](RELEASE.md) | Version changelog, bump extensions, tag / GitHub Release | Durable |
+| [`BACKLOG.md`](BACKLOG.md) | Flat task index | Living — cleaned via CLEANUP.md |
+| [`STATUS.md`](STATUS.md) | Current focus / blockers / session notes | Living — refreshed each session |
+| [`tasks/`](tasks/) | Optional detail for a backlog item | Temporary — deleted on cleanup |
 
 ## Local Development & Build
 

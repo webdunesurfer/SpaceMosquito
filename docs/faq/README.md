@@ -6,7 +6,7 @@ Explanations that outlive individual tasks: domain concepts, formulas, CLI/API h
 
 - A concept is referenced often and should not be re-explained in every task doc.
 - Behavior or semantics need a single source of truth for humans and agents.
-- On release, lasting detail from a deleted task doc belongs here (or in an ADR / layer README).
+- On cleanup, lasting detail from a deleted task doc belongs here (or in an ADR / layer README) — see [`dev/CLEANUP.md`](../../dev/CLEANUP.md).
 
 ## Conventions
 

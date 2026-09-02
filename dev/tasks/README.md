@@ -10,6 +10,6 @@ Use when a task needs examples, sample data, decision notes, or acceptance detai
 
 Keep `BACKLOG.md` as the index (status, goal, done_when). This folder holds supporting material only.
 
-Task detail files are temporary: remove them on release when the task ships or is cancelled (see [`../RELEASE.md`](../RELEASE.md)). This README and the folder stay.
+Task detail files are temporary: remove them on cleanup when the task ships or is cancelled (see [`../CLEANUP.md`](../CLEANUP.md)). This README and the folder stay.
 
 Copy [`TEMPLATE.md`](TEMPLATE.md) → `dev/tasks/<task-id>.md` when creating a new detail file (kebab-case ID, **no** `task-` prefix). Do not leave `TEMPLATE.md` copies named as real tasks.

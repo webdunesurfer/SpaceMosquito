@@ -1,14 +1,17 @@
 # Release
 
+Related: [CHANGELOG.md](../CHANGELOG.md), [CLEANUP.md](CLEANUP.md)
+
+Promote finished task artifacts with [CLEANUP.md](CLEANUP.md) first if needed (backlog rows, task detail files, STATUS). This runbook is for **versioning and publishing**.
+
 ## Prepare
 
 1. Ensure the build is green: `make test`
-2. Update [`CHANGELOG.md`](../CHANGELOG.md) to the new version (move items out of Unreleased). Keep changeloge entries conscise, focus on user-facing functionality changes, skip technical details.
-3. Clear shipped items from [`BACKLOG.md`](BACKLOG.md); leave open work.
-4. Update [`STATUS.md`](STATUS.md) if the focus changes.
-5. Bump firefox-extension and chrome-extension `manifest.json` + `package.json` to X.Y.Z
+2. Update [`CHANGELOG.md`](../CHANGELOG.md) to the new version (move items out of Unreleased). Keep changelog entries concise, focus on user-facing functionality changes, skip technical details.
+3. Confirm cleanup is done (or run [`CLEANUP.md`](CLEANUP.md) now).
+4. Bump firefox-extension and chrome-extension `manifest.json` + `package.json` to X.Y.Z
    (release CI also stamps the version into the packaged manifests).
-6. Ensure GitHub repository secrets `AMO_JWT_ISSUER` and `AMO_JWT_SECRET` are set
+5. Ensure GitHub repository secrets `AMO_JWT_ISSUER` and `AMO_JWT_SECRET` are set
    (AMO API credentials for signing the Firefox XPI). Without them the
    `build-extensions` job fails.
 
