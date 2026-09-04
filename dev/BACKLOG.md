@@ -31,10 +31,10 @@ Detail lives in `dev/tasks/<task-id>.md` when needed (no `task-` filename prefix
 - notes: Detail in [`tasks/cme-markdown-gap-analysis.md`](tasks/cme-markdown-gap-analysis.md).
 
 ## self-hosted-confluence
-- status: ready
+- status: done
 - goal: Epic — self-hosted / custom-domain Confluence end-to-end (not only `*.atlassian.net`).
 - done_when: Children shipped; capture/validate/crawl on `wiki.example.com`; no hardcoded tenant in cron; Cloud unchanged.
-- notes: Thin epic in [`tasks/self-hosted-confluence.md`](tasks/self-hosted-confluence.md). Children (cron, context-path, extension-cookies) implemented; epic done_when still needs manual smoke + optional ADR.
+- notes: Done; detail in [`tasks/self-hosted-confluence.md`](tasks/self-hosted-confluence.md). Optional follow-up ADR still suggested there.
 
 ## self-hosted-cron-webui
 - status: done

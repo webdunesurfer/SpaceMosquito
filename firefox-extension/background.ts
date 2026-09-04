@@ -14,7 +14,9 @@ function isConfluenceUrl(url: string): boolean {
     lowerUrl.includes('atlassian.net') ||
     lowerUrl.includes('/wiki/spaces/') ||
     lowerUrl.includes('/spaces/') ||
-    lowerUrl.includes('/display/')
+    lowerUrl.includes('/display/') ||
+    lowerUrl.includes('/pages/viewpage.action') ||
+    lowerUrl.includes('/pages/viewspace.action')
   );
 }
 
@@ -242,10 +244,11 @@ browser.runtime.onMessage.addListener((msg: any, sender: any, sendResponse: (res
           }
           const hostname = new URL(tabUrl).hostname;
           const protocol = new URL(tabUrl).protocol;
+          const parsed = new URL(tabUrl);
 
-          // Match /wiki/spaces/KEY or /spaces/KEY or /display/KEY
+          // Match /wiki/spaces/KEY or /spaces/KEY or /display/KEY or ?spaceKey=
           const match = tabUrl.match(/\/(?:wiki\/)?spaces\/([^/?#]+)/) || tabUrl.match(/\/display\/([^/?#]+)/);
-          const spaceKey = match ? match[1] : '';
+          const spaceKey = match ? match[1] : (parsed.searchParams.get('spaceKey') || '');
           const spaceName = spaceKey || 'Unknown';
 
           let spaceURL = tabUrl;
@@ -256,6 +259,11 @@ browser.runtime.onMessage.addListener((msg: any, sender: any, sendResponse: (res
               spaceURL = `${protocol}//${hostname}/spaces/${spaceKey}/overview`;
             } else if (tabUrl.includes('/display/')) {
               spaceURL = `${protocol}//${hostname}/display/${spaceKey}`;
+            } else if (/\/pages\/view(?:page|space)\.action/i.test(tabUrl)) {
+              const path = parsed.pathname;
+              const i = path.toLowerCase().indexOf('/pages/');
+              const ctx = i >= 0 ? path.slice(0, i) : '';
+              spaceURL = `${protocol}//${hostname}${ctx}/display/${spaceKey}`;
             }
           }
           const info = { spaceKey, spaceName, spaceURL, pageTitle: '' };

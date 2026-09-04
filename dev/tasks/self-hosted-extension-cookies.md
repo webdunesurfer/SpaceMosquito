@@ -46,7 +46,7 @@ cookie peek in `auth.ts` (epic lock #7).
 - [x] Firefox does not call `cookies.getAll` for parent domains
 - [x] Chrome filter includes Server/DC session cookie names
 - [x] Placeholders are not Atlassian-only
-- [ ] Manual smoke: capture on custom-host tab still works (checklist)
+- [x] Manual smoke: capture on custom-host tab still works (checklist)
 
 ### Manual smoke checklist
 

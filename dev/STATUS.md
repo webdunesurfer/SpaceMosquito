@@ -1,10 +1,10 @@
 # Status
 
-Last updated: 2026-09-02
+Last updated: 2026-09-04
 
 ## Current focus
 
-Self-hosted Confluence epic children shipped (cron, context-path, extension-cookies). Epic smoke/ADR remain.
+Self-hosted Confluence epic done (manual smoke confirmed).
 
 ## Active task
 
@@ -16,5 +16,4 @@ _None._
 
 ## Next action
 
-1. Manual smoke on custom-host Confluence (capture / validate / crawl) to close the epic.
-2. Or pick [`cme-markdown-gap-analysis`](tasks/cme-markdown-gap-analysis.md).
+1. Pick [`cme-markdown-gap-analysis`](tasks/cme-markdown-gap-analysis.md), or run [`CLEANUP.md`](CLEANUP.md) before the next release.

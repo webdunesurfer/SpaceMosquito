@@ -1,7 +1,7 @@
 # Self-hosted Confluence (epic)
 
 - **Task ID:** `self-hosted-confluence`
-- **Status:** backlog
+- **Status:** done
 - **Children:**
   - [`self-hosted-cron-webui`](self-hosted-cron-webui.md)
   - [`self-hosted-context-path`](self-hosted-context-path.md)
@@ -39,12 +39,12 @@ Cloud on `wiki.mycompany.com`), not only `*.atlassian.net`.
 2. ~~**Context path**~~ — done
 3. ~~**Extension cookies**~~ — done
 
-Tests and docs land in each child’s `done_when`. Epic still needs manual smoke on a custom host before marking fully complete.
+Tests and docs land in each child’s `done_when`. Manual smoke on custom host confirmed.
 
 ## Epic done when
 
 - [x] All three children shipped
-- [ ] Capture / validate / crawl work on `wiki.example.com` (manual checklist)
+- [x] Capture / validate / crawl work on `wiki.example.com` (manual checklist)
 - [x] No hardcoded tenant URLs in cron
 - [x] Cloud path unchanged
 - [x] README documents self-hosted examples
