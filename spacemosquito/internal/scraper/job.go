@@ -306,9 +306,9 @@ func (r *CrawlRunner) Run(ctx context.Context, job *CrawlJob) error {
 		return fmt.Errorf("encryption key not configured")
 	}
 
-	sess, err := r.manager.store.Load(encKey)
+	sess, err := r.manager.store.GetForURL(encKey, job.SpaceURL)
 	if err != nil {
-		return fmt.Errorf("load session: %w", err)
+		return fmt.Errorf("load session for %s: %w", job.SpaceURL, err)
 	}
 
 	select {

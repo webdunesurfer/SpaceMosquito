@@ -275,9 +275,9 @@ func (s *Scheduler) runFullCrawl(ctx context.Context, jobID, spaceKey, spaceURL 
 		return
 	}
 
-	sess, err := s.store.Load(encKey)
+	sess, err := s.store.GetForURL(encKey, spaceURL)
 	if err != nil {
-		s.log.Errorw("failed to load session", "job_id", jobID, "error", err)
+		s.log.Errorw("failed to load session for space", "job_id", jobID, "space_url", spaceURL, "error", err)
 		return
 	}
 
@@ -319,9 +319,9 @@ func (s *Scheduler) runIncremental(ctx context.Context, jobID, spaceKey, spaceUR
 		return
 	}
 
-	sess, err := s.store.Load(encKey)
+	sess, err := s.store.GetForURL(encKey, spaceURL)
 	if err != nil {
-		s.log.Errorw("failed to load session", "job_id", jobID, "error", err)
+		s.log.Errorw("failed to load session for space", "job_id", jobID, "space_url", spaceURL, "error", err)
 		return
 	}
 

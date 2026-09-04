@@ -92,7 +92,12 @@ async function loadSessionStatus() {
   const sessionInfo = document.getElementById('session-info');
 
   try {
-    const status = await api.getSessionStatus();
+    let tabUrl = '';
+    try {
+      const tabs: any[] = await chrome.tabs.query({ active: true, currentWindow: true });
+      tabUrl = tabs[0]?.url || '';
+    } catch { /* ignore */ }
+    const status = await api.getSessionStatus(tabUrl || undefined);
 
     if (status.exists) {
       dot?.classList.add('connected');

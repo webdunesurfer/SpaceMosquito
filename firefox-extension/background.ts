@@ -104,7 +104,12 @@ async function pollSessionStatus() {
   try {
     const settings = await getSettings();
     const api = new ApiClient(settings.backendUrl);
-    const status = await api.getSessionStatus();
+    let tabUrl = '';
+    try {
+      const tabs: any[] = await browser.tabs.query({ active: true, currentWindow: true });
+      tabUrl = tabs[0]?.url || '';
+    } catch { /* ignore */ }
+    const status = await api.getSessionStatus(isConfluenceUrl(tabUrl) ? tabUrl : undefined);
     await browser.storage.local.set({ session_status: status });
     return status;
   } catch {
@@ -284,7 +289,12 @@ browser.runtime.onMessage.addListener((msg: any, sender: any, sendResponse: (res
         const settings = await getSettings();
         const api = new ApiClient(settings.backendUrl);
         try {
-          const result = await api.validateSession();
+          let tabUrl = '';
+          try {
+            const tabs: any[] = await browser.tabs.query({ active: true, currentWindow: true });
+            tabUrl = tabs[0]?.url || '';
+          } catch { /* ignore */ }
+          const result = await api.validateSession(isConfluenceUrl(tabUrl) ? tabUrl : undefined);
           await browser.storage.local.set({ session_status: { ...result, exists: true } });
           sendResponse(result);
         } catch (error) {

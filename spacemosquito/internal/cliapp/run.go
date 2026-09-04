@@ -443,9 +443,9 @@ func runCrawl(cfg *config.Config, spaceURL string, force bool, log *zap.Logger) 
 		os.Exit(1)
 	}
 
-	sess, err := store.Load(encKey)
+	sess, err := store.GetForURL(encKey, spaceURL)
 	if err != nil {
-		sugar.Errorw("failed to load session", "error", err)
+		sugar.Errorw("failed to load session for space", "space_url", spaceURL, "error", err)
 		os.Exit(1)
 	}
 
@@ -499,9 +499,20 @@ func runCrawlPage(cfg *config.Config, spaceKey string, confluenceID int, log *za
 		os.Exit(1)
 	}
 
-	sess, err := store.Load(encKey)
+	ctx := context.Background()
+	space, err := database.GetSpaceByKey(ctx, spaceKey)
 	if err != nil {
-		sugar.Errorw("failed to load session", "error", err)
+		sugar.Errorw("space not found — crawl the space once first", "space_key", spaceKey, "error", err)
+		os.Exit(1)
+	}
+	if space.URL == "" {
+		sugar.Errorw("space has no URL — cannot select session host", "space_key", spaceKey)
+		os.Exit(1)
+	}
+
+	sess, err := store.GetForURL(encKey, space.URL)
+	if err != nil {
+		sugar.Errorw("failed to load session for space", "space_url", space.URL, "error", err)
 		os.Exit(1)
 	}
 

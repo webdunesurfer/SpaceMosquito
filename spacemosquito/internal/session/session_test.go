@@ -199,25 +199,6 @@ func TestSession_ValidateWithConfluence_BadURL(t *testing.T) {
 	}
 }
 
-func TestLastSlash(t *testing.T) {
-	tests := []struct {
-		input    string
-		expected int
-	}{
-		{"/path/to/file.enc", 8},
-		{"file.enc", -1},
-		{"/file.enc", 0},
-		{"", -1},
-	}
-
-	for _, tc := range tests {
-		got := lastSlash(tc.input)
-		if got != tc.expected {
-			t.Errorf("lastSlash(%q) = %d, want %d", tc.input, got, tc.expected)
-		}
-	}
-}
-
 func TestStore_FilePermissions(t *testing.T) {
 	tmpFile := t.TempDir() + "/session.enc"
 

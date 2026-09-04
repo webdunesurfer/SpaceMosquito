@@ -7,11 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.4] - 2026-09-04
+
 ### Fixed
-- Several issues related to self-hosted wikis 
+- Several issues related to self-hosted wikis
 
 ### Changed
 - On-disk page directories naming switched to `{confluence-id}-{title}`
+- Session storage keeps cookies for multiple Confluence hosts in one encrypted file (capture no longer overwrites other wikis)
 
 ## [0.3.3] - 2026-08-21
 

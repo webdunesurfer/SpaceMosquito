@@ -2,20 +2,23 @@
 
 - **Status:** Accepted
 - **Date:** 2025-01-17
+- **Updated:** 2026-09-04 — multi-wiki sessions in one encrypted blob
 
 ## Context
 
-Users need to authenticate with Confluence (OAuth/SSO/2FA) on their machine. We need a reliable way to capture and reuse session credentials without exposing them.
+Users need to authenticate with Confluence (OAuth/SSO/2FA) on their machine. We need a reliable way to capture and reuse session credentials without exposing them. Operators may use **more than one Confluence host** (Cloud + self-hosted, multiple companies); capturing one site must not erase another.
 
 ## Decision
 
-Use a hybrid authentication approach where the Firefox extension captures session cookies during interactive login and exports them to the Go backend via an encrypted session file.
+Use a hybrid authentication approach where the browser extension captures session cookies during interactive login and exports them to the Go backend via an **encrypted session file**.
 
 - Direct form-based login from Go is fragile with modern Confluence (OAuth redirects, SSO, 2FA)
 - The extension runs in a real browser where the user can complete all authentication flows naturally
-- Session cookies can be captured after login and exported to the backend for automated cron runs
+- Session cookies can be captured after login and exported to the backend for automated crawl/cron runs
 - Cookies are stored encrypted on disk (AES-GCM), never in plaintext
 - Extension on the host talks to the local backend at localhost; cookies are exported into the encrypted session file under the data directory
+
+**Multi-site storage (v2 blob):** the file holds a map of **hostname → session**. Capture **upserts** one hostname only. Crawl, validate, and cron **select** the session whose hostname matches the space/page URL. A legacy single-session file is migrated in memory (and rewritten on the next upsert). Extension list/delete UI for multiple sites is deferred to the extension redesign epic.
 
 ## Alternatives considered
 
@@ -24,9 +27,13 @@ Use a hybrid authentication approach where the Firefox extension captures sessio
 | Remote desktop / noVNC login | Clunky and harder for 2FA/SSO |
 | OAuth client credentials | Users won't provide API tokens and we must "pretend to be a normal user" |
 | Puppeteer/Playwright headless login | Fragile with modern auth flows, loses the real browser's session capabilities |
+| One session file per host | More files to manage; single encrypted blob is enough for solo use |
+| Key by full BaseURL (incl. context path) | Hostname-only is sufficient for v1 |
 
 ## Consequences
 
 - Session file must be protected; encryption key should be user-provided or derived from OS keyring
 - Session cookies expire; the extension must handle re-authentication gracefully
 - The cookie exchange happens over localhost (encrypted or not), which is a trust boundary
+- Missing session for a host fails clearly; operators capture per wiki they use
+- Delete session still clears the **entire** blob (all hosts) until redesign adds per-host delete

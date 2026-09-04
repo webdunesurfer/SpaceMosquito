@@ -101,6 +101,11 @@ func (h *Handler) CreateSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if session.HostnameKey(req.ConfluenceURL) == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "confluence_url must include a hostname"})
+		return
+	}
+
 	sess := &session.Session{
 		ConfluenceURL: req.ConfluenceURL,
 		Cookies:       req.Cookies,
@@ -117,16 +122,17 @@ func (h *Handler) CreateSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.store.Save(sess, encKey); err != nil {
-		h.log.Errorw("create session: store save failed", "error", err)
+	if err := h.store.Upsert(sess, encKey); err != nil {
+		h.log.Errorw("create session: store upsert failed", "error", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{
 			"error": "failed to save session: " + err.Error(),
 		})
 		return
 	}
 
-	h.log.Infow("session created",
+	h.log.Infow("session upserted",
 		"url", req.ConfluenceURL,
+		"host", session.HostnameKey(req.ConfluenceURL),
 		"cookie_count", len(req.Cookies))
 
 	writeJSON(w, http.StatusCreated, map[string]interface{}{
@@ -167,14 +173,21 @@ func (h *Handler) SessionStatus(w http.ResponseWriter, r *http.Request) {
 	}
 
 	encKey := h.cfg.Session.EncryptionKey
+	confluenceURL := r.URL.Query().Get("url")
 
-	sess, err := h.store.Load(encKey)
+	var sess *session.Session
+	var err error
+	if confluenceURL != "" {
+		sess, err = h.store.GetForURL(encKey, confluenceURL)
+	} else {
+		sess, err = h.store.Load(encKey)
+	}
 	if err != nil {
 		h.log.Errorw("session status: load failed", "error", err)
 		writeJSON(w, http.StatusOK, map[string]interface{}{
 			"valid":   false,
-			"message": "failed to load session: " + err.Error(),
-			"exists":  true,
+			"message": err.Error(),
+			"exists":  h.store.HasSession(),
 		})
 		return
 	}
@@ -213,12 +226,23 @@ func (h *Handler) SessionStatus(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) ValidateSession(w http.ResponseWriter, r *http.Request) {
 	encKey := h.cfg.Session.EncryptionKey
 
-	sess, err := h.store.Load(encKey)
+	var req struct {
+		ConfluenceURL string `json:"confluence_url"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&req)
+
+	var sess *session.Session
+	var err error
+	if req.ConfluenceURL != "" {
+		sess, err = h.store.GetForURL(encKey, req.ConfluenceURL)
+	} else {
+		sess, err = h.store.Load(encKey)
+	}
 	if err != nil {
 		h.log.Errorw("validate session: load failed", "error", err)
 		writeJSON(w, http.StatusOK, map[string]interface{}{
 			"valid":   false,
-			"message": "failed to load session: " + err.Error(),
+			"message": err.Error(),
 		})
 		return
 	}
@@ -228,7 +252,8 @@ func (h *Handler) ValidateSession(w http.ResponseWriter, r *http.Request) {
 		timeout = h.cfg.MCP.Timeout
 	}
 
-	result, err := sess.ValidateWithConfluence("", timeout, r.RemoteAddr)
+	validateURL := req.ConfluenceURL
+	result, err := sess.ValidateWithConfluence(validateURL, timeout, r.RemoteAddr)
 	if err != nil {
 		h.log.Errorw("validate session: unexpected error", "error", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{
@@ -238,7 +263,9 @@ func (h *Handler) ValidateSession(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if result.Valid {
-		h.store.Save(sess, encKey)
+		if err := h.store.Upsert(sess, encKey); err != nil {
+			h.log.Errorw("validate session: failed to persist validated session", "error", err)
+		}
 	} else {
 		h.log.Warnw("validate session: validation failed",
 			"message", result.Message,

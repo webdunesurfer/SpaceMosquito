@@ -55,13 +55,15 @@ export class ApiClient {
     });
   }
 
-  async getSessionStatus(): Promise<SessionStatus> {
-    return this.request<SessionStatus>('/api/session/status');
+  async getSessionStatus(confluenceUrl?: string): Promise<SessionStatus> {
+    const q = confluenceUrl ? `?url=${encodeURIComponent(confluenceUrl)}` : '';
+    return this.request<SessionStatus>(`/api/session/status${q}`);
   }
 
-  async validateSession(): Promise<{ valid: boolean; message: string }> {
+  async validateSession(confluenceUrl?: string): Promise<{ valid: boolean; message: string }> {
     return this.request<{ valid: boolean; message: string }>('/api/session/validate', {
       method: 'POST',
+      body: JSON.stringify(confluenceUrl ? { confluence_url: confluenceUrl } : {}),
     });
   }
 
