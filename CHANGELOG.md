@@ -14,7 +14,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - On-disk page directories naming switched to `{confluence-id}-{title}`
-- Session storage keeps cookies for multiple Confluence hosts in one encrypted file (capture no longer overwrites other wikis)
+
+### Added
+- Support for capturing sessions from multiple confluence hosts.
 
 ## [0.3.3] - 2026-08-21
 
