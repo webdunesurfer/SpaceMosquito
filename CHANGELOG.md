@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Extension toolbar icon: **red** / **gray**.
+- Extension light/dark themes.
+- New setting: auto-renew Confluence session.
+
+### Changed
+- Extension icon set.
+- Extension popup major redesign.
+
+### Fixed
+- Extension Page tab: Detect Confluence Cloud `homepageId`.
+- Extension popup backend probe.
+
 ## [0.3.4] - 2026-09-04
 
 ### Fixed

@@ -1,96 +1,228 @@
+// @ts-nocheck
 import { ApiClient } from '../lib/api';
-import { CrawlJob, CrawlSpace, CronSpaceConfig, ExtensionSettings } from '../lib/types';
+import { CrawlJob, CrawlSpace, CronSpaceConfig, ExtensionSettings, SpaceInfo } from '../lib/types';
 
 let api: ApiClient;
-let activeJobId: string | null = null;
-let pollInterval: number | null = null;
-let currentSpaceInfo: { spaceKey: string; spaceName: string; spaceURL: string } | null = null;
+let healthPollInterval: number | null = null;
+let crawlPollInterval: number | null = null;
+let currentSpaceInfo: SpaceInfo | null = null;
+let sessionValid = false;
+/** Running/pending crawl jobs keyed by space_key */
+const runningBySpace = new Map<string, CrawlJob>();
 
-// Initialize
+type BackendState = 'unknown' | 'up' | 'down';
+let backendState: BackendState = 'unknown';
+
+const GATED_CONTROL_IDS = [
+  'btn-refresh-page',
+  'btn-add-space',
+  'btn-crawl-all',
+];
+
+let cronReloadTimer: number | null = null;
+let yamlCronDefaults: {
+  full_interval: string;
+  incr_interval: string;
+  detection: string;
+} = { full_interval: '24h', incr_interval: '2h', detection: 'dom' };
+
+function formatBackendHost(url: string): string {
+  try {
+    return new URL(url).host || url;
+  } catch {
+    return url;
+  }
+}
+
+function formatShortDate(iso?: string): string {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '—';
+  return d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+function spaceKeyFromUrl(url: string): string {
+  if (!url) return '';
+  try {
+    const parsed = new URL(url);
+    const match = url.match(/\/(?:wiki\/)?spaces\/([^/?#]+)/) || url.match(/\/display\/([^/?#]+)/);
+    return match ? match[1] : (parsed.searchParams.get('spaceKey') || '');
+  } catch {
+    return '';
+  }
+}
+
+function isBackendDown(): boolean {
+  return backendState === 'down';
+}
+
+function actionsAllowed(): boolean {
+  return backendState === 'up' && sessionValid;
+}
+
+function isPageTitlePlaceholder(text: string | null): boolean {
+  const t = (text || '').trim();
+  return !t || t === '—' || t === 'Not on a Confluence page' || t === 'Could not read tab' || t === 'Confluence';
+}
+
+/** Page-tab version line next to the refresh button. */
+function formatPageVersionMeta(liveVersion?: number | null, storedVersion?: number | null): string {
+  const hasLive = liveVersion != null && Number.isFinite(liveVersion);
+  const hasStored = storedVersion != null && Number.isFinite(storedVersion);
+  if (hasLive && hasStored) {
+    if (liveVersion === storedVersion) return `v${liveVersion} (Up to date)`;
+    return `v${liveVersion} (Stored: v${storedVersion})`;
+  }
+  if (hasLive) return `v${liveVersion} (Stored: —)`;
+  if (hasStored) return `— (Stored: v${storedVersion})`;
+  return '—';
+}
+
+function setControlEnabled(el: HTMLButtonElement | HTMLSelectElement | null, enabled: boolean): void {
+  if (!el) return;
+  el.disabled = !enabled;
+}
+
+function applyGating(): void {
+  const banner = document.getElementById('backend-banner');
+  const urlEl = document.getElementById('backend-banner-url');
+  const down = isBackendDown();
+  const allow = actionsAllowed();
+
+  if (banner) {
+    if (down) {
+      banner.classList.remove('hidden');
+      if (urlEl) urlEl.textContent = `at ${formatBackendHost(api.getBackendUrl())}`;
+    } else {
+      banner.classList.add('hidden');
+    }
+  }
+
+  const hint = document.getElementById('page-session-hint');
+  if (hint) {
+    if (!down && !sessionValid && currentSpaceInfo?.tabUrl) {
+      hint.classList.remove('hidden');
+    } else {
+      hint.classList.add('hidden');
+    }
+  }
+
+  // Session chip stays clickable when backend up (even if session invalid)
+  const chip = document.getElementById('session-chip') as HTMLButtonElement | null;
+  if (chip && !chip.classList.contains('busy')) {
+    chip.disabled = down;
+  }
+
+  for (const id of GATED_CONTROL_IDS) {
+    const el = document.getElementById(id) as HTMLButtonElement | null;
+    if (!el) continue;
+    if (id === 'btn-refresh-page') {
+      el.disabled = !allow || !currentSpaceInfo?.pageId;
+    } else {
+      el.disabled = !allow;
+    }
+  }
+
+  document.querySelectorAll<HTMLButtonElement | HTMLSelectElement | HTMLInputElement>(
+    '#spaces-list .btn-icon, #spaces-list select, #spaces-list input[type="checkbox"]'
+  ).forEach((el) => {
+    el.disabled = !allow;
+  });
+}
+
+async function probeBackend(): Promise<void> {
+  const prev = backendState;
+  const ok = await api.checkHealth();
+  backendState = ok ? 'up' : 'down';
+  applyGating();
+
+  if (prev !== 'up' && backendState === 'up') {
+    await Promise.allSettled([
+      loadSessionStatus(),
+      loadPageContext(),
+      loadSpaces(),
+      syncRunningCrawls(),
+    ]);
+  }
+}
+
+function startBackendPolling(): void {
+  if (healthPollInterval) clearInterval(healthPollInterval);
+  void probeBackend();
+  healthPollInterval = window.setInterval(() => {
+    void probeBackend();
+  }, 2000);
+}
+
 async function init() {
   const settings = await getSettings();
   api = new ApiClient(settings.backend_url);
 
+  const urlInput = document.getElementById('backend-url') as HTMLInputElement | null;
+  if (urlInput) urlInput.value = settings.backend_url;
+
+  const autoRenew = document.getElementById('auto-renew') as HTMLInputElement | null;
+  if (autoRenew) autoRenew.checked = !!settings.auto_renew;
+
   setupTabs();
-  
-  // Run these in parallel and don't let one failure stop the others
-  Promise.allSettled([
-    loadSessionStatus(),
+  startBackendPolling();
+
+  // Session before page meta (compare needs valid session)
+  await loadSessionStatus();
+  await Promise.allSettled([
+    loadPageContext(),
     detectCurrentSpace(),
     loadSpaces(),
-    loadCronConfig(),
-    resumeActiveCrawl(),
-  ]).catch(console.error);
+    syncRunningCrawls(),
+  ]);
 }
 
-// Resume an active crawl if one was in progress when popup was closed
-async function resumeActiveCrawl() {
-  try {
-    const data: any = await chrome.storage.local.get('active_job_id');
-    if (!data.active_job_id) return;
-    
-    const jobId = data.active_job_id;
-    console.log('[spacemosquito] Resuming active crawl:', jobId);
-    
-    try {
-      const job = await api.getCrawlStatus(jobId);
-      if (job.status === 'running') {
-        activeJobId = jobId;
-        (document.getElementById('crawl-progress') as HTMLDivElement)?.classList.remove('hidden');
-        (document.getElementById('btn-cancel-crawl') as HTMLButtonElement)?.classList.remove('hidden');
-        startCrawlPolling();
-        console.log('[spacemosquito] Active crawl resumed:', job);
-      } else if (job.status === 'completed' || job.status === 'failed' || job.status === 'cancelled') {
-        // Crawl already finished, clean up
-        console.log('[spacemosquito] Crawl already finished:', job.status);
-        await chrome.storage.local.remove('active_job_id');
-        if (job.status === 'completed') {
-          (document.getElementById('btn-cleanup') as HTMLButtonElement)?.classList.remove('hidden');
-        }
-      } else {
-        console.log('[spacemosquito] Crawl no longer running:', job.status);
-        await chrome.storage.local.remove('active_job_id');
-      }
-    } catch (error) {
-      console.error('[spacemosquito] Failed to resume crawl:', error);
-      await chrome.storage.local.remove('active_job_id');
-    }
-  } catch (error) {
-    console.error('[spacemosquito] Resume crawl error:', error);
-  }
-}
-
-async function getSettings(): Promise<ExtensionSettings & { backend_url: string }> {
-  const data: any = await chrome.storage.local.get('backend_url');
+async function getSettings(): Promise<ExtensionSettings & { backend_url: string; auto_renew: boolean }> {
+  const data: any = await chrome.storage.local.get(['backend_url', 'auto_renew']);
   return {
     backend_url: data.backend_url || 'http://localhost:8081',
     crawl_depth: 'all',
+    auto_renew: !!data.auto_renew,
   };
 }
 
-// Tab switching
 function setupTabs() {
   document.querySelectorAll('.tab-btn').forEach((btn: HTMLElement) => {
     btn.addEventListener('click', () => {
       document.querySelectorAll('.tab-btn').forEach(t => t.classList.remove('active'));
       btn.classList.add('active');
-
       document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-      const tabId = `tab-${btn.dataset.tab}`;
-      document.getElementById(tabId)?.classList.add('active');
+      document.getElementById(`tab-${btn.dataset.tab}`)?.classList.add('active');
     });
   });
 }
 
-// Session tab
-async function loadSessionStatus() {
+function setSessionDisc(state: 'valid' | 'invalid' | 'checking', title?: string) {
   const dot = document.getElementById('session-dot');
-  const statusText = document.getElementById('session-status-text') as HTMLParagraphElement;
-  const captureBtn = document.getElementById('btn-capture') as HTMLButtonElement;
-  const validateBtn = document.getElementById('btn-validate') as HTMLButtonElement;
-  const deleteBtn = document.getElementById('btn-delete') as HTMLButtonElement;
-  const sessionInfo = document.getElementById('session-info');
+  const chip = document.getElementById('session-chip') as HTMLButtonElement | null;
+  dot?.classList.remove('connected', 'disconnected', 'checking');
+  if (state === 'valid') {
+    sessionValid = true;
+    dot?.classList.add('connected');
+  } else if (state === 'invalid') {
+    sessionValid = false;
+    dot?.classList.add('disconnected');
+  } else {
+    // Keep prior sessionValid while checking so Page hint / gates don't flicker.
+    dot?.classList.add('checking');
+  }
+  if (chip) {
+    chip.title = title || (state === 'valid'
+      ? 'Session is valid'
+      : state === 'invalid'
+        ? 'Session is invalid or missing'
+        : 'Checking session…');
+  }
+  applyGating();
+}
 
+async function loadSessionStatus() {
+  setSessionDisc('checking', 'Checking session…');
   try {
     let tabUrl = '';
     try {
@@ -98,271 +230,338 @@ async function loadSessionStatus() {
       tabUrl = tabs[0]?.url || '';
     } catch { /* ignore */ }
     const status = await api.getSessionStatus(tabUrl || undefined);
-
-    if (status.exists) {
-      dot?.classList.add('connected');
-      dot?.classList.remove('connected', 'disconnected', 'checking');
-      statusText.textContent = status.message || 'Session stored';
-      if (status.valid) {
-        captureBtn.classList.add('hidden');
-      } else {
-        captureBtn.classList.remove('hidden');
-        captureBtn.textContent = 'Re-Capture Session';
-      }
-      validateBtn.classList.remove('hidden');
-      deleteBtn.classList.remove('hidden');
-
-      sessionInfo?.classList.remove('hidden');
-      const data: any = await chrome.storage.local.get(['session_cookie_count', 'session_captured_at']);
-      if (data.session_cookie_count) {
-        (document.getElementById('cookie-count') as HTMLSpanElement).textContent = String(data.session_cookie_count);
-      }
-      if (data.session_captured_at) {
-        const date = new Date(data.session_captured_at);
-        (document.getElementById('session-expires') as HTMLSpanElement).textContent = date.toLocaleString();
-      }
+    if (status.exists && status.valid) {
+      setSessionDisc('valid', 'Session is valid');
     } else {
-      dot?.classList.add('disconnected');
-      dot?.classList.remove('connected', 'checking');
-      statusText.textContent = status.message || 'No session';
-      captureBtn.classList.remove('hidden');
-      validateBtn.classList.add('hidden');
-      deleteBtn.classList.add('hidden');
-      sessionInfo?.classList.add('hidden');
+      setSessionDisc('invalid', 'Session is invalid or missing');
     }
   } catch {
-    dot?.classList.add('disconnected');
-    dot?.classList.remove('connected', 'checking');
-    statusText.textContent = 'Backend not reachable';
-    captureBtn.classList.add('hidden');
-    validateBtn.classList.add('hidden');
-    deleteBtn.classList.add('hidden');
-    sessionInfo?.classList.add('hidden');
+    if (isBackendDown()) {
+      setSessionDisc('checking', 'Waiting for backend…');
+    } else {
+      setSessionDisc('invalid', 'Session is invalid or missing');
+    }
   }
 }
 
-(document.getElementById('btn-capture') as HTMLButtonElement)?.addEventListener('click', async () => {
-  console.log('[spacemosquito] popup: capture clicked');
-  const btn = document.getElementById('btn-capture') as HTMLButtonElement;
-  btn.textContent = 'Capturing...';
-  btn.disabled = true;
+async function captureAndValidate(): Promise<void> {
+  if (isBackendDown()) return;
+  const chip = document.getElementById('session-chip') as HTMLButtonElement | null;
+  const hintBtn = document.getElementById('btn-refresh-session') as HTMLButtonElement | null;
+  chip?.classList.add('busy');
+  if (chip) chip.disabled = true;
+  if (hintBtn) hintBtn.disabled = true;
+  setSessionDisc('checking', 'Capturing & validating…');
 
   try {
-    console.log('[spacemosquito] popup: sending capture-session message');
-    const result: any = await chrome.runtime.sendMessage({ type: 'capture-session' });
-    console.log('[spacemosquito] popup: got response:', result);
-    if (result?.success) {
-      const statusText = document.getElementById('session-status-text') as HTMLParagraphElement;
-      statusText.textContent = `Session captured (${result.cookieCount} cookies)`;
-      (document.getElementById('cookie-count') as HTMLSpanElement).textContent = String(result.cookieCount);
-      await loadSessionStatus();
+    const result: any = await chrome.runtime.sendMessage({ type: 'capture-and-validate' });
+    if (result?.success && result?.valid) {
+      setSessionDisc('valid', 'Session is valid');
+      await loadPageContext();
+    } else if (result?.success && result?.valid === false) {
+      setSessionDisc('invalid', 'Session is invalid or missing');
     } else {
-      alert(result?.error || 'Capture failed');
+      setSessionDisc('invalid', 'Session is invalid or missing');
+      alert(result?.error || 'Capture & validate failed');
     }
   } catch (error) {
+    setSessionDisc('invalid', 'Session is invalid or missing');
     alert('Capture failed: ' + (error as Error).message);
   } finally {
-    btn.textContent = 'Capture Session';
-    btn.disabled = false;
+    chip?.classList.remove('busy');
+    if (hintBtn) hintBtn.disabled = false;
+    applyGating();
   }
+}
+
+(document.getElementById('session-chip') as HTMLButtonElement)?.addEventListener('click', () => {
+  void captureAndValidate();
 });
 
-(document.getElementById('btn-validate') as HTMLButtonElement)?.addEventListener('click', async () => {
-  const btn = document.getElementById('btn-validate') as HTMLButtonElement;
-  btn.textContent = 'Validating...';
-  btn.disabled = true;
-
-  try {
-    const result: any = await chrome.runtime.sendMessage({ type: 'validate-session' });
-    const statusText = document.getElementById('session-status-text') as HTMLParagraphElement;
-    if (result?.valid) {
-      statusText.textContent = `Valid: ${result.message}`;
-    } else {
-      statusText.textContent = `Invalid: ${result.message}`;
-    }
-  } catch (error) {
-    alert('Validation failed: ' + (error as Error).message);
-  } finally {
-    btn.textContent = 'Validate Session';
-    btn.disabled = false;
-  }
+(document.getElementById('btn-refresh-session') as HTMLButtonElement)?.addEventListener('click', () => {
+  void captureAndValidate();
 });
 
-(document.getElementById('btn-delete') as HTMLButtonElement)?.addEventListener('click', async () => {
-  if (!confirm('Delete stored session?')) return;
-  try {
-    await api.deleteSession();
-    await loadSessionStatus();
-  } catch (error) {
-    alert('Delete failed: ' + (error as Error).message);
-  }
-});
-
-// Crawl tab
 async function detectCurrentSpace() {
-  const nameEl = document.getElementById('current-space-name') as HTMLParagraphElement;
-
   try {
     const info: any = await chrome.runtime.sendMessage({ type: 'get-space-info' });
     if (info?.spaceKey) {
-      currentSpaceInfo = info;
-      nameEl.textContent = `${info.spaceName} (${info.spaceKey})`;
-    } else {
-      currentSpaceInfo = null;
-      nameEl.textContent = 'Not on a Confluence page';
+      currentSpaceInfo = { ...currentSpaceInfo, ...info };
     }
   } catch {
-    currentSpaceInfo = null;
-    nameEl.textContent = 'Detection failed';
+    /* ignore */
+  }
+  applyGating();
+}
+
+async function loadPageContext() {
+  const hostEl = document.getElementById('page-host') as HTMLParagraphElement;
+  const titleEl = document.getElementById('page-title') as HTMLHeadingElement;
+  const metaEl = document.getElementById('page-meta') as HTMLSpanElement;
+
+  try {
+    const info: any = await chrome.runtime.sendMessage({ type: 'get-space-info' });
+    currentSpaceInfo = info?.spaceKey || info?.pageId ? info : null;
+
+    if (!info?.tabUrl && !info?.host) {
+      hostEl.textContent = '—';
+      titleEl.textContent = 'Not on a Confluence page';
+      metaEl.textContent = '—';
+      applyGating();
+      return;
+    }
+
+    hostEl.textContent = info.host || '—';
+
+    const tabTitle = info.pageTitle || (info.spaceKey ? `Space ${info.spaceKey}` : 'Confluence');
+    const willFetchTitle = !!info.pageId && backendState === 'up';
+    // Avoid tab-title flash (e.g. "… - RADAR-base") when we already show the API title
+    // and are about to refresh compare/stored.
+    if (!willFetchTitle || isPageTitlePlaceholder(titleEl.textContent)) {
+      titleEl.textContent = tabTitle;
+    }
+
+    if (!info.pageId) {
+      metaEl.textContent = '—';
+      applyGating();
+      return;
+    }
+
+    if (isBackendDown() || !sessionValid) {
+      // Still try stored-only if backend up
+      if (backendState === 'up') {
+        try {
+          const stored = await api.getPage(info.pageId, info.spaceKey || undefined);
+          metaEl.textContent = formatPageVersionMeta(null, stored.version);
+          if (stored.title) titleEl.textContent = stored.title;
+        } catch {
+          metaEl.textContent = '—';
+          if (isPageTitlePlaceholder(titleEl.textContent)) titleEl.textContent = tabTitle;
+        }
+      } else {
+        metaEl.textContent = '—';
+        if (isPageTitlePlaceholder(titleEl.textContent)) titleEl.textContent = tabTitle;
+      }
+      applyGating();
+      return;
+    }
+
+    try {
+      const cmp = await api.comparePage(info.pageId, info.spaceKey || undefined);
+      metaEl.textContent = formatPageVersionMeta(cmp.live?.version, cmp.stored?.version);
+      if (cmp.live?.title) titleEl.textContent = cmp.live.title;
+      else if (cmp.stored?.title) titleEl.textContent = cmp.stored.title;
+      else if (isPageTitlePlaceholder(titleEl.textContent)) titleEl.textContent = tabTitle;
+    } catch {
+      try {
+        const stored = await api.getPage(info.pageId, info.spaceKey || undefined);
+        metaEl.textContent = formatPageVersionMeta(null, stored.version);
+        if (stored.title) titleEl.textContent = stored.title;
+      } catch {
+        metaEl.textContent = '—';
+        if (isPageTitlePlaceholder(titleEl.textContent)) titleEl.textContent = tabTitle;
+      }
+    }
+  } catch {
+    hostEl.textContent = '—';
+    titleEl.textContent = 'Could not read tab';
+    metaEl.textContent = '—';
+  }
+  applyGating();
+}
+
+(document.getElementById('btn-refresh-page') as HTMLButtonElement)?.addEventListener('click', async () => {
+  if (!actionsAllowed() || !currentSpaceInfo?.pageId) return;
+  const btn = document.getElementById('btn-refresh-page') as HTMLButtonElement;
+  setControlEnabled(btn, false);
+  try {
+    await api.refreshPage(currentSpaceInfo.pageId, currentSpaceInfo.spaceKey || undefined);
+    await loadPageContext();
+  } catch (error) {
+    alert('Refresh failed: ' + (error as Error).message);
+  } finally {
+    applyGating();
+  }
+});
+
+function ensureCrawlPolling(): void {
+  if (crawlPollInterval) return;
+  crawlPollInterval = window.setInterval(() => {
+    void syncRunningCrawls();
+  }, 2000);
+}
+
+function stopCrawlPollingIfIdle(): void {
+  if (runningBySpace.size > 0) return;
+  if (crawlPollInterval) {
+    clearInterval(crawlPollInterval);
+    crawlPollInterval = null;
   }
 }
 
-(document.getElementById('btn-start-crawl') as HTMLButtonElement)?.addEventListener('click', async () => {
-  console.log('[spacemosquito] popup: start-crawl clicked');
-  console.log('[spacemosquito] popup: currentSpaceInfo:', currentSpaceInfo);
-  if (!currentSpaceInfo) {
-    alert('Not on a Confluence page');
+function applyJobToRow(spaceKey: string, job: CrawlJob | null): void {
+  const row = Array.from(document.querySelectorAll<HTMLElement>('.space-row[data-key]'))
+    .find((r) => r.dataset.key === spaceKey) || null;
+  if (!row) return;
+
+  const playBtn = row.querySelector('.btn-play') as HTMLButtonElement | null;
+  const panel = row.querySelector('.space-crawl-panel') as HTMLElement | null;
+  const fill = row.querySelector('.space-progress-fill') as HTMLElement | null;
+  const label = row.querySelector('.space-progress-label') as HTMLElement | null;
+  const counts = row.querySelector('.space-row-counts') as HTMLElement | null;
+
+  const active = job && (job.status === 'running' || job.status === 'pending');
+  if (active && job) {
+    const percent = job.total_pages > 0
+      ? Math.round((job.completed / job.total_pages) * 100)
+      : (job.progress || 0);
+    panel?.classList.remove('hidden');
+    if (fill) fill.style.width = `${percent}%`;
+    if (label) {
+      label.textContent = job.total_pages > 0
+        ? `Crawling… ${job.completed} / ${job.total_pages} · ${percent}%`
+        : `Crawling… ${percent}%`;
+    }
+    if (counts && job.total_pages > 0) {
+      counts.textContent = `${job.completed} / ${job.total_pages}`;
+    }
+    if (playBtn) {
+      playBtn.textContent = '⏹';
+      playBtn.title = 'Stop crawl';
+      playBtn.classList.add('btn-stop');
+      playBtn.dataset.jobId = job.id;
+    }
+  } else {
+    panel?.classList.add('hidden');
+    if (fill) fill.style.width = '0%';
+    if (playBtn) {
+      playBtn.textContent = '▶';
+      playBtn.title = 'Crawl';
+      playBtn.classList.remove('btn-stop');
+      delete playBtn.dataset.jobId;
+    }
+  }
+}
+
+function renderAllCrawlRows(): void {
+  document.querySelectorAll<HTMLElement>('.space-row[data-key]').forEach((row) => {
+    const key = row.dataset.key || '';
+    applyJobToRow(key, runningBySpace.get(key) || null);
+  });
+  applyGating();
+}
+
+async function syncRunningCrawls(): Promise<void> {
+  if (isBackendDown()) {
+    stopCrawlPollingIfIdle();
+    return;
+  }
+  try {
+    const snapshot = await api.listCrawls();
+    const prevKeys = new Set(runningBySpace.keys());
+    runningBySpace.clear();
+
+    for (const job of snapshot.jobs || []) {
+      if (job.status !== 'running' && job.status !== 'pending') continue;
+      const key = spaceKeyFromUrl(job.space_url);
+      if (!key) continue;
+      runningBySpace.set(key, job);
+    }
+
+    const finished = [...prevKeys].filter((k) => !runningBySpace.has(k));
+    renderAllCrawlRows();
+
+    if (finished.length > 0) {
+      await loadSpaces();
+      renderAllCrawlRows();
+    }
+
+    if (runningBySpace.size > 0) ensureCrawlPolling();
+    else stopCrawlPollingIfIdle();
+  } catch (error) {
+    console.error('[spacemosquito] crawl sync error:', error);
+  }
+}
+
+async function startSpaceCrawl(spaceUrl: string, spaceKey?: string): Promise<void> {
+  const key = spaceKey || spaceKeyFromUrl(spaceUrl);
+  if (key && runningBySpace.has(key)) return;
+
+  const result: any = await chrome.runtime.sendMessage({ type: 'start-crawl', spaceUrl });
+  if (!result?.success) {
+    alert(result?.error || 'Crawl failed');
     return;
   }
 
-  const btn = document.getElementById('btn-start-crawl') as HTMLButtonElement;
-  btn.textContent = 'Starting...';
-  btn.disabled = true;
-
-  try {
-    const payload = {
-      type: 'start-crawl',
-      spaceUrl: currentSpaceInfo.spaceURL,
-    };
-    console.log('[spacemosquito] popup: sending start-crawl with payload:', payload);
-    const result: any = await chrome.runtime.sendMessage(payload);
-    console.log('[spacemosquito] popup: start-crawl result:', result);
-
-    if (result?.success) {
-      activeJobId = result.jobId;
-      await chrome.storage.local.set({ active_job_id: result.jobId });
-      (document.getElementById('crawl-progress') as HTMLDivElement)?.classList.remove('hidden');
-      (document.getElementById('btn-cancel-crawl') as HTMLButtonElement)?.classList.remove('hidden');
-      startCrawlPolling();
-    } else {
-      alert(result?.error || 'Crawl failed');
-    }
-  } catch (error) {
-    alert('Crawl failed: ' + (error as Error).message);
-  } finally {
-    btn.textContent = 'Crawl Current Space';
-    btn.disabled = false;
+  const jobId = result.jobId || result.job_id;
+  const optimistic: CrawlJob = {
+    id: jobId,
+    space_url: spaceUrl,
+    status: 'running',
+    progress: 0,
+    total_pages: 0,
+    completed: 0,
+    failed: 0,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  };
+  if (key) {
+    runningBySpace.set(key, optimistic);
+    applyJobToRow(key, optimistic);
   }
-});
-
-function startCrawlPolling() {
-  if (pollInterval) clearInterval(pollInterval);
-
-  pollInterval = window.setInterval(async () => {
-    if (!activeJobId) return;
-
-   try {
-      console.log('[spacemosquito] crawl poll requesting:', api.getBackendUrl(), '/api/crawl/status?id=' + activeJobId);
-      const job = await api.getCrawlStatus(activeJobId);
-      console.log('[spacemosquito] crawl poll got:', job);
-      updateCrawlProgress(job);
-
- if (job.status !== 'running') {
-        clearInterval(pollInterval!);
-        pollInterval = null;
-        activeJobId = null;
-        await chrome.storage.local.remove('active_job_id');
-        (document.getElementById('btn-cancel-crawl') as HTMLButtonElement)?.classList.add('hidden');
-        (document.getElementById('btn-cleanup') as HTMLButtonElement)?.classList.remove('hidden');
-      }
-    } catch (error) {
-      console.error('[spacemosquito] crawl poll error:', error, 'jobId:', activeJobId);
-    }
-  }, 3000);
+  ensureCrawlPolling();
+  // Immediate sync so totals appear quickly
+  void syncRunningCrawls();
 }
 
-function updateCrawlProgress(job: CrawlJob) {
-  const percent = job.total_pages > 0 ? Math.round((job.completed / job.total_pages) * 100) : 0;
-
-  const statusEl = document.getElementById('crawl-status') as HTMLSpanElement;
-  const percentEl = document.getElementById('crawl-percent') as HTMLSpanElement;
-  const fillEl = document.getElementById('progress-fill') as HTMLDivElement;
-  const pagesEl = document.getElementById('crawl-pages') as HTMLSpanElement;
-  const completedEl = document.getElementById('crawl-completed') as HTMLSpanElement;
-  const failedEl = document.getElementById('crawl-failed') as HTMLSpanElement;
-
-  if (statusEl) {
-    statusEl.textContent =
-      job.status === 'running' ? 'Running...' :
-      job.status === 'completed' ? 'Completed' :
-      job.status === 'failed' ? `Failed: ${job.error || 'unknown'}` :
-      job.status;
-  }
-  if (percentEl) percentEl.textContent = `${percent}%`;
-  if (fillEl) fillEl.style.width = `${percent}%`;
-  if (pagesEl) pagesEl.textContent = `Page ${job.completed}/${job.total_pages}`;
-  if (completedEl) completedEl.textContent = `Completed: ${job.completed}`;
-  if (failedEl) failedEl.textContent = `Failed: ${job.failed}`;
-
-  const errorEl = document.getElementById('crawl-error');
-  if (job.error && job.status === 'failed' && errorEl) {
-    errorEl.textContent = job.error;
-    errorEl.classList.remove('hidden');
-  }
-
-  if (job.status === 'completed' && fillEl) {
-    fillEl.style.background = 'var(--success)';
-  } else if (job.status === 'failed' && fillEl) {
-    fillEl.style.background = 'var(--danger)';
-  }
-}
-
-(document.getElementById('btn-cancel-crawl') as HTMLButtonElement)?.addEventListener('click', async () => {
-  if (!activeJobId) return;
+async function stopSpaceCrawl(spaceKey: string): Promise<void> {
+  const job = runningBySpace.get(spaceKey);
+  if (!job) return;
   try {
-    const result: any = await chrome.runtime.sendMessage({ type: 'cancel-crawl', jobId: activeJobId });
+    const result: any = await chrome.runtime.sendMessage({ type: 'cancel-crawl', jobId: job.id });
     if (!result?.success) {
-      alert('Cancel failed: ' + (result?.error || 'unknown error'));
-      return;
+      // Fallback: cancel via API client
+      try {
+        await api.cancelCrawl(job.id);
+      } catch {
+        alert('Cancel failed: ' + (result?.error || 'unknown error'));
+        return;
+      }
     }
-    await chrome.storage.local.remove('active_job_id');
-    (document.getElementById('crawl-progress') as HTMLDivElement)?.classList.add('hidden');
+    runningBySpace.delete(spaceKey);
+    applyJobToRow(spaceKey, null);
+    stopCrawlPollingIfIdle();
+    await loadSpaces();
   } catch (error) {
     alert('Cancel failed: ' + (error as Error).message);
   }
-});
+}
 
-(document.getElementById('btn-cleanup') as HTMLButtonElement)?.addEventListener('click', async () => {
-  try {
-    await api.cleanupCrawls();
-    await chrome.storage.local.remove('active_job_id');
-    (document.getElementById('crawl-progress') as HTMLDivElement)?.classList.add('hidden');
-    (document.getElementById('btn-cleanup') as HTMLButtonElement)?.classList.add('hidden');
-  } catch (error) {
-    alert('Cleanup failed: ' + (error as Error).message);
-  }
-});
-
-// Settings tab
 (document.getElementById('btn-save-url') as HTMLButtonElement)?.addEventListener('click', async () => {
   const input = document.getElementById('backend-url') as HTMLInputElement;
   const url = input.value.trim();
   if (!url) return;
-
   try {
     api.setBackendUrl(url);
     await chrome.storage.local.set({ backend_url: url });
+    await probeBackend();
     alert('Backend URL saved');
   } catch (error) {
     alert('Save failed: ' + (error as Error).message);
   }
 });
 
+(document.getElementById('auto-renew') as HTMLInputElement)?.addEventListener('change', async (e) => {
+  const checked = (e.target as HTMLInputElement).checked;
+  await chrome.storage.local.set({ auto_renew: checked });
+  await chrome.runtime.sendMessage({ type: 'auto-renew-changed', enabled: checked });
+});
+
 (document.getElementById('btn-add-space') as HTMLButtonElement)?.addEventListener('click', async () => {
+  if (!actionsAllowed()) return;
   const input = document.getElementById('add-space-url') as HTMLInputElement;
   const url = input.value.trim();
   if (!url) return;
-
   try {
     await api.addSpace(url);
     input.value = '';
@@ -372,299 +571,265 @@ function updateCrawlProgress(job: CrawlJob) {
   }
 });
 
+function formatCounts(space: CrawlSpace): string {
+  const crawled = space.pages_crawled ?? 0;
+  const total = space.pages_total ?? 0;
+  if (total > 0) return `${crawled} / ${total}`;
+  if (crawled > 0) return `${crawled} / —`;
+  return '— / —';
+}
+
+function scheduleCronReload(): void {
+  if (cronReloadTimer) clearTimeout(cronReloadTimer);
+  cronReloadTimer = window.setTimeout(async () => {
+    try {
+      await api.reloadCron();
+    } catch (err) {
+      console.error('[spacemosquito] cron reload failed:', err);
+    }
+  }, 600);
+}
+
+function optionList(values: string[], selected: string): string {
+  return values.map((v) => `<option value="${v}" ${v === selected ? 'selected' : ''}>${v}</option>`).join('');
+}
+
+async function resolveCronDefaults(): Promise<void> {
+  try {
+    const cfg = await api.getCronConfig();
+    if (cfg.yaml_full_crawl?.interval) yamlCronDefaults.full_interval = cfg.yaml_full_crawl.interval;
+    if (cfg.yaml_incremental?.interval) yamlCronDefaults.incr_interval = cfg.yaml_incremental.interval;
+    if (cfg.yaml_incremental?.detection) yamlCronDefaults.detection = cfg.yaml_incremental.detection;
+  } catch {
+    /* keep defaults */
+  }
+}
+
+function cronEnabledFromOverride(ov: Partial<CronSpaceConfig> | undefined): boolean {
+  return !!(ov?.full_crawl_enabled || ov?.incr_crawl_enabled);
+}
+
+async function loadCronEnabledKeys(): Promise<Set<string>> {
+  const keys = new Set<string>();
+  try {
+    const cfg = await api.getCronConfig();
+    for (const ov of cfg.per_space_overrides || []) {
+      if (cronEnabledFromOverride(ov) && ov.space_key) keys.add(ov.space_key);
+    }
+  } catch {
+    /* ignore — icons stay disabled styling */
+  }
+  return keys;
+}
+
+function setCronButtonState(btn: Element | null, enabled: boolean): void {
+  if (!btn) return;
+  btn.classList.toggle('cron-on', enabled);
+  btn.setAttribute('title', enabled ? 'Cron enabled' : 'Cron disabled');
+}
+
+async function toggleCronPanel(row: HTMLElement, space: CrawlSpace): Promise<void> {
+  const panel = row.querySelector('.space-cron-panel') as HTMLElement | null;
+  if (!panel) return;
+  const opening = panel.classList.contains('hidden');
+  document.querySelectorAll('.space-cron-panel').forEach((p) => p.classList.add('hidden'));
+  if (!opening) return;
+
+  await resolveCronDefaults();
+  let ov: Partial<CronSpaceConfig> = {};
+  try {
+    ov = await api.getSpaceCronConfig(space.space_key);
+  } catch {
+    ov = {};
+  }
+
+  const fullInterval = ov.full_crawl_interval || yamlCronDefaults.full_interval;
+  const incrInterval = ov.incr_crawl_interval || yamlCronDefaults.incr_interval;
+  const detection = ov.detection || yamlCronDefaults.detection;
+  const enabled = cronEnabledFromOverride(ov);
+
+  panel.innerHTML = `
+    <div class="space-cron-row">
+      <label>Full crawl</label>
+      <select data-field="full_crawl_interval">${optionList(['1h','6h','12h','24h','48h','7d'], fullInterval)}</select>
+    </div>
+    <div class="space-cron-row">
+      <label>Incremental</label>
+      <select data-field="incr_crawl_interval">${optionList(['30m','1h','2h','4h','6h','12h'], incrInterval)}</select>
+    </div>
+    <div class="space-cron-row">
+      <label>Detection</label>
+      <select data-field="detection">${optionList(['api','dom'], detection)}</select>
+    </div>
+    <div class="space-cron-row">
+      <label>Enabled</label>
+      <input type="checkbox" data-field="enabled" ${enabled ? 'checked' : ''}>
+    </div>
+  `;
+  panel.classList.remove('hidden');
+  applyGating();
+
+  const cronBtn = row.querySelector('.btn-cron');
+  setCronButtonState(cronBtn, enabled);
+
+  const persist = async () => {
+    if (!actionsAllowed()) return;
+    const fullSel = panel.querySelector('select[data-field="full_crawl_interval"]') as HTMLSelectElement;
+    const incrSel = panel.querySelector('select[data-field="incr_crawl_interval"]') as HTMLSelectElement;
+    const detSel = panel.querySelector('select[data-field="detection"]') as HTMLSelectElement;
+    const en = panel.querySelector('input[data-field="enabled"]') as HTMLInputElement;
+    setCronButtonState(cronBtn, en.checked);
+    const payload: Partial<CronSpaceConfig> = {
+      space_key: space.space_key,
+      space_url: space.space_url,
+      full_crawl_interval: fullSel.value,
+      incr_crawl_interval: incrSel.value,
+      detection: detSel.value,
+      full_crawl_enabled: en.checked,
+      incr_crawl_enabled: en.checked,
+    };
+    try {
+      await api.updateSpaceCron(space.space_key, payload);
+      scheduleCronReload();
+    } catch (error) {
+      alert('Cron save failed: ' + (error as Error).message);
+    }
+  };
+
+  panel.querySelectorAll('select, input').forEach((el) => {
+    el.addEventListener('change', () => { void persist(); });
+  });
+}
+
+function sortSpacesForDisplay(spaces: CrawlSpace[], currentKey: string): CrawlSpace[] {
+  const rest = spaces
+    .filter((s) => s.space_key !== currentKey)
+    .sort((a, b) => (a.space_key || '').localeCompare(b.space_key || '', undefined, { sensitivity: 'base' }));
+  const current = spaces.find((s) => s.space_key === currentKey);
+  return current ? [current, ...rest] : rest;
+}
+
 async function loadSpaces() {
   const list = document.getElementById('spaces-list');
   const crawlAllBtn = document.getElementById('btn-crawl-all');
-
   if (!list || !crawlAllBtn) return;
 
   try {
-    const spaces = await api.listSpaces();
+    if (!currentSpaceInfo?.spaceKey) {
+      try {
+        const info: any = await chrome.runtime.sendMessage({ type: 'get-space-info' });
+        if (info?.spaceKey) currentSpaceInfo = { ...currentSpaceInfo, ...info };
+      } catch { /* ignore */ }
+    }
+
+    let spaces = await api.listSpaces();
+    const cronEnabled = await loadCronEnabledKeys();
+    const currentKey = currentSpaceInfo?.spaceKey || '';
+
+    if (currentKey && !spaces.some((s) => s.space_key === currentKey)) {
+      spaces = [
+        {
+          space_key: currentKey,
+          space_name: currentSpaceInfo?.spaceName || currentKey,
+          space_url: currentSpaceInfo?.spaceURL || '',
+          pages_crawled: 0,
+          pages_total: 0,
+        },
+        ...spaces,
+      ];
+    }
+
+    const ordered = sortSpacesForDisplay(spaces, currentKey);
     list.innerHTML = '';
 
-    if (spaces.length > 0) {
-      crawlAllBtn.classList.remove('hidden');
-
-      spaces.forEach((space: CrawlSpace) => {
-        const li = document.createElement('li');
-        li.innerHTML = `
-          <div class="space-item-info">
-            <div class="space-item-key">${space.space_key}</div>
-            <div class="space-item-meta">${space.pages_crawled} pages · ${space.last_crawled ? new Date(space.last_crawled).toLocaleDateString() : 'never'}</div>
-          </div>
-          <div class="space-item-actions">
-            <button class="btn btn-secondary btn-small btn-crawl-space" data-key="${space.space_key}" data-url="${space.space_url}">Crawl</button>
-            <button class="btn btn-secondary btn-small btn-manage-cron" data-key="${space.space_key}" data-url="${space.space_url}">⏱</button>
-            <button class="btn btn-danger btn-small btn-remove-space" data-key="${space.space_key}">✕</button>
-          </div>
-        `;
-        list.appendChild(li);
-      });
-
-      list.querySelectorAll('.btn-crawl-space').forEach((btn: HTMLElement) => {
-        btn.addEventListener('click', async (e: Event) => {
-          const key = (e.target as HTMLElement).dataset.key!;
-          const url = (e.target as HTMLElement).dataset.url!;
-          try {
-            const result: any = await chrome.runtime.sendMessage({ type: 'start-crawl', spaceUrl: url });
-            if (result?.success) {
-              activeJobId = result.jobId;
-              document.querySelector('.tab-btn[data-tab="crawl"]')?.dispatchEvent(new Event('click'));
-              (document.getElementById('crawl-progress') as HTMLDivElement)?.classList.remove('hidden');
-              (document.getElementById('btn-cancel-crawl') as HTMLButtonElement)?.classList.remove('hidden');
-              startCrawlPolling();
-            }
-          } catch (error) {
-            alert('Crawl failed: ' + (error as Error).message);
-          }
-        });
-      });
-
-      list.querySelectorAll('.btn-manage-cron').forEach((btn: HTMLElement) => {
-        btn.addEventListener('click', async (e: Event) => {
-          const key = (e.target as HTMLElement).dataset.key!;
-          const url = (e.target as HTMLElement).dataset.url!;
-          showSpaceCronConfig(key, url);
-        });
-      });
-
-      list.querySelectorAll('.btn-remove-space').forEach((btn: HTMLElement) => {
-        btn.addEventListener('click', async (e: Event) => {
-          const key = (e.target as HTMLElement).dataset.key!;
-          if (!confirm(`Remove space ${key}?`)) return;
-          try {
-            await api.deleteSpace(key);
-            await loadSpaces();
-            await loadCronConfig();
-          } catch (error) {
-            alert('Remove failed: ' + (error as Error).message);
-          }
-        });
-      });
-    } else {
+    if (ordered.length === 0) {
       crawlAllBtn.classList.add('hidden');
-      list.innerHTML = '<li class="no-spaces">No spaces configured</li>';
+      list.innerHTML = '<p class="info-text">No spaces yet. Add a space URL below.</p>';
+      applyGating();
+      return;
     }
+
+    crawlAllBtn.classList.remove('hidden');
+
+    ordered.forEach((space) => {
+      const isCurrent = space.space_key === currentKey;
+      const neverCrawled = !space.last_crawled && !(space.pages_crawled > 0) && !runningBySpace.has(space.space_key);
+      const dateLabel = space.last_crawled ? formatShortDate(space.last_crawled) : '—';
+      const dateTitle = space.last_crawled ? new Date(space.last_crawled).toLocaleString() : 'Never crawled';
+      const running = runningBySpace.get(space.space_key);
+
+      const row = document.createElement('div');
+      row.className = 'space-row' + (isCurrent ? ' current' : '');
+      row.dataset.key = space.space_key;
+      row.dataset.url = space.space_url || '';
+      row.innerHTML = `
+        <div class="space-row-main">
+          <span class="space-row-name" title="${space.space_url || ''}">${space.space_key}</span>
+          <span class="space-row-counts">${formatCounts(space)}</span>
+          <span class="space-row-date" title="${dateTitle}">${dateLabel}</span>
+          <button type="button" class="btn-icon btn-play${running ? ' btn-stop' : ''}" title="${running ? 'Stop crawl' : 'Crawl'}" data-url="${space.space_url}">${running ? '⏹' : '▶'}</button>
+          <button type="button" class="btn-icon btn-cron${cronEnabled.has(space.space_key) ? ' cron-on' : ''}" title="${cronEnabled.has(space.space_key) ? 'Cron enabled' : 'Cron disabled'}">⏱</button>
+        </div>
+        ${neverCrawled && isCurrent ? '<div class="space-row-sub">Not crawled yet</div>' : ''}
+        <div class="space-crawl-panel${running ? '' : ' hidden'}">
+          <div class="space-progress-track"><div class="space-progress-fill" style="width:0%"></div></div>
+          <div class="space-progress-label">Crawling…</div>
+        </div>
+        <div class="space-cron-panel hidden"></div>
+      `;
+      list.appendChild(row);
+
+      if (running) applyJobToRow(space.space_key, running);
+
+      row.querySelector('.btn-play')?.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        if (!actionsAllowed()) return;
+        const btn = e.currentTarget as HTMLElement;
+        if (btn.classList.contains('btn-stop') || runningBySpace.has(space.space_key)) {
+          await stopSpaceCrawl(space.space_key);
+          return;
+        }
+        const url = btn.dataset.url;
+        if (!url) {
+          alert('Space has no URL');
+          return;
+        }
+        try {
+          await startSpaceCrawl(url, space.space_key);
+        } catch (error) {
+          alert('Crawl failed: ' + (error as Error).message);
+        }
+      });
+
+      row.querySelector('.btn-cron')?.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        if (!actionsAllowed()) return;
+        await toggleCronPanel(row, space);
+      });
+    });
+
+    applyGating();
+    if (runningBySpace.size > 0) ensureCrawlPolling();
   } catch (error) {
-    list.innerHTML = `<li class="crawl-error">Failed to load: ${(error as Error).message}</li>`;
+    list.innerHTML = isBackendDown()
+      ? '<p class="info-text">Waiting for backend…</p>'
+      : `<p class="crawl-error">Failed to load: ${(error as Error).message}</p>`;
   }
 }
 
 (document.getElementById('btn-crawl-all') as HTMLButtonElement)?.addEventListener('click', async () => {
+  if (!actionsAllowed()) return;
   try {
     const spaces = await api.listSpaces();
     for (const space of spaces) {
-      const result: any = await chrome.runtime.sendMessage({ type: 'start-crawl', spaceUrl: space.space_url });
-      if (result?.success) {
-        activeJobId = result.jobId;
-        document.querySelector('.tab-btn[data-tab="crawl"]')?.dispatchEvent(new Event('click'));
-        (document.getElementById('crawl-progress') as HTMLDivElement)?.classList.remove('hidden');
-        (document.getElementById('btn-cancel-crawl') as HTMLButtonElement)?.classList.remove('hidden');
-        startCrawlPolling();
-        await new Promise(r => setTimeout(r, 2000));
-      }
+      if (!space.space_url) continue;
+      if (runningBySpace.has(space.space_key)) continue;
+      await startSpaceCrawl(space.space_url, space.space_key);
+      await new Promise((r) => setTimeout(r, 400));
     }
   } catch (error) {
     alert('Crawl all failed: ' + (error as Error).message);
   }
 });
 
-// Cron config management
-async function loadCronConfig() {
-  const container = document.getElementById('cron-configs');
-  const saveBtn = document.getElementById('btn-save-cron');
-
-  if (!container || !saveBtn) return;
-  container.innerHTML = '';
-  saveBtn.classList.add('hidden');
-
-  try {
-    const config = await api.getCronConfig();
-    const overrides = config.per_space_overrides;
-
-    if (overrides.length === 0) {
-      container.innerHTML = '<p class="info-text">No per-space cron configs. Click the ⏱ button on a space to configure.</p>';
-      return;
-    }
-
-    overrides.forEach((ov: CronSpaceConfig) => {
-      const div = document.createElement('div');
-      div.className = 'cron-item';
-      div.innerHTML = `
-        <div class="cron-item-header">
-          <span class="cron-item-key">${ov.space_key}</span>
-          <button class="btn btn-danger btn-small btn-remove-cron" data-key="${ov.space_key}">✕</button>
-        </div>
-        <div class="cron-fields">
-          <div class="cron-field">
-            <label>Full Crawl</label>
-            <select data-key="${ov.space_key}" data-field="full_crawl_enabled">
-              <option value="true" ${ov.full_crawl_enabled ? 'selected' : ''}>Enabled</option>
-              <option value="false" ${!ov.full_crawl_enabled ? 'selected' : ''}>Disabled</option>
-            </select>
-          </div>
-          <div class="cron-field">
-            <label>Full Interval</label>
-            <select data-key="${ov.space_key}" data-field="full_crawl_interval">
-              <option value="1h" ${ov.full_crawl_interval === '1h' ? 'selected' : ''}>1 hour</option>
-              <option value="6h" ${ov.full_crawl_interval === '6h' ? 'selected' : ''}>6 hours</option>
-              <option value="12h" ${ov.full_crawl_interval === '12h' ? 'selected' : ''}>12 hours</option>
-              <option value="24h" ${ov.full_crawl_interval === '24h' ? 'selected' : ''}>24 hours</option>
-              <option value="48h" ${ov.full_crawl_interval === '48h' ? 'selected' : ''}>48 hours</option>
-              <option value="7d" ${ov.full_crawl_interval === '7d' ? 'selected' : ''}>7 days</option>
-            </select>
-          </div>
-          <div class="cron-field">
-            <label>Incremental</label>
-            <select data-key="${ov.space_key}" data-field="incr_crawl_enabled">
-              <option value="true" ${ov.incr_crawl_enabled ? 'selected' : ''}>Enabled</option>
-              <option value="false" ${!ov.incr_crawl_enabled ? 'selected' : ''}>Disabled</option>
-            </select>
-          </div>
-          <div class="cron-field">
-            <label>Incr Interval</label>
-            <select data-key="${ov.space_key}" data-field="incr_crawl_interval">
-              <option value="30m" ${ov.incr_crawl_interval === '30m' ? 'selected' : ''}>30 min</option>
-              <option value="1h" ${ov.incr_crawl_interval === '1h' ? 'selected' : ''}>1 hour</option>
-              <option value="2h" ${ov.incr_crawl_interval === '2h' ? 'selected' : ''}>2 hours</option>
-              <option value="4h" ${ov.incr_crawl_interval === '4h' ? 'selected' : ''}>4 hours</option>
-              <option value="6h" ${ov.incr_crawl_interval === '6h' ? 'selected' : ''}>6 hours</option>
-              <option value="12h" ${ov.incr_crawl_interval === '12h' ? 'selected' : ''}>12 hours</option>
-            </select>
-          </div>
-        </div>
-      `;
-      container.appendChild(div);
-    });
-
-    saveBtn.classList.remove('hidden');
-
-    container.querySelectorAll('.btn-remove-cron').forEach((btn: HTMLElement) => {
-      btn.addEventListener('click', async (e: Event) => {
-        const key = (e.target as HTMLElement).dataset.key!;
-        if (!confirm(`Remove cron config for ${key}?`)) return;
-        try {
-          await api.deleteSpaceCron(key);
-          await loadCronConfig();
-        } catch (error) {
-          alert('Delete failed: ' + (error as Error).message);
-        }
-      });
-    });
-
-  } catch (error) {
-    container.innerHTML = `<p class="info-text">Failed to load: ${(error as Error).message}</p>`;
-  }
-}
-
-function showSpaceCronConfig(spaceKey: string, spaceURL: string) {
-  const container = document.getElementById('cron-configs');
-  const saveBtn = document.getElementById('btn-save-cron');
-  if (!container || !saveBtn) return;
-
-  container.innerHTML = '';
-  saveBtn.classList.add('hidden');
-
-  const div = document.createElement('div');
-  div.className = 'cron-item';
-  div.innerHTML = `
-    <div class="cron-item-header">
-      <span class="cron-item-key">${spaceKey}</span>
-      <span class="info-text" style="font-size:10px; color: var(--text-muted);">Editing this space</span>
-    </div>
-    <div class="cron-fields">
-      <div class="cron-field">
-        <label>Full Crawl</label>
-        <select data-key="${spaceKey}" data-field="full_crawl_enabled">
-          <option value="true">Enabled</option>
-          <option value="false">Disabled</option>
-        </select>
-      </div>
-      <div class="cron-field">
-        <label>Full Interval</label>
-        <select data-key="${spaceKey}" data-field="full_crawl_interval">
-          <option value="1h">1 hour</option>
-          <option value="6h">6 hours</option>
-          <option value="12h">12 hours</option>
-          <option value="24h" selected>24 hours</option>
-          <option value="48h">48 hours</option>
-          <option value="7d">7 days</option>
-        </select>
-      </div>
-      <div class="cron-field">
-        <label>Incremental</label>
-        <select data-key="${spaceKey}" data-field="incr_crawl_enabled">
-          <option value="true">Enabled</option>
-          <option value="false">Disabled</option>
-        </select>
-      </div>
-      <div class="cron-field">
-        <label>Incr Interval</label>
-        <select data-key="${spaceKey}" data-field="incr_crawl_interval">
-          <option value="30m">30 min</option>
-          <option value="1h" selected>1 hour</option>
-          <option value="2h">2 hours</option>
-          <option value="4h">4 hours</option>
-          <option value="6h">6 hours</option>
-          <option value="12h">12 hours</option>
-        </select>
-      </div>
-    </div>
-  `;
-  container.appendChild(div);
-  saveBtn.classList.remove('hidden');
-  saveBtn.textContent = 'Save & Reload';
-
-  const spacesList = document.getElementById('spaces-list');
-  spacesList?.querySelectorAll('li').forEach(li => {
-    if (li.querySelector(`[data-key="${spaceKey}"]`)) {
-      li.classList.add('hidden');
-    }
-  });
-}
-
-(document.getElementById('btn-save-cron') as HTMLButtonElement)?.addEventListener('click', async () => {
-  const btn = document.getElementById('btn-save-cron') as HTMLButtonElement;
-  btn.textContent = 'Saving...';
-  btn.disabled = true;
-
-  try {
-    const changes = new Map<string, Partial<CronSpaceConfig>>();
-    const selects = document.querySelectorAll('#cron-configs select[data-key]');
-    selects.forEach((sel: HTMLSelectElement) => {
-      const key = sel.dataset.key!;
-      const field = sel.dataset.field!;
-      const value = sel.value;
-
-      if (!changes.has(key)) {
-        changes.set(key, { space_key: key });
-      }
-      const change = changes.get(key)!;
-
-      if (field === 'full_crawl_enabled') change.full_crawl_enabled = value === 'true';
-      if (field === 'full_crawl_interval') change.full_crawl_interval = value;
-      if (field === 'incr_crawl_enabled') change.incr_crawl_enabled = value === 'true';
-      if (field === 'incr_crawl_interval') change.incr_crawl_interval = value;
-    });
-
-    const promises: Promise<any>[] = [];
-    for (const [key, change] of changes) {
-      promises.push(api.updateSpaceCron(key, change));
-    }
-    await Promise.all(promises);
-
-    await api.reloadCron();
-
-    alert('Cron config saved and scheduler reloaded');
-    await loadCronConfig();
-    await loadSpaces();
-  } catch (error) {
-    alert('Save failed: ' + (error as Error).message);
-  } finally {
-    btn.textContent = 'Save & Reload Cron';
-    btn.disabled = false;
-  }
-});
-
-// Initialize on load
 init();

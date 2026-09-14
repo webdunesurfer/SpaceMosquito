@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="128" height="128" role="img" aria-label="Space Mosquito - side detailed">
+  <!-- Same side pose with extra wing veins, legs, abdomen rings -->
+  <g fill="none" stroke="#9b4d4d" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M6 14.5 H2.2"/>
+    <path d="M3.2 13.6 L2.2 14.5 L3.2 15.4"/>
+    <circle cx="9" cy="14.5" r="2.25"/>
+    <circle cx="9.5" cy="14" r="0.5" fill="#9b4d4d" stroke="none"/>
+    <path d="M8.1 12.3 L6.2 8.8"/>
+    <path d="M8.8 12.1 L8 9.5"/>
+    <ellipse cx="14" cy="15" rx="3.3" ry="2.45"/>
+    <path d="M17 15 C19.1 12.7 23.2 12.1 27.2 14.2 C28.4 14.9 28.7 16.4 27.3 17.1 C24 19 19.4 18.4 17.1 16.6"/>
+    <path d="M19.6 13.9 L20.9 16.8 M22.4 13.6 L23.6 16.9 M24.8 13.9 L25.7 16.6 M26.6 14.5 L27 16.2"/>
+    <path d="M12.4 13 C14 8 20.5 6.5 25.2 10.2 C21.5 8.8 16.8 10.2 13.4 13.8"/>
+    <path d="M13.2 12.6 C15.2 9.5 20 8.5 23.5 10.8" opacity="0.7"/>
+    <path d="M14 12.2 L18.5 10.2 L22.5 10.8" opacity="0.55"/>
+    <path d="M12.4 17 L10.8 21.2 L9 25.2"/>
+    <path d="M12.8 17.2 L11.6 20.5"/>
+    <path d="M14.5 17.3 L13.9 22.2 L13 26.2"/>
+    <path d="M14.8 17.5 L14.5 20.8"/>
+    <path d="M16.6 16.9 L18.2 21.6 L19.6 25.6"/>
+    <path d="M16.9 17.1 L17.8 20.5"/>
+  </g>
+</svg>

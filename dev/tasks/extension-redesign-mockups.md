@@ -1,9 +1,8 @@
 # Extension redesign — mockups & IA
 
 - **Task ID:** `extension-redesign-mockups`
-- **Status:** ready
+- **Status:** done
 - **Parent:** [`extension-redesign`](extension-redesign.md)
-- **Blocked by:** — (can start before multi-wiki code; design **for** multi-session)
 
 ## Problem
 
@@ -20,33 +19,26 @@ children ship UI. Output is reviewable mockups the agent can build against.
 
 | # | Topic | Status | Decision |
 |---|--------|--------|----------|
-| 1 | Artifact format | open | Markdown wireframes + PNG; static HTML mock; or Figma/Penpot export into this task folder |
-| 2 | Primary surfaces | open | Which tabs/sections: e.g. Overview, Sessions, Spaces, Activity, Catalog, Settings |
-| 3 | Multi-session presentation | open | List of hosts with status dots vs “current tab’s site” emphasis + expandable others |
-| 4 | Catalog in v1 | open | Include in mockups as phase-2 / grayed “later”, or omit |
+| 1 | Artifact format | locked | **Markdown wireframes + PNG** under [`extension-redesign-mockups/`](extension-redesign-mockups/) |
+| 2 | Primary surfaces | locked | **Page · Spaces · Settings**; header **Session** disc only. Popup only. |
+| 3 | Multi-session / context | locked | Header Session disc = **current tab’s host**; Page tab shows that page; Spaces lists current space first |
+| 4 | Catalog in v1 | locked | **Omit** — [`extension-catalog-ui`](extension-catalog-ui.md) cancelled |
+| 5 | Crawl progress | locked | **Inline on Spaces** (expand row); no Activity tab; dark-red progress; play/stop |
+| 6 | Cron UI | locked | Expand on space row; **autosave**; independent of crawl expand |
+| 7 | Page meta row | locked | Live + Stored version/date + **sync** refresh icon on **one line** |
+| 8 | Backend UX | locked | No header Backend chip; banner when down; **poll every 2s while popup open**, no poll when closed; no click-to-recheck |
 
-## Implementation (design work)
+## Artifacts
 
-1. Inventory current popup affordances (capture, validate, delete, crawl, spaces, cron, settings).
-2. Propose IA that covers epic wishes (session, backend gate, spaces+cron, multi-crawl, optional catalog).
-3. Produce mockups for at least:
-   - Backend down / session invalid (disabled states)
-   - Healthy: sessions list + capture+validate primary action
-   - Spaces list with cron on/off + actions
-   - Concurrent crawl activity
-   - Settings (backend URL, auto-renew checkbox)
-4. Lock epic open decisions that mockups settle (#4–#8 in parent) or record remaining opens.
-5. Store artifacts under `dev/tasks/extension-redesign-mockups/` **or** embed in this file; link from parent epic.
+**[`extension-redesign-mockups/WIREFRAMES.md`](extension-redesign-mockups/WIREFRAMES.md)** — ASCII + PNGs 01–07 (revision 3).
 
 ## Done when
 
-- [ ] IA written and accepted
-- [ ] Key screens mock’d and linked from this doc
-- [ ] Parent epic open decisions updated (locked or explicitly deferred)
-- [ ] Implementation children can start without guessing layout
+- [x] IA written and accepted
+- [x] Key screens mock’d and linked from this doc
+- [x] Parent epic open decisions updated (locked or explicitly deferred)
+- [x] Implementation children can start without guessing layout
 
 ## Notes
 
-Popup is ~narrow; prefer vertical stacks over dense dashboards. Match existing
-brand loosely; redesign is allowed but keep extension constraints (no huge
-assets, works in Firefox + Chrome popup).
+Revision 3: compact Page meta + sync icon; Session-only header; backend banner + 2s popup-only poll.

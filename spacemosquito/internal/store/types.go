@@ -12,6 +12,7 @@ type Space struct {
 	Name        string     `db:"name"`
 	URL         string     `db:"url"`
 	LastCrawled *time.Time `db:"last_crawled"`
+	PagesTotal  int        `db:"pages_total"` // last discovery total (idle crawled/total)
 	CreatedAt   time.Time  `db:"created_at"`
 }
 

@@ -10,12 +10,29 @@ export class ApiClient {
     }
   }
 
-  async getBackendUrl(): Promise<string> {
+  getBackendUrl(): string {
     return this.baseUrl;
   }
 
   setBackendUrl(url: string): void {
     this.baseUrl = url.replace(/\/+$/, '');
+  }
+
+  /** Probe GET /health. Short timeout; false on any failure. */
+  async checkHealth(timeoutMs: number = 1500): Promise<boolean> {
+    const url = `${this.baseUrl}/health`;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const response = await fetch(url, { method: 'GET', signal: controller.signal });
+      if (!response.ok) return false;
+      const text = (await response.text()).trim().toLowerCase();
+      return text === 'ok' || text === '';
+    } catch {
+      return false;
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   private async request<T>(path: string, options?: RequestInit): Promise<T> {
@@ -175,6 +192,41 @@ export class ApiClient {
   async startCronJobs(): Promise<{ status: string }> {
     return this.request('/api/cron/start', {
       method: 'POST',
+    });
+  }
+
+  async getPage(confluenceId: number, spaceKey?: string): Promise<{
+    confluence_id: number;
+    space_key: string;
+    title: string;
+    version: number;
+    content: string;
+    updated_at: string;
+  }> {
+    const q = spaceKey ? `?space_key=${encodeURIComponent(spaceKey)}` : '';
+    return this.request(`/api/pages/${confluenceId}${q}`);
+  }
+
+  async comparePage(confluenceId: number, spaceKey?: string): Promise<{
+    confluence_id: number;
+    space_key: string;
+    live: { version: number; when?: string; title?: string };
+    stored: { version: number; updated_at: string; title?: string } | null;
+  }> {
+    const q = spaceKey ? `?space_key=${encodeURIComponent(spaceKey)}` : '';
+    return this.request(`/api/pages/${confluenceId}/compare${q}`);
+  }
+
+  async refreshPage(confluenceId: number, spaceKey?: string): Promise<{
+    confluence_id: number;
+    space_key: string;
+    title: string;
+    version: number;
+    updated_at?: string;
+  }> {
+    return this.request(`/api/pages/${confluenceId}/refresh`, {
+      method: 'POST',
+      body: JSON.stringify(spaceKey ? { space_key: spaceKey } : {}),
     });
   }
 

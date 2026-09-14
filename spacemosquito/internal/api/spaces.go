@@ -62,6 +62,7 @@ func (h *spacesHandler) list(w http.ResponseWriter, r *http.Request) {
 			"space_name":    s.Name,
 			"space_url":     s.URL,
 			"pages_crawled": pageCount,
+			"pages_total":   s.PagesTotal,
 			"last_crawled":  lastCrawledStr,
 			"created_at":    s.CreatedAt.Format(time.RFC3339),
 		})
@@ -153,6 +154,7 @@ func (h *spaceByIDHandler) getStatus(w http.ResponseWriter, r *http.Request, spa
 		"space_name":    space.Name,
 		"space_url":     space.URL,
 		"pages_crawled": len(pages),
+		"pages_total":   space.PagesTotal,
 		"last_crawled":  lastCrawledStr,
 	})
 }

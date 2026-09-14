@@ -100,8 +100,8 @@ func (d *DB) GetSpaceByKey(ctx context.Context, key string) (*store.Space, error
 	var lastCrawled sql.NullString
 	var createdAt string
 	err := d.sql.QueryRowContext(ctx,
-		"SELECT id, key, name, url, last_crawled, created_at FROM spaces WHERE key = ?", key,
-	).Scan(&idStr, &s.Key, &s.Name, &s.URL, &lastCrawled, &createdAt)
+		"SELECT id, key, name, url, last_crawled, COALESCE(pages_total, 0), created_at FROM spaces WHERE key = ?", key,
+	).Scan(&idStr, &s.Key, &s.Name, &s.URL, &lastCrawled, &s.PagesTotal, &createdAt)
 	if err != nil {
 		if d.log.Enabled() {
 			d.log.Debugw("get space by key: not found", "key", key, "error", err)
@@ -128,7 +128,7 @@ func (d *DB) GetSpaceByKey(ctx context.Context, key string) (*store.Space, error
 
 func (d *DB) ListSpaces(ctx context.Context) ([]store.Space, error) {
 	rows, err := d.sql.QueryContext(ctx,
-		"SELECT id, key, name, url, last_crawled, created_at FROM spaces ORDER BY name")
+		"SELECT id, key, name, url, last_crawled, COALESCE(pages_total, 0), created_at FROM spaces ORDER BY name")
 	if err != nil {
 		if d.log.Enabled() {
 			d.log.Errorw("list spaces failed", "error", err)
@@ -143,7 +143,7 @@ func (d *DB) ListSpaces(ctx context.Context) ([]store.Space, error) {
 		var idStr string
 		var lastCrawled sql.NullString
 		var createdAt string
-		if err := rows.Scan(&idStr, &s.Key, &s.Name, &s.URL, &lastCrawled, &createdAt); err != nil {
+		if err := rows.Scan(&idStr, &s.Key, &s.Name, &s.URL, &lastCrawled, &s.PagesTotal, &createdAt); err != nil {
 			return nil, err
 		}
 		s.ID, err = uuid.Parse(idStr)
@@ -170,6 +170,14 @@ func (d *DB) UpdateSpaceLastCrawled(ctx context.Context, spaceKey string) error 
 	_, err := d.sql.ExecContext(ctx,
 		`UPDATE spaces SET last_crawled = ? WHERE key = ?`,
 		time.Now().UTC().Format(time.RFC3339), spaceKey,
+	)
+	return err
+}
+
+func (d *DB) UpdateSpacePagesTotal(ctx context.Context, spaceKey string, pagesTotal int) error {
+	_, err := d.sql.ExecContext(ctx,
+		`UPDATE spaces SET pages_total = ? WHERE key = ?`,
+		pagesTotal, spaceKey,
 	)
 	return err
 }

@@ -1,9 +1,61 @@
+// @ts-nocheck
 import { ApiClient } from './lib/api';
 import { captureAndSave } from './lib/session';
 import { checkAuthStatus, AuthStatus } from './lib/auth';
 import { SpaceInfo, JobSnapshot } from './lib/types';
 
 const DEFAULT_BACKEND_URL = 'http://localhost:8081';
+
+function isConfluenceUrl(url: string): boolean {
+  if (!url) return false;
+  const lowerUrl = url.toLowerCase();
+  return (
+    lowerUrl.includes('atlassian.net') ||
+    lowerUrl.includes('/wiki/spaces/') ||
+    lowerUrl.includes('/spaces/') ||
+    lowerUrl.includes('/display/') ||
+    lowerUrl.includes('/pages/viewpage.action') ||
+    lowerUrl.includes('/pages/viewspace.action')
+  );
+}
+
+const ACTION_ICON_ACTIVE = {
+  16: 'assets/icon-active-16.png',
+  32: 'assets/icon-active-32.png',
+};
+const ACTION_ICON_INACTIVE = {
+  16: 'assets/icon-inactive-16.png',
+  32: 'assets/icon-inactive-32.png',
+};
+
+async function updateActionIconForTab(tabId: number, url?: string): Promise<void> {
+  if (tabId < 0) return;
+  let tabUrl = url || '';
+  if (!tabUrl) {
+    try {
+      const tab = await chrome.tabs.get(tabId);
+      tabUrl = tab?.url || '';
+    } catch {
+      tabUrl = '';
+    }
+  }
+  const path = isConfluenceUrl(tabUrl) ? ACTION_ICON_ACTIVE : ACTION_ICON_INACTIVE;
+  try {
+    await chrome.action.setIcon({ tabId, path });
+  } catch (err) {
+    console.error('[spacemosquito] setIcon failed:', err);
+  }
+}
+
+async function refreshActionIconForActiveTab(): Promise<void> {
+  try {
+    const tabs: any[] = await chrome.tabs.query({ active: true, currentWindow: true });
+    const tab = tabs[0];
+    if (tab?.id != null) await updateActionIconForTab(tab.id, tab.url);
+  } catch {
+    /* ignore */
+  }
+}
 
 // Load settings from storage
 async function getSettings(): Promise<{ backendUrl: string }> {
@@ -13,23 +65,9 @@ async function getSettings(): Promise<{ backendUrl: string }> {
   };
 }
 
-function isConfluenceUrl(url: string): boolean {
-  if (!url) return false;
-  const lowerUrl = url.toLowerCase();
-  // Check for common Confluence path patterns
-  return (
-    lowerUrl.includes('atlassian.net') || 
-    lowerUrl.includes('/wiki/spaces/') || 
-    lowerUrl.includes('/spaces/') || 
-    lowerUrl.includes('/display/') ||
-    lowerUrl.includes('/pages/viewpage.action') ||
-    lowerUrl.includes('/pages/viewspace.action')
-  );
-}
-
 // Handle session capture flow
-async function handleCaptureSession(tabUrl: string) {
-  console.log('[spacemosquito] handleCaptureSession(tabUrl):', tabUrl);
+async function handleCaptureSession(tabUrl: string, cookieStoreId?: string) {
+  console.log('[spacemosquito] handleCaptureSession(tabUrl):', tabUrl, 'cookieStoreId:', cookieStoreId);
   try {
     const settings = await getSettings();
     console.log('[spacemosquito] settings:', settings);
@@ -42,8 +80,8 @@ async function handleCaptureSession(tabUrl: string) {
       return { success: false, error: 'Not on a Confluence page' };
     }
 
-    // Capture cookies and save
-    const result = await captureAndSave(tabUrl, api);
+    // Capture cookies and save (cookieStoreId = Multi-Account Container jar)
+    const result = await captureAndSave(tabUrl, api, cookieStoreId);
 
     // Update session status
     if (result.success) {
@@ -143,100 +181,215 @@ async function pollCrawlStatus() {
 chrome.runtime.onMessage.addListener((msg: any, sender: any, sendResponse: (response: any) => void) => {
   switch (msg.type) {
     case 'capture-session':
-      (async () => {
-        let tabUrl: string | undefined;
-        if (sender?.tab?.url) {
-          tabUrl = sender.tab.url;
-        } else {
-          try {
-            const windows: any[] = await chrome.windows.getAll({ populate: true });
-            for (const w of windows) {
-              for (const t of w.tabs || []) {
-                if (t.active && t.url) {
-                  tabUrl = t.url;
-                  break;
+      console.log('[spacemosquito] capture-session received');
+      return new Promise(resolve => {
+        (async () => {
+          let tabUrl: string | undefined;
+          let cookieStoreId: string | undefined;
+          console.log('[spacemosquito] sender.tab:', sender?.tab);
+          if (sender?.tab?.url) {
+            tabUrl = sender.tab.url;
+            cookieStoreId = sender.tab.cookieStoreId;
+          } else {
+            console.log('[spacemosquito] No sender.tab, querying windows...');
+            try {
+              const tabs: any[] = await chrome.tabs.query({ active: true, currentWindow: true });
+              const tab = tabs[0];
+              if (tab?.url) {
+                tabUrl = tab.url;
+                cookieStoreId = tab.cookieStoreId;
+                console.log('[spacemosquito] Found active tab:', tabUrl, 'store:', cookieStoreId);
+              } else {
+                const windows: any[] = await chrome.windows.getAll({ populate: true });
+                console.log('[spacemosquito] Found', windows.length, 'windows');
+                for (const w of windows) {
+                  for (const t of w.tabs || []) {
+                    if (t.active && t.url) {
+                      tabUrl = t.url;
+                      cookieStoreId = t.cookieStoreId;
+                      console.log('[spacemosquito] Found active tab:', tabUrl, 'store:', cookieStoreId);
+                      break;
+                    }
+                  }
+                  if (tabUrl) break;
                 }
               }
-              if (tabUrl) break;
+            } catch (err) {
+              console.error('[spacemosquito] tab lookup failed:', err);
             }
-          } catch (err) {
-            console.error('[spacemosquito] windows.getAll failed:', err);
           }
-        }
-        if (!tabUrl) {
-          sendResponse({ success: false, error: 'No active tab' });
-          return;
-        }
-        const result = await handleCaptureSession(tabUrl);
-        sendResponse(result);
-      })();
-      return true;
+          if (!tabUrl) {
+            console.error('[spacemosquito] No active tab URL found');
+            resolve({ success: false, error: 'No active tab' });
+            return;
+          }
+          const result = await handleCaptureSession(tabUrl, cookieStoreId);
+          console.log('[spacemosquito] capture result:', result);
+          resolve(result);
+        })().catch(err => {
+          console.error('[spacemosquito] capture error:', err);
+          resolve({ success: false, error: err.message });
+        });
+      });
 
     case 'start-crawl':
-      handleStartCrawl(msg.spaceUrl).then(sendResponse).catch(err => {
-        sendResponse({ success: false, error: err.message });
+      console.log('[spacemosquito] start-crawl received, spaceUrl:', msg.spaceUrl);
+      return new Promise(resolve => {
+        handleStartCrawl(msg.spaceUrl).then(result => {
+          console.log('[spacemosquito] start-crawl result:', result);
+          resolve(result);
+        }).catch(err => {
+          console.error('[spacemosquito] start-crawl error:', err);
+          resolve({ success: false, error: err.message });
+        });
       });
-      return true;
 
     case 'cancel-crawl':
-      handleCancelCrawl(msg.jobId).then(sendResponse).catch(err => {
-        sendResponse({ success: false, error: err.message });
+      console.log('[spacemosquito] cancel-crawl received, jobId:', msg.jobId);
+      return new Promise(resolve => {
+        handleCancelCrawl(msg.jobId).then(result => {
+          console.log('[spacemosquito] cancel-crawl result:', result);
+          resolve(result);
+        }).catch(err => {
+          console.error('[spacemosquito] cancel-crawl error:', err);
+          resolve({ success: false, error: err.message });
+        });
       });
-      return true;
 
     case 'get-space-info':
-      (async () => {
-        let tabUrl: string | undefined;
-        if (sender?.tab?.url) {
-          tabUrl = sender.tab.url;
-        } else {
-          try {
-            const windows: any[] = await chrome.windows.getAll({ populate: true });
-            for (const w of windows) {
-              for (const t of w.tabs || []) {
-                if (t.active && t.url) {
-                  tabUrl = t.url;
-                  break;
+      console.log('[spacemosquito] get-space-info received');
+      return new Promise(resolve => {
+        (async () => {
+          let tab: any;
+          if (sender?.tab?.url) {
+            tab = sender.tab;
+          } else {
+            try {
+              const tabs: any[] = await chrome.tabs.query({ active: true, currentWindow: true });
+              tab = tabs[0];
+              if (!tab?.url) {
+                const windows: any[] = await chrome.windows.getAll({ populate: true });
+                for (const w of windows) {
+                  for (const t of w.tabs || []) {
+                    if (t.active && t.url) {
+                      tab = t;
+                      break;
+                    }
+                  }
+                  if (tab?.url) break;
                 }
               }
-              if (tabUrl) break;
+            } catch (err) {
+              console.error('[spacemosquito] get-space-info windows.getAll failed:', err);
             }
-          } catch (err) {
-            console.error('[spacemosquito] get-space-info windows.getAll failed:', err);
           }
-        }
-        if (!tabUrl || !isConfluenceUrl(tabUrl)) {
-          sendResponse({ spaceKey: '', spaceName: '', spaceURL: '', pageTitle: '' });
-          return;
-        }
-        const hostname = new URL(tabUrl).hostname;
-        const protocol = new URL(tabUrl).protocol;
-        const parsed = new URL(tabUrl);
-
-        // Match /wiki/spaces/KEY or /spaces/KEY or /display/KEY or ?spaceKey=
-        const match = tabUrl.match(/\/(?:wiki\/)?spaces\/([^/?#]+)/) || tabUrl.match(/\/display\/([^/?#]+)/);
-        const spaceKey = match ? match[1] : (parsed.searchParams.get('spaceKey') || '');
-        const spaceName = spaceKey || 'Unknown';
-
-        // Reconstruct space URL based on detected pattern
-        let spaceURL = tabUrl;
-        if (spaceKey) {
-          if (tabUrl.includes('/wiki/spaces/')) {
-            spaceURL = `${protocol}//${hostname}/wiki/spaces/${spaceKey}/overview`;
-          } else if (tabUrl.includes('/spaces/')) {
-            spaceURL = `${protocol}//${hostname}/spaces/${spaceKey}/overview`;
-          } else if (tabUrl.includes('/display/')) {
-            spaceURL = `${protocol}//${hostname}/display/${spaceKey}`;
-          } else if (/\/pages\/view(?:page|space)\.action/i.test(tabUrl)) {
-            const path = parsed.pathname;
-            const i = path.toLowerCase().indexOf('/pages/');
-            const ctx = i >= 0 ? path.slice(0, i) : '';
-            spaceURL = `${protocol}//${hostname}${ctx}/display/${spaceKey}`;
+          const tabUrl = tab?.url || '';
+          if (!tabUrl || !isConfluenceUrl(tabUrl)) {
+            resolve({ spaceKey: '', spaceName: '', spaceURL: '', pageTitle: '', pageId: 0, host: '', tabUrl: '' });
+            return;
           }
-        }
-        sendResponse({ spaceKey, spaceName, spaceURL, pageTitle: '' });
-      })();
-      return true;
+          const parsed = new URL(tabUrl);
+          const hostname = parsed.hostname;
+          const protocol = parsed.protocol;
+
+          const match = tabUrl.match(/\/(?:wiki\/)?spaces\/([^/?#]+)/) || tabUrl.match(/\/display\/([^/?#]+)/);
+          const spaceKey = match ? match[1] : (parsed.searchParams.get('spaceKey') || '');
+          const spaceName = spaceKey || 'Unknown';
+
+          let pageId = 0;
+          const pageMatch = tabUrl.match(/\/pages\/(\d+)/);
+          if (pageMatch) {
+            pageId = parseInt(pageMatch[1], 10);
+          } else {
+            // Space overview uses homepageId; classic URLs use pageId.
+            const q = parsed.searchParams.get('pageId') || parsed.searchParams.get('homepageId');
+            if (q) pageId = parseInt(q, 10) || 0;
+          }
+
+          let spaceURL = tabUrl;
+          if (spaceKey) {
+            if (tabUrl.includes('/wiki/spaces/')) {
+              spaceURL = `${protocol}//${hostname}/wiki/spaces/${spaceKey}/overview`;
+            } else if (tabUrl.includes('/spaces/')) {
+              spaceURL = `${protocol}//${hostname}/spaces/${spaceKey}/overview`;
+            } else if (tabUrl.includes('/display/')) {
+              spaceURL = `${protocol}//${hostname}/display/${spaceKey}`;
+            } else if (/\/pages\/view(?:page|space)\.action/i.test(tabUrl)) {
+              const path = parsed.pathname;
+              const i = path.toLowerCase().indexOf('/pages/');
+              const ctx = i >= 0 ? path.slice(0, i) : '';
+              spaceURL = `${protocol}//${hostname}${ctx}/display/${spaceKey}`;
+            }
+          }
+
+          let pageTitle = tab?.title || '';
+          // Strip common Confluence title suffixes
+          pageTitle = pageTitle.replace(/\s*[-–|]\s*Confluence.*$/i, '').trim();
+
+          const info = {
+            spaceKey,
+            spaceName,
+            spaceURL,
+            pageTitle,
+            pageId,
+            host: hostname,
+            tabUrl,
+          };
+          console.log('[spacemosquito] get-space-info:', info);
+          resolve(info);
+        })().catch(err => {
+          console.error('[spacemosquito] get-space-info error:', err);
+          resolve({ spaceKey: '', spaceName: '', spaceURL: '', pageTitle: '', pageId: 0, host: '', tabUrl: '' });
+        });
+      });
+
+    case 'capture-and-validate':
+      return new Promise(resolve => {
+        (async () => {
+          let tabUrl: string | undefined;
+          let cookieStoreId: string | undefined;
+          try {
+            const tabs: any[] = await chrome.tabs.query({ active: true, currentWindow: true });
+            const tab = tabs[0];
+            tabUrl = tab?.url;
+            cookieStoreId = tab?.cookieStoreId;
+          } catch { /* ignore */ }
+          if (!tabUrl) {
+            resolve({ success: false, error: 'No active tab' });
+            return;
+          }
+          const captured = await handleCaptureSession(tabUrl, cookieStoreId);
+          if (!captured?.success) {
+            resolve({ success: false, error: captured?.error || 'Capture failed', valid: false });
+            return;
+          }
+          const settings = await getSettings();
+          const apiClient = new ApiClient(settings.backendUrl);
+          try {
+            const validated = await apiClient.validateSession(tabUrl);
+            await chrome.storage.local.set({
+              session_status: { ...validated, exists: true },
+            });
+            resolve({
+              success: true,
+              valid: !!validated.valid,
+              message: validated.message,
+              cookieCount: captured.cookieCount,
+            });
+          } catch (error) {
+            resolve({
+              success: true,
+              valid: false,
+              message: (error as Error).message,
+              cookieCount: captured.cookieCount,
+            });
+          }
+        })().catch(err => resolve({ success: false, error: err.message, valid: false }));
+      });
+
+    case 'auto-renew-changed':
+      sendResponse({ ok: true });
+      return false;
 
     case 'get-settings':
       getSettings().then(sendResponse);
@@ -263,14 +416,48 @@ chrome.runtime.onMessage.addListener((msg: any, sender: any, sendResponse: (resp
 
     default:
       sendResponse({ error: 'unknown message type' });
-      return false;
   }
 });
+
+async function maybeAutoRenew() {
+  try {
+    const data: any = await chrome.storage.local.get('auto_renew');
+    if (!data.auto_renew) return;
+
+    const tabs: any[] = await chrome.tabs.query({});
+    const confluenceTabs = tabs.filter((t) => t.url && isConfluenceUrl(t.url));
+    if (confluenceTabs.length === 0) return;
+
+    // Renew for each distinct host that has an open Confluence tab
+    const seen = new Set<string>();
+    for (const tab of confluenceTabs) {
+      let host = '';
+      try {
+        host = new URL(tab.url).hostname;
+      } catch {
+        continue;
+      }
+      if (!host || seen.has(host)) continue;
+      seen.add(host);
+      await handleCaptureSession(tab.url, tab.cookieStoreId);
+      try {
+        const settings = await getSettings();
+        const apiClient = new ApiClient(settings.backendUrl);
+        await apiClient.validateSession(tab.url);
+      } catch {
+        /* ignore validate errors during auto-renew */
+      }
+    }
+  } catch (err) {
+    console.error('[spacemosquito] auto-renew failed:', err);
+  }
+}
 
 // Periodic polling
 setInterval(async () => {
   await pollSessionStatus();
   await pollCrawlStatus();
+  await maybeAutoRenew();
 }, 30 * 1000);
 
 // Initialize on install
@@ -279,4 +466,17 @@ chrome.runtime.onInstalled.addListener(async () => {
   if (!data.backend_url) {
     await chrome.storage.local.set({ backend_url: DEFAULT_BACKEND_URL });
   }
+  await refreshActionIconForActiveTab();
 });
+
+chrome.tabs.onActivated.addListener(async (activeInfo) => {
+  await updateActionIconForTab(activeInfo.tabId);
+});
+
+chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
+  if (changeInfo.url || changeInfo.status === 'complete') {
+    await updateActionIconForTab(tabId, changeInfo.url || tab?.url);
+  }
+});
+
+void refreshActionIconForActiveTab();

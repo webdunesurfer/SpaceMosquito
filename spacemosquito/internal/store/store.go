@@ -13,6 +13,9 @@ type Store interface {
 	GetSpaceByKey(ctx context.Context, key string) (*Space, error)
 	ListSpaces(ctx context.Context) ([]Space, error)
 	UpdateSpaceLastCrawled(ctx context.Context, spaceKey string) error
+	// UpdateSpacePagesTotal stores the discovery page total for idle crawled/total UI.
+	// Does not touch last_crawled (call UpdateSpaceLastCrawled when a crawl finishes).
+	UpdateSpacePagesTotal(ctx context.Context, spaceKey string, pagesTotal int) error
 	CountPagesBySpaceID(ctx context.Context, spaceID uuid.UUID) (int, error)
 	DeleteSpace(ctx context.Context, spaceKey string) error
 

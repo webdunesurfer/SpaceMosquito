@@ -3,7 +3,6 @@ package cron
 import (
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/vkh/spacemosquito/internal/store"
@@ -26,9 +25,6 @@ func TestResolvePageBrowseURL_FromMetadata(t *testing.T) {
 	got := ResolvePageBrowseURL(page, "ENG", "https://wiki.example.com/confluence/spaces/ENG")
 	if got != want {
 		t.Fatalf("got %q, want %q", got, want)
-	}
-	if strings.Contains(got, "teamnetconomy") {
-		t.Fatalf("resolved URL still uses hardcoded tenant: %q", got)
 	}
 }
 

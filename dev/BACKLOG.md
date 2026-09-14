@@ -24,6 +24,19 @@ Detail lives in `dev/tasks/<task-id>.md` when needed (no `task-` filename prefix
 
 ---
 
+## extension-toolbar-detect-icon
+- status: done
+- blocked_by: extension-themes
+- goal: Red toolbar icon on Confluence tabs, gray otherwise (no popup open needed).
+- done_when: Per-tab setIcon on activate/navigate; PNG red+gray; FF+Chrome; CHANGELOG.
+- notes: Done — active `#9b4d4d` / inactive `#8a93a0`; [`tasks/extension-toolbar-detect-icon.md`](tasks/extension-toolbar-detect-icon.md).
+
+## extension-themes
+- status: done
+- goal: Light/dark popup themes auto-following browser scheme; single muted-red mosquito icon; keep red crawl progress.
+- done_when: Two themes + prefers-color-scheme (fallback light); no manual switch; one theme-agnostic icon; both browsers; CHANGELOG.
+- notes: Done — CSS tokens light/dark; icon `#9b4d4d`; progress `--progress-fill`. [`tasks/extension-themes.md`](tasks/extension-themes.md).
+
 ## cme-markdown-gap-analysis
 - status: ready
 - goal: Extract confluence-markdown-exporter conversion behaviors (tests + Converter) and gap-analyze vs our CSF→Markdown rules; recommend follow-ups only.
@@ -38,49 +51,49 @@ Detail lives in `dev/tasks/<task-id>.md` when needed (no `task-` filename prefix
 - notes: Detail in [`tasks/session-enc-legacy-cleanup.md`](tasks/session-enc-legacy-cleanup.md). Defer until multi-session builds have been in the wild. Parent task shipped in 0.3.4 (ADR-002).
 
 ## extension-redesign
-- status: backlog
+- status: done
 - goal: Epic — redesign Firefox/Chrome extensions (session, backend gate, spaces/cron, crawl status, optional catalog).
 - done_when: Mockups locked; children shipped (catalog may defer); gating + multi-wiki aware; both browsers; CHANGELOG.
-- notes: Detail in [`tasks/extension-redesign.md`](tasks/extension-redesign.md). Multi-wiki sessions shipped in 0.3.4. Start with [`extension-redesign-mockups`](tasks/extension-redesign-mockups.md).
+- notes: Done — children + smoke polish (homepageId, pages_total on cancel, session hint/Refresh, revalidate flicker, cron checkbox/icon). Task docs kept until cleanup/release. [`tasks/extension-redesign.md`](tasks/extension-redesign.md).
 
 ## extension-redesign-mockups
-- status: ready
+- status: done
 - parent: extension-redesign
 - goal: Lock IA and key popup screens before UI implementation.
 - done_when: Accepted wireframes/mockups; epic open decisions updated; children unblocked on layout.
-- notes: Detail in [`tasks/extension-redesign-mockups.md`](tasks/extension-redesign-mockups.md).
+- notes: Done (rev 3) — [`tasks/extension-redesign-mockups/WIREFRAMES.md`](tasks/extension-redesign-mockups/WIREFRAMES.md). IA: Page/Spaces/Settings; Session disc only; backend banner + 2s popup-only poll; catalog omitted.
 
 ## extension-session-ux
-- status: backlog
+- status: done
 - parent: extension-redesign
 - goal: One-button capture+validate; session info/delete; validity gating; optional auto-renew.
 - done_when: Combined capture+validate; multi-site session UI; gray-out when invalid; both browsers.
-- notes: Detail in [`tasks/extension-session-ux.md`](tasks/extension-session-ux.md).
+- notes: Done — GWT S1–S7; compare+refresh APIs; CHANGELOG [Unreleased]. [`tasks/extension-session-ux.md`](tasks/extension-session-ux.md).
 
 ## extension-backend-status
-- status: backlog
+- status: done
 - parent: extension-redesign
 - goal: Live trustworthy backend available/unavailable; disable API-dependent UI when down.
 - done_when: Status matches serve up/down; gating works; flicker fixed.
-- notes: Detail in [`tasks/extension-backend-status.md`](tasks/extension-backend-status.md).
+- notes: Done — GWT B1–B5; CHANGELOG [Unreleased]. Detail in [`tasks/extension-backend-status.md`](tasks/extension-backend-status.md).
 
 ## extension-spaces-cron
-- status: backlog
+- status: done
 - parent: extension-redesign
 - goal: Spaces list with cron on/off and clearer actions.
 - done_when: Cron enablement visible per space; actions + gating; both browsers.
-- notes: Detail in [`tasks/extension-spaces-cron.md`](tasks/extension-spaces-cron.md).
+- notes: Done — GWT Z1–Z6; pages_total; clock on/off colors; CHANGELOG [Unreleased]. [`tasks/extension-spaces-cron.md`](tasks/extension-spaces-cron.md).
 
 ## extension-crawl-status
-- status: backlog
+- status: done
 - parent: extension-redesign
 - goal: Show concurrent crawl jobs / which spaces are crawling.
 - done_when: Multiple active jobs visible; per-job cancel if API allows.
-- notes: Detail in [`tasks/extension-crawl-status.md`](tasks/extension-crawl-status.md).
+- notes: Done — GWT C1–C6 inline on Spaces; CHANGELOG [Unreleased]. [`tasks/extension-crawl-status.md`](tasks/extension-crawl-status.md).
 
 ## extension-catalog-ui
-- status: backlog
+- status: cancelled
 - parent: extension-redesign
 - goal: Optional in-extension search / get page / page list (or cancel if deferred).
 - done_when: Catalog flows shipped or task cancelled after mockups.
-- notes: Detail in [`tasks/extension-catalog-ui.md`](tasks/extension-catalog-ui.md).
+- notes: Cancelled for v1 (mockups omit catalog). Detail in [`tasks/extension-catalog-ui.md`](tasks/extension-catalog-ui.md).

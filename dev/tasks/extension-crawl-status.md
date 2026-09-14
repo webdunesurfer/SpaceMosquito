@@ -1,39 +1,24 @@
-# Extension — multi-space crawl status
+# Extension — multi-space crawl status (inline on Spaces)
 
 - **Task ID:** `extension-crawl-status`
-- **Status:** backlog
+- **Status:** done
 - **Parent:** [`extension-redesign`](extension-redesign.md)
 - **Blocked by:** [`extension-redesign-mockups`](extension-redesign-mockups.md), [`extension-spaces-cron`](extension-spaces-cron.md)
 
-## Problem
-
-Crawl progress UI is oriented around one active job. Users may run (or cron may
-trigger) **multiple** space crawls; the popup should show which spaces are
-running and allow sensible cancel/cleanup.
-
 ## Goal
 
-Display **all active (and recent) crawl jobs** — possibly several in parallel —
-with status per space and cancel where supported by the API.
+**Inline** on Spaces rows: play → expand dark-red progress; stop cancels;
+multiple rows may crawl in parallel — per wireframes.
 
-## Decisions
+## Shipped
 
-| # | Topic | Status | Decision |
-|---|--------|--------|----------|
-| 1 | Data source | open | Poll `/api/crawl/status` / list jobs; any API gaps → small backend follow-up |
-| 2 | History | open | Running only vs include last completed/failed |
-| 3 | Cancel | open | Per-job cancel only (preferred) |
-
-## Implementation
-
-1. Confirm backend can list concurrent jobs; extend API if missing (note in task).
-2. Activity UI: list jobs with space key, %, pages, error, cancel.
-3. Poll while popup open; stop when idle.
-4. Firefox + Chrome.
+- Play starts crawl and expands per-row progress; play → stop while running.
+- Poll `GET /api/crawl` every 2s while popup open; concurrent jobs independent.
+- Stop → `POST /api/crawl/cancel`; complete/fail collapses and refreshes space counts.
+- Gating when backend down / session invalid.
+- Firefox + Chrome; CHANGELOG `[Unreleased]`.
 
 ## Done when
 
-- [ ] Two concurrent crawls visible as two entries
-- [ ] Cancel works per job when API allows
-- [ ] Gating when backend down
-- [ ] CHANGELOG if user-facing
+- [x] C1–C6 satisfied
+- [x] CHANGELOG note

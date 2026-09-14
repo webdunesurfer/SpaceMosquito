@@ -149,6 +149,8 @@ func setupComponents(cfg *config.Config, log *zap.Logger) (*serverComponents, er
 	mux.HandleFunc("DELETE /api/spaces/{key}", api.SpaceByIDHandler(database, logging.New("spaces", log)))
 	mux.HandleFunc("GET /api/spaces/{key}/pages", api.SpacePagesHandler(database, cfg, logging.New("spaces", log)))
 	mux.HandleFunc("GET /api/pages/{confluence_id}", api.PageByConfluenceIDHandler(database, cfg, logging.New("pages", log)))
+	mux.HandleFunc("GET /api/pages/{confluence_id}/compare", api.PageCompareHandler(database, sessionStore, cfg, logging.New("pages", log)))
+	mux.HandleFunc("POST /api/pages/{confluence_id}/refresh", api.PageRefreshHandler(database, sessionStore, scraperInstance, cfg, logging.New("pages", log)))
 
 	return &serverComponents{
 		database:        database,

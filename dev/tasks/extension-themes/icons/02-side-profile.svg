@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="128" height="128" role="img" aria-label="Space Mosquito - side profile">
+  <!-- 02: classic side profile, muted brick red -->
+  <g fill="none" stroke="#9b4d4d" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+    <!-- proboscis -->
+    <path d="M6 14.5 H2.5"/>
+    <!-- head + eye -->
+    <circle cx="9" cy="14.5" r="2.2"/>
+    <circle cx="9.4" cy="14.1" r="0.55" fill="#9b4d4d" stroke="none"/>
+    <!-- antenna -->
+    <path d="M8.2 12.4 L6.5 9.2"/>
+    <!-- thorax -->
+    <ellipse cx="14" cy="15" rx="3.2" ry="2.4"/>
+    <!-- abdomen -->
+    <path d="M17 15 C19 12.8 23 12.2 27 14.2 C28.2 14.8 28.5 16.2 27.2 17 C24 18.8 19.5 18.2 17.2 16.5"/>
+    <path d="M20 14.2 L21.2 16.6 M23 13.9 L24.1 16.8 M25.5 14.2 L26.2 16.6"/>
+    <!-- wing -->
+    <path d="M12.5 13.2 C14 8.5 20 7.2 24.5 10.5 C21 9.5 16.5 10.8 13.5 14"/>
+    <!-- legs -->
+    <path d="M12.5 17 L11 21.5 L9.5 25"/>
+    <path d="M14.5 17.2 L14 22 L13.2 26"/>
+    <path d="M16.5 16.8 L18 21.5 L19.2 25.5"/>
+  </g>
+</svg>

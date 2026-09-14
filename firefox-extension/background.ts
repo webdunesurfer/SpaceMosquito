@@ -20,6 +20,44 @@ function isConfluenceUrl(url: string): boolean {
   );
 }
 
+const ACTION_ICON_ACTIVE = {
+  16: 'assets/icon-active-16.png',
+  32: 'assets/icon-active-32.png',
+};
+const ACTION_ICON_INACTIVE = {
+  16: 'assets/icon-inactive-16.png',
+  32: 'assets/icon-inactive-32.png',
+};
+
+async function updateActionIconForTab(tabId: number, url?: string): Promise<void> {
+  if (tabId < 0) return;
+  let tabUrl = url || '';
+  if (!tabUrl) {
+    try {
+      const tab = await browser.tabs.get(tabId);
+      tabUrl = tab?.url || '';
+    } catch {
+      tabUrl = '';
+    }
+  }
+  const path = isConfluenceUrl(tabUrl) ? ACTION_ICON_ACTIVE : ACTION_ICON_INACTIVE;
+  try {
+    await browser.action.setIcon({ tabId, path });
+  } catch (err) {
+    console.error('[spacemosquito] setIcon failed:', err);
+  }
+}
+
+async function refreshActionIconForActiveTab(): Promise<void> {
+  try {
+    const tabs: any[] = await browser.tabs.query({ active: true, currentWindow: true });
+    const tab = tabs[0];
+    if (tab?.id != null) await updateActionIconForTab(tab.id, tab.url);
+  } catch {
+    /* ignore */
+  }
+}
+
 // Load settings from storage
 async function getSettings(): Promise<{ backendUrl: string }> {
   const data: any = await browser.storage.local.get('backend_url');
@@ -223,38 +261,51 @@ browser.runtime.onMessage.addListener((msg: any, sender: any, sendResponse: (res
       console.log('[spacemosquito] get-space-info received');
       return new Promise(resolve => {
         (async () => {
-          let tabUrl: string | undefined;
+          let tab: any;
           if (sender?.tab?.url) {
-            tabUrl = sender.tab.url;
+            tab = sender.tab;
           } else {
             try {
-              const windows: any[] = await browser.windows.getAll({ populate: true });
-              for (const w of windows) {
-                for (const t of w.tabs || []) {
-                  if (t.active && t.url) {
-                    tabUrl = t.url;
-                    break;
+              const tabs: any[] = await browser.tabs.query({ active: true, currentWindow: true });
+              tab = tabs[0];
+              if (!tab?.url) {
+                const windows: any[] = await browser.windows.getAll({ populate: true });
+                for (const w of windows) {
+                  for (const t of w.tabs || []) {
+                    if (t.active && t.url) {
+                      tab = t;
+                      break;
+                    }
                   }
+                  if (tab?.url) break;
                 }
-                if (tabUrl) break;
               }
             } catch (err) {
               console.error('[spacemosquito] get-space-info windows.getAll failed:', err);
             }
           }
+          const tabUrl = tab?.url || '';
           if (!tabUrl || !isConfluenceUrl(tabUrl)) {
-            console.log('[spacemosquito] get-space-info: not on Confluence');
-            resolve({ spaceKey: '', spaceName: '', spaceURL: '', pageTitle: '' });
+            resolve({ spaceKey: '', spaceName: '', spaceURL: '', pageTitle: '', pageId: 0, host: '', tabUrl: '' });
             return;
           }
-          const hostname = new URL(tabUrl).hostname;
-          const protocol = new URL(tabUrl).protocol;
           const parsed = new URL(tabUrl);
+          const hostname = parsed.hostname;
+          const protocol = parsed.protocol;
 
-          // Match /wiki/spaces/KEY or /spaces/KEY or /display/KEY or ?spaceKey=
           const match = tabUrl.match(/\/(?:wiki\/)?spaces\/([^/?#]+)/) || tabUrl.match(/\/display\/([^/?#]+)/);
           const spaceKey = match ? match[1] : (parsed.searchParams.get('spaceKey') || '');
           const spaceName = spaceKey || 'Unknown';
+
+          let pageId = 0;
+          const pageMatch = tabUrl.match(/\/pages\/(\d+)/);
+          if (pageMatch) {
+            pageId = parseInt(pageMatch[1], 10);
+          } else {
+            // Space overview uses homepageId; classic URLs use pageId.
+            const q = parsed.searchParams.get('pageId') || parsed.searchParams.get('homepageId');
+            if (q) pageId = parseInt(q, 10) || 0;
+          }
 
           let spaceURL = tabUrl;
           if (spaceKey) {
@@ -271,14 +322,75 @@ browser.runtime.onMessage.addListener((msg: any, sender: any, sendResponse: (res
               spaceURL = `${protocol}//${hostname}${ctx}/display/${spaceKey}`;
             }
           }
-          const info = { spaceKey, spaceName, spaceURL, pageTitle: '' };
+
+          let pageTitle = tab?.title || '';
+          // Strip common Confluence title suffixes
+          pageTitle = pageTitle.replace(/\s*[-–|]\s*Confluence.*$/i, '').trim();
+
+          const info = {
+            spaceKey,
+            spaceName,
+            spaceURL,
+            pageTitle,
+            pageId,
+            host: hostname,
+            tabUrl,
+          };
           console.log('[spacemosquito] get-space-info:', info);
           resolve(info);
         })().catch(err => {
           console.error('[spacemosquito] get-space-info error:', err);
-          resolve({ spaceKey: '', spaceName: '', spaceURL: '', pageTitle: '' });
+          resolve({ spaceKey: '', spaceName: '', spaceURL: '', pageTitle: '', pageId: 0, host: '', tabUrl: '' });
         });
       });
+
+    case 'capture-and-validate':
+      return new Promise(resolve => {
+        (async () => {
+          let tabUrl: string | undefined;
+          let cookieStoreId: string | undefined;
+          try {
+            const tabs: any[] = await browser.tabs.query({ active: true, currentWindow: true });
+            const tab = tabs[0];
+            tabUrl = tab?.url;
+            cookieStoreId = tab?.cookieStoreId;
+          } catch { /* ignore */ }
+          if (!tabUrl) {
+            resolve({ success: false, error: 'No active tab' });
+            return;
+          }
+          const captured = await handleCaptureSession(tabUrl, cookieStoreId);
+          if (!captured?.success) {
+            resolve({ success: false, error: captured?.error || 'Capture failed', valid: false });
+            return;
+          }
+          const settings = await getSettings();
+          const apiClient = new ApiClient(settings.backendUrl);
+          try {
+            const validated = await apiClient.validateSession(tabUrl);
+            await browser.storage.local.set({
+              session_status: { ...validated, exists: true },
+            });
+            resolve({
+              success: true,
+              valid: !!validated.valid,
+              message: validated.message,
+              cookieCount: captured.cookieCount,
+            });
+          } catch (error) {
+            resolve({
+              success: true,
+              valid: false,
+              message: (error as Error).message,
+              cookieCount: captured.cookieCount,
+            });
+          }
+        })().catch(err => resolve({ success: false, error: err.message, valid: false }));
+      });
+
+    case 'auto-renew-changed':
+      sendResponse({ ok: true });
+      return false;
 
     case 'get-settings':
       getSettings().then(sendResponse);
@@ -308,10 +420,45 @@ browser.runtime.onMessage.addListener((msg: any, sender: any, sendResponse: (res
   }
 });
 
+async function maybeAutoRenew() {
+  try {
+    const data: any = await browser.storage.local.get('auto_renew');
+    if (!data.auto_renew) return;
+
+    const tabs: any[] = await browser.tabs.query({});
+    const confluenceTabs = tabs.filter((t) => t.url && isConfluenceUrl(t.url));
+    if (confluenceTabs.length === 0) return;
+
+    // Renew for each distinct host that has an open Confluence tab
+    const seen = new Set<string>();
+    for (const tab of confluenceTabs) {
+      let host = '';
+      try {
+        host = new URL(tab.url).hostname;
+      } catch {
+        continue;
+      }
+      if (!host || seen.has(host)) continue;
+      seen.add(host);
+      await handleCaptureSession(tab.url, tab.cookieStoreId);
+      try {
+        const settings = await getSettings();
+        const apiClient = new ApiClient(settings.backendUrl);
+        await apiClient.validateSession(tab.url);
+      } catch {
+        /* ignore validate errors during auto-renew */
+      }
+    }
+  } catch (err) {
+    console.error('[spacemosquito] auto-renew failed:', err);
+  }
+}
+
 // Periodic polling
 setInterval(async () => {
   await pollSessionStatus();
   await pollCrawlStatus();
+  await maybeAutoRenew();
 }, 30 * 1000);
 
 // Initialize on install
@@ -320,4 +467,17 @@ browser.runtime.onInstalled.addListener(async () => {
   if (!data.backend_url) {
     await browser.storage.local.set({ backend_url: DEFAULT_BACKEND_URL });
   }
+  await refreshActionIconForActiveTab();
 });
+
+browser.tabs.onActivated.addListener(async (activeInfo) => {
+  await updateActionIconForTab(activeInfo.tabId);
+});
+
+browser.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
+  if (changeInfo.url || changeInfo.status === 'complete') {
+    await updateActionIconForTab(tabId, changeInfo.url || tab?.url);
+  }
+});
+
+void refreshActionIconForActiveTab();

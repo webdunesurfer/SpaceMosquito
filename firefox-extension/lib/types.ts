@@ -50,6 +50,7 @@ export interface CrawlSpace {
   space_name: string;
   space_url: string;
   pages_crawled: number;
+  pages_total?: number;
   last_crawled?: string;
   created_at?: string;
 }
@@ -67,6 +68,7 @@ export interface CronSpaceConfig {
 export interface ExtensionSettings {
   backend_url: string;
   crawl_depth: 'all' | 'shallow';
+  auto_renew?: boolean;
 }
 
 export interface SpaceInfo {
@@ -74,4 +76,7 @@ export interface SpaceInfo {
   spaceName: string;
   spaceURL: string;
   pageTitle: string;
+  pageId?: number;
+  host?: string;
+  tabUrl?: string;
 }

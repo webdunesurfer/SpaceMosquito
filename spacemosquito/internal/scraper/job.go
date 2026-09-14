@@ -332,6 +332,21 @@ func (r *CrawlRunner) Run(ctx context.Context, job *CrawlJob) error {
 			"total_pages", job.TotalPages)
 	}
 
+	// Persist total as soon as discovery finishes so cancel/fail still shows crawled/total.
+	// Use Background so a near-simultaneous cancel does not skip the write.
+	persistCtx := context.Background()
+	if _, err := r.manager.db.CreateSpace(persistCtx, pageInfo.SpaceKey, pageInfo.SpaceName, job.SpaceURL); err != nil {
+		r.log.Warnw("failed to ensure space after discovery",
+			"job_id", job.ID,
+			"space_key", pageInfo.SpaceKey,
+			"error", err)
+	} else if err := r.manager.db.UpdateSpacePagesTotal(persistCtx, pageInfo.SpaceKey, job.TotalPages); err != nil {
+		r.log.Warnw("failed to store discovery pages_total",
+			"job_id", job.ID,
+			"space_key", pageInfo.SpaceKey,
+			"error", err)
+	}
+
 	for i := 0; i < len(pageInfo.Pages); i++ {
 		select {
 		case <-ctx.Done():
@@ -417,12 +432,6 @@ func (r *CrawlRunner) Run(ctx context.Context, job *CrawlJob) error {
 	// Update space page count
 	if job.Failed == job.TotalPages && job.TotalPages > 0 {
 		return fmt.Errorf("all %d pages failed to crawl", job.TotalPages)
-	}
-
-	if r.log.Enabled() {
-		r.log.Infow("updating space page count",
-			"job_id", job.ID,
-			"total_pages", job.Completed)
 	}
 
 	if err := r.manager.db.UpdateSpaceLastCrawled(ctx, pageInfo.SpaceKey); err != nil {

@@ -23,6 +23,7 @@ dev-extension:
 	cd firefox-extension && npx web-ext run --source-dir ./dist --target firefox
 
 build-extensions:
+	./scripts/render-extension-icons.sh
 	cd firefox-extension && npm install && npx webpack --mode production
 	cd chrome-extension && npm install && npx webpack --mode production
 

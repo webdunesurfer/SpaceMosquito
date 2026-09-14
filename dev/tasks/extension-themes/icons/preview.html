@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Space Mosquito icon variants</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 24px; background: #e8ebf0; color: #1a2332; }
+    h1 { font-size: 18px; margin-bottom: 8px; }
+    p { color: #5f6b7a; font-size: 13px; margin-bottom: 20px; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 16px; }
+    .card { background: #fff; border-radius: 10px; padding: 16px; border: 1px solid #d0d5de; }
+    .card h2 { font-size: 12px; font-weight: 600; margin: 0 0 12px; word-break: break-all; }
+    .row { display: flex; align-items: center; gap: 12px; }
+    .swatch { display: flex; align-items: center; justify-content: center; border-radius: 8px; }
+    .swatch.light { background: #f3f4f6; width: 72px; height: 72px; border: 1px solid #d0d5de; }
+    .swatch.dark { background: #12151a; width: 72px; height: 72px; }
+    .swatch.toolbar { background: #dee1e6; width: 40px; height: 40px; }
+    .swatch img { display: block; }
+    .sizes { margin-top: 10px; display: flex; gap: 8px; align-items: flex-end; }
+    .sizes span { font-size: 10px; color: #5f6b7a; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+  </style>
+</head>
+<body>
+  <h1>Icon variants</h1>
+  <p>Muted red <code>#9b4d4d</code> · 32×32 viewBox · open this file in a browser</p>
+  <div class="grid" id="grid"></div>
+  <script>
+    const files = [
+      '02-side-profile.svg',
+      '03-side-filled.svg',
+      '04-side-bold.svg',
+      '05-side-detailed.svg',
+      '06-side-flying.svg',
+    ];
+    const grid = document.getElementById('grid');
+    for (const f of files) {
+      const card = document.createElement('div');
+      card.className = 'card';
+      card.innerHTML = `
+        <h2>${f}</h2>
+        <div class="row">
+          <div class="swatch light"><img src="${f}" width="48" height="48" alt=""></div>
+          <div class="swatch dark"><img src="${f}" width="48" height="48" alt=""></div>
+          <div class="swatch toolbar"><img src="${f}" width="16" height="16" alt=""></div>
+        </div>
+        <div class="sizes">
+          <span><img src="${f}" width="16" height="16" alt="">16</span>
+          <span><img src="${f}" width="32" height="32" alt="">32</span>
+          <span><img src="${f}" width="48" height="48" alt="">48</span>
+        </div>`;
+      grid.appendChild(card);
+    }
+  </script>
+</body>
+</html>

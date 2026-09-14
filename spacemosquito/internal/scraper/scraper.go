@@ -310,6 +310,13 @@ func (s *Scraper) CrawlSpace(spaceURL string, sess *session.Session) error {
 			"space_id", spaceID)
 	}
 
+	// Persist total immediately so interrupted crawls still show crawled/total.
+	if err := s.db.UpdateSpacePagesTotal(s.ctx, pageInfo.SpaceKey, len(pageInfo.Pages)); err != nil {
+		s.log.Warnw("failed to store discovery pages_total",
+			"space_key", pageInfo.SpaceKey,
+			"error", err)
+	}
+
 	for i, pg := range pageInfo.Pages {
 		s.log.Infow("crawling page",
 			"space_key", pageInfo.SpaceKey,
@@ -406,6 +413,12 @@ func (s *Scraper) CrawlSpace(spaceURL string, sess *session.Session) error {
 			s.log.Infow("stale pages swept", "space_key", pageInfo.SpaceKey, "deleted_count", deletedCount)
 		}
 	*/
+
+	if err := s.db.UpdateSpaceLastCrawled(s.ctx, pageInfo.SpaceKey); err != nil {
+		s.log.Warnw("failed to update space last crawled",
+			"space_key", pageInfo.SpaceKey,
+			"error", err)
+	}
 
 	return nil
 }

@@ -4,15 +4,16 @@
   "version": "0.3.4",
   "description": "Capture Confluence spaces for offline access",
   "permissions": [
+    "activeTab",
     "cookies",
     "storage",
-    "activeTab"
+    "tabs"
   ],
   "icons": {
-    "16": "assets/icon.svg",
-    "32": "assets/icon.svg",
-    "48": "assets/icon.svg",
-    "128": "assets/icon.svg"
+    "16": "assets/icon-inactive-16.png",
+    "32": "assets/icon-inactive-32.png",
+    "48": "assets/icon-inactive-48.png",
+    "128": "assets/icon-inactive-128.png"
   },
   "host_permissions": [
     "<all_urls>",
@@ -31,8 +32,8 @@
     "default_popup": "popup.html",
     "default_title": "Space Mosquito",
     "default_icon": {
-      "16": "assets/icon.svg",
-      "32": "assets/icon.svg"
+      "16": "assets/icon-inactive-16.png",
+      "32": "assets/icon-inactive-32.png"
     }
   }
 }

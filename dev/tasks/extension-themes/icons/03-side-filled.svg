@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="128" height="128" role="img" aria-label="Space Mosquito - side filled">
+  <!-- Same pose as 02, solid fill for small sizes -->
+  <g fill="#9b4d4d" stroke="none">
+    <path d="M2.5 13.8 H6.2 V15.2 H2.5 Z"/>
+    <circle cx="9" cy="14.5" r="2.4"/>
+    <path d="M8.4 12.2 L6.2 8.6 L7.2 8.2 L9.2 11.8 Z"/>
+    <ellipse cx="14" cy="15" rx="3.4" ry="2.6"/>
+    <path d="M16.6 13.6 C19 11.2 23.2 10.6 27.2 13 C28.8 13.9 29.2 16 27.4 17.2 C24 19.4 19.2 18.8 16.5 16.8 C15.5 18.2 14.2 17.8 14.2 16.2 C14.2 14.8 15.4 13.8 16.6 13.6 Z"/>
+    <path d="M12.2 12.8 C14 7.8 20.5 6.2 25.5 10 C21.5 8.6 16.5 10.2 13.2 14 Z" opacity="0.55"/>
+    <path d="M12.2 16.6 L10.2 22 L8.5 26.2 L9.9 26.6 L11.6 22.4 L13.2 17.4 Z"/>
+    <path d="M14.2 17 L13.4 22.5 L12.4 27 L13.8 27.2 L14.8 22.8 L15.2 17.4 Z"/>
+    <path d="M16.4 16.6 L18.2 22 L19.6 26.2 L18.2 26.6 L16.6 22.4 L15.6 17.2 Z"/>
+  </g>
+</svg>
