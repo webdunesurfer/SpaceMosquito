@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/vkh/spacemosquito/internal/api"
+	"github.com/vkh/spacemosquito/internal/bootstrap"
 	"github.com/vkh/spacemosquito/internal/config"
 	"github.com/vkh/spacemosquito/internal/cron"
 	"github.com/vkh/spacemosquito/internal/datastore"
@@ -76,6 +77,10 @@ func setupComponents(cfg *config.Config, log *zap.Logger) (*serverComponents, er
 	database, err := datastore.Open(cfg, log)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to database: %w", err)
+	}
+
+	if _, err := bootstrap.BackfillPageBodyFormats(context.Background(), database, sugar); err != nil {
+		log.Warn("body_format backfill failed", zap.Error(err))
 	}
 
 	sessionStore := session.NewStore(cfg.Session.FilePath, logging.New("session", log))

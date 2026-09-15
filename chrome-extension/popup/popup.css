@@ -13,9 +13,9 @@
   --text: #1a2332;
   --text-muted: #5f6b7a;
   --text-on-accent: #ffffff;
-  --brand: #9b4d4d;
-  --primary: #7a4545;
-  --primary-hover: #633838;
+  --brand: #4a7a5c;
+  --primary: #3d6b50;
+  --primary-hover: #325643;
   --danger: #a33a3a;
   --danger-hover: #862e2e;
   --warning: #b8860b;
@@ -26,15 +26,15 @@
   --cron-enabled: #9a6b2f;
   --cron-disabled: #8a93a0;
   --progress-fill: #6b1c1c;
-  --hint-bg: rgba(155, 77, 77, 0.1);
-  --hint-border: rgba(155, 77, 77, 0.35);
+  --hint-bg: rgba(163, 58, 58, 0.1);
+  --hint-border: rgba(163, 58, 58, 0.35);
   --hint-fg: #7a3a3a;
-  --hint-btn-bg: rgba(155, 77, 77, 0.18);
-  --hint-btn-bg-hover: rgba(155, 77, 77, 0.3);
-  --banner-bg: rgba(155, 77, 77, 0.1);
-  --banner-border: rgba(155, 77, 77, 0.35);
-  --row-current-bg: rgba(155, 77, 77, 0.07);
-  --tab-hover-bg: rgba(122, 69, 69, 0.06);
+  --hint-btn-bg: rgba(163, 58, 58, 0.18);
+  --hint-btn-bg-hover: rgba(163, 58, 58, 0.3);
+  --banner-bg: rgba(163, 58, 58, 0.1);
+  --banner-border: rgba(163, 58, 58, 0.35);
+  --row-current-bg: rgba(74, 122, 92, 0.1);
+  --tab-hover-bg: rgba(61, 107, 80, 0.08);
   --input-bg: #ffffff;
   --toggle-knob: #ffffff;
 }
@@ -48,9 +48,9 @@
     --text: #e6e8ec;
     --text-muted: #9aa3b0;
     --text-on-accent: #ffffff;
-    --brand: #9b4d4d;
-    --primary: #c47a7a;
-    --primary-hover: #d49292;
+    --brand: #4a7a5c;
+    --primary: #7aaf8e;
+    --primary-hover: #91c4a4;
     --danger: #d07070;
     --danger-hover: #e08888;
     --warning: #d4a017;
@@ -60,15 +60,15 @@
     --cron-enabled: #d4a05a;
     --cron-disabled: #6b7280;
     --progress-fill: #c45c5c;
-    --hint-bg: rgba(196, 122, 122, 0.14);
-    --hint-border: rgba(196, 122, 122, 0.4);
+    --hint-bg: rgba(208, 112, 112, 0.14);
+    --hint-border: rgba(208, 112, 112, 0.4);
     --hint-fg: #e8b4b4;
-    --hint-btn-bg: rgba(196, 122, 122, 0.25);
-    --hint-btn-bg-hover: rgba(196, 122, 122, 0.4);
-    --banner-bg: rgba(196, 122, 122, 0.14);
-    --banner-border: rgba(196, 122, 122, 0.4);
-    --row-current-bg: rgba(196, 122, 122, 0.1);
-    --tab-hover-bg: rgba(196, 122, 122, 0.08);
+    --hint-btn-bg: rgba(208, 112, 112, 0.25);
+    --hint-btn-bg-hover: rgba(208, 112, 112, 0.4);
+    --banner-bg: rgba(208, 112, 112, 0.14);
+    --banner-border: rgba(208, 112, 112, 0.4);
+    --row-current-bg: rgba(122, 175, 142, 0.12);
+    --tab-hover-bg: rgba(122, 175, 142, 0.1);
     --input-bg: #181c23;
     --toggle-knob: #ffffff;
   }
@@ -192,13 +192,24 @@ body {
   min-width: 0;
 }
 
+.page-engine {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 2px 6px;
+  cursor: help;
+}
+
 .btn-sync {
   flex-shrink: 0;
   width: 32px;
   height: 32px;
   border: none;
   border-radius: 50%;
-  background: var(--progress-fill);
+  background: var(--primary);
   color: var(--text-on-accent);
   display: inline-flex;
   align-items: center;
@@ -207,7 +218,8 @@ body {
 }
 
 .btn-sync:hover:not(:disabled) {
-  filter: brightness(1.12);
+  background: var(--primary-hover);
+  filter: none;
 }
 
 .btn-sync:disabled {
@@ -484,7 +496,7 @@ body {
 .progress-fill {
   height: 100%;
   width: 0%;
-  background: var(--primary);
+  background: var(--progress-fill);
   transition: width 0.5s ease;
   border-radius: 3px;
 }

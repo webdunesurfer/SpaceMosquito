@@ -10,6 +10,13 @@ For pre-built binaries and extension packages, see [Install](INSTALL.md).
 - npm (and npx) for building extensions
 - Firefox or Chrome (for the Space Mosquito extension)
 
+Optional (only to **regenerate** toolbar PNG icons from SVG):
+
+- [librsvg](https://gitlab.gnome.org/GNOME/librsvg) (`rsvg-convert`): `brew install librsvg`  
+
+Committed `*-extension/assets/icon-{active,inactive}-*.png` are enough for a normal
+`make build-extensions`; the render step is skipped when those tools are missing.
+
 ## Binary
 
 ```sh

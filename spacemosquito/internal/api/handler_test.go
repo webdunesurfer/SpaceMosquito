@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/vkh/spacemosquito/internal/config"
 	"github.com/vkh/spacemosquito/internal/scraper"
@@ -361,4 +362,116 @@ func TestSpacePagesHandler_validation(t *testing.T) {
 			t.Errorf("status = %d", rec.Code)
 		}
 	})
+}
+
+func TestHandler_SessionStatus_TTL(t *testing.T) {
+	key := "12345678901234567890123456789012"
+	store := session.NewStore(t.TempDir()+"/session.enc", logging.Sugar{})
+	h := New(store, testConfig(key), testLogger(t))
+
+	fresh := time.Now().Add(-30 * time.Minute)
+	stale := time.Now().Add(-61 * time.Minute)
+
+	t.Run("valid within 60m", func(t *testing.T) {
+		if err := store.Upsert(&session.Session{
+			ConfluenceURL: "https://wiki.example.com",
+			Cookies:       []session.Cookie{{Name: "JSESSIONID", Value: "x"}},
+			CapturedAt:    time.Now(),
+			ValidatedAt:   &fresh,
+		}, key); err != nil {
+			t.Fatal(err)
+		}
+		req := httptest.NewRequest(http.MethodGet, "/api/session/status?url=https://wiki.example.com", nil)
+		rec := httptest.NewRecorder()
+		h.SessionStatus(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d", rec.Code)
+		}
+		var body map[string]any
+		if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+			t.Fatal(err)
+		}
+		if body["valid"] != true {
+			t.Fatalf("body = %v", body)
+		}
+	})
+
+	t.Run("invalid after 60m", func(t *testing.T) {
+		if err := store.Upsert(&session.Session{
+			ConfluenceURL: "https://wiki.example.com",
+			Cookies:       []session.Cookie{{Name: "JSESSIONID", Value: "x"}},
+			CapturedAt:    time.Now(),
+			ValidatedAt:   &stale,
+		}, key); err != nil {
+			t.Fatal(err)
+		}
+		req := httptest.NewRequest(http.MethodGet, "/api/session/status?url=https://wiki.example.com", nil)
+		rec := httptest.NewRecorder()
+		h.SessionStatus(rec, req)
+		var body map[string]any
+		if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+			t.Fatal(err)
+		}
+		if body["valid"] != false {
+			t.Fatalf("body = %v", body)
+		}
+		if body["message"] != "session validation expired" {
+			t.Fatalf("message = %v", body["message"])
+		}
+	})
+}
+
+func TestHandler_ValidateSession_clearsValidatedAt(t *testing.T) {
+	key := "12345678901234567890123456789012"
+	store := session.NewStore(t.TempDir()+"/session.enc", logging.Sugar{})
+	h := New(store, testConfig(key), testLogger(t))
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+	}))
+	defer srv.Close()
+
+	prev := time.Now().Add(-10 * time.Minute)
+	if err := store.Upsert(&session.Session{
+		ConfluenceURL: srv.URL,
+		Cookies:       []session.Cookie{{Name: "JSESSIONID", Value: "dead"}},
+		CapturedAt:    time.Now(),
+		ValidatedAt:   &prev,
+		Flavor:        session.FlavorServer,
+	}, key); err != nil {
+		t.Fatal(err)
+	}
+
+	body, _ := json.Marshal(map[string]string{"confluence_url": srv.URL})
+	req := httptest.NewRequest(http.MethodPost, "/api/session/validate", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+	h.ValidateSession(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	var result map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	if result["valid"] != false {
+		t.Fatalf("result = %v", result)
+	}
+
+	got, err := store.GetForURL(key, srv.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ValidatedAt != nil {
+		t.Fatalf("ValidatedAt still set: %v", got.ValidatedAt)
+	}
+
+	// Status must stay invalid after failed validate
+	statusReq := httptest.NewRequest(http.MethodGet, "/api/session/status?url="+srv.URL, nil)
+	statusRec := httptest.NewRecorder()
+	h.SessionStatus(statusRec, statusReq)
+	var status map[string]any
+	_ = json.Unmarshal(statusRec.Body.Bytes(), &status)
+	if status["valid"] != false {
+		t.Fatalf("status after failed validate = %v", status)
+	}
 }

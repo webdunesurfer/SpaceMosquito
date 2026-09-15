@@ -280,6 +280,7 @@ func applyRecords(ctx context.Context, db store.Store, records []importRecord, l
 			RawHTMLPath:  rec.rawHTMLPath,
 			MetadataPath: rec.metadataPath,
 			FileDir:      rec.fileDir,
+			BodyFormat:   contentmd.DetectBodyFormat(rec.fileDir),
 			UpdatedAt:    rec.updatedAt,
 		}
 		if sid, ok := spaceIDs[rec.spaceKey]; ok {

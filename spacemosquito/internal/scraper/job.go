@@ -320,6 +320,10 @@ func (r *CrawlRunner) Run(ctx context.Context, job *CrawlJob) error {
 	// Discover and crawl
 	pageInfo, err := scraper.discoverSpace(job.SpaceURL, sess)
 	if err != nil {
+		if session.IsUnauthorized(err) {
+			r.abortForUnauthorized(job, encKey, "discovery", err)
+			return fmt.Errorf("session expired — recapture: %w", err)
+		}
 		return fmt.Errorf("discover space: %w", err)
 	}
 
@@ -335,17 +339,7 @@ func (r *CrawlRunner) Run(ctx context.Context, job *CrawlJob) error {
 	// Persist total as soon as discovery finishes so cancel/fail still shows crawled/total.
 	// Use Background so a near-simultaneous cancel does not skip the write.
 	persistCtx := context.Background()
-	if _, err := r.manager.db.CreateSpace(persistCtx, pageInfo.SpaceKey, pageInfo.SpaceName, job.SpaceURL); err != nil {
-		r.log.Warnw("failed to ensure space after discovery",
-			"job_id", job.ID,
-			"space_key", pageInfo.SpaceKey,
-			"error", err)
-	} else if err := r.manager.db.UpdateSpacePagesTotal(persistCtx, pageInfo.SpaceKey, job.TotalPages); err != nil {
-		r.log.Warnw("failed to store discovery pages_total",
-			"job_id", job.ID,
-			"space_key", pageInfo.SpaceKey,
-			"error", err)
-	}
+	persistDiscoveryPagesTotal(persistCtx, r.manager.db, pageInfo.SpaceKey, pageInfo.SpaceName, job.SpaceURL, job.TotalPages, r.log)
 
 	for i := 0; i < len(pageInfo.Pages); i++ {
 		select {
@@ -377,6 +371,10 @@ func (r *CrawlRunner) Run(ctx context.Context, job *CrawlJob) error {
 		// Try API scraping first
 		err := scraper.ScrapePageAPI(pg, pageInfo.SpaceKey, pageInfo.SpaceURL, sess)
 		if err != nil {
+			if session.IsUnauthorized(err) {
+				r.abortForUnauthorized(job, encKey, "crawl_page", err)
+				return fmt.Errorf("session expired — recapture: %w", err)
+			}
 			if r.log.Enabled() {
 				r.log.Warnw("API page scrape failed, falling back to browser",
 					"job_id", job.ID, "page_id", pg.ConfluenceID, "error", err)
@@ -440,7 +438,28 @@ func (r *CrawlRunner) Run(ctx context.Context, job *CrawlJob) error {
 			"error", err)
 	}
 
+	reconcileSpacePagesTotal(context.Background(), r.manager.db, pageInfo.SpaceKey, job.TotalPages, r.log)
+
 	return nil
+}
+
+func (r *CrawlRunner) abortForUnauthorized(job *CrawlJob, encKey, operation string, err error) {
+	r.log.Errorw("session_unauthorized",
+		"operation", operation,
+		"job_id", job.ID,
+		"host", session.HostnameKey(job.SpaceURL),
+		"completed", job.Completed,
+		"failed", job.Failed,
+		"total", job.TotalPages,
+		"error", err)
+	if clearErr := r.manager.store.ClearValidationForURL(encKey, job.SpaceURL); clearErr != nil {
+		r.log.Warnw("failed to clear session validation", "job_id", job.ID, "error", clearErr)
+	} else {
+		r.log.Warnw("crawl_aborted_session",
+			"job_id", job.ID,
+			"completed", job.Completed,
+			"total", job.TotalPages)
+	}
 }
 
 func (m *CrawlJobManager) Cleanup() {

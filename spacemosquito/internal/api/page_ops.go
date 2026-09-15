@@ -65,7 +65,22 @@ func (h *pageCompareHandler) handle(w http.ResponseWriter, r *http.Request) {
 
 	live, err := scraper.FetchContentVersion(sess, spaceURL, confluenceID)
 	if err != nil {
-		h.log.Errorw("live version fetch failed", "confluence_id", confluenceID, "error", err)
+		if session.IsUnauthorized(err) {
+			h.log.Errorw("session_unauthorized",
+				"operation", "compare",
+				"confluence_id", confluenceID,
+				"host", session.HostnameKey(spaceURL),
+				"error", err)
+			if clearErr := h.sessStore.ClearValidationForURL(encKey, spaceURL); clearErr != nil {
+				h.log.Warnw("failed to clear session validation", "error", clearErr)
+			} else {
+				h.log.Warnw("session validation cleared after unauthorized",
+					"operation", "compare",
+					"host", session.HostnameKey(spaceURL))
+			}
+		} else {
+			h.log.Errorw("live version fetch failed", "confluence_id", confluenceID, "error", err)
+		}
 		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "failed to fetch live version: " + err.Error()})
 		return
 	}
@@ -85,9 +100,10 @@ func (h *pageCompareHandler) handle(w http.ResponseWriter, r *http.Request) {
 	}
 	if stored != nil {
 		out["stored"] = map[string]any{
-			"version":    stored.Version,
-			"updated_at": stored.UpdatedAt,
-			"title":      stored.Title,
+			"version":     stored.Version,
+			"updated_at":  stored.UpdatedAt,
+			"title":       stored.Title,
+			"body_format": stored.BodyFormat,
 		}
 	} else {
 		out["stored"] = nil
@@ -151,7 +167,18 @@ func (h *pageRefreshHandler) handle(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.scr.CrawlPage(resolvedKey, confluenceID, sess); err != nil {
-		h.log.Errorw("page refresh failed", "confluence_id", confluenceID, "space_key", resolvedKey, "error", err)
+		if session.IsUnauthorized(err) {
+			h.log.Errorw("session_unauthorized",
+				"operation", "refresh",
+				"confluence_id", confluenceID,
+				"host", session.HostnameKey(spaceURL),
+				"error", err)
+			if clearErr := h.sessStore.ClearValidationForURL(encKey, spaceURL); clearErr != nil {
+				h.log.Warnw("failed to clear session validation", "error", clearErr)
+			}
+		} else {
+			h.log.Errorw("page refresh failed", "confluence_id", confluenceID, "space_key", resolvedKey, "error", err)
+		}
 		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "refresh failed: " + err.Error()})
 		return
 	}

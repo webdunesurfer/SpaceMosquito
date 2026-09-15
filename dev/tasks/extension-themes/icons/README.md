@@ -14,8 +14,8 @@ Base pick: [`02-side-profile.svg`](02-side-profile.svg). Four siblings share the
 
 - Source art: SVG (`06-side-flying.svg` → `assets/icon.svg`)
 - **Shipped toolbar/manifest icons:** PNG 16 / 32 / 48 / 128 (`assets/icon-{size}.png`) — required for Chrome
-- Color: muted brick `#9b4d4d`
-- Regenerate: `./scripts/render-extension-icons.sh` (needs **librsvg** `rsvg-convert`; ImageMagick alone is not reliable for these stroke SVGs)
+- Color: muted sage green `#4a7a5c` (active); inactive gray `#8a93a0`
+- Regenerate: `./scripts/render-extension-icons.sh` (optional; needs **librsvg** `rsvg-convert`). Committed PNGs are used if the tool is absent.
 
 ## Apply a pick
 

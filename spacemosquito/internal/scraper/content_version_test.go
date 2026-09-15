@@ -48,6 +48,23 @@ func TestFetchContentVersion(t *testing.T) {
 	}
 }
 
+func TestFetchContentVersion_unauthorized(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "nope", http.StatusUnauthorized)
+	}))
+	defer srv.Close()
+
+	sess := &session.Session{
+		ConfluenceURL: srv.URL,
+		Flavor:        session.FlavorServer,
+		Cookies:       []session.Cookie{{Name: "JSESSIONID", Value: "x"}},
+	}
+	_, err := FetchContentVersion(sess, srv.URL+"/spaces/ENG", 42)
+	if !session.IsUnauthorized(err) {
+		t.Fatalf("err = %v, want unauthorized", err)
+	}
+}
+
 func stringsContains(s, sub string) bool {
 	return len(s) >= len(sub) && (s == sub || len(sub) == 0 ||
 		(func() bool {

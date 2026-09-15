@@ -163,7 +163,10 @@ func (h *Handler) DeleteSession(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) SessionStatus(w http.ResponseWriter, r *http.Request) {
 	if !h.store.HasSession() {
-		h.log.Debug("session status: no session stored")
+		h.log.Infow("session status",
+			"valid", false,
+			"exists", false,
+			"decision", "no_session")
 		writeJSON(w, http.StatusOK, map[string]interface{}{
 			"valid":   false,
 			"message": "no session stored",
@@ -192,31 +195,55 @@ func (h *Handler) SessionStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	maxAge := 24 * time.Hour
+	host := session.HostnameKey(sess.ConfluenceURL)
+	ttl := session.ValidateTTL
 	status := map[string]interface{}{
 		"exists":  true,
 		"valid":   false,
 		"message": "session requires validation",
+		"host":    host,
 	}
+	decision := "requires_validation"
 
 	if sess.ValidatedAt != nil {
 		sinceValidation := time.Since(*sess.ValidatedAt)
-		if sinceValidation > maxAge {
-			h.log.Warn("session validation expired",
-				"validated_at", sess.ValidatedAt,
-				"since_hours", sinceValidation.Hours())
+		status["validated_at"] = sess.ValidatedAt.UTC().Format(time.RFC3339)
+		status["validated_age_seconds"] = int(sinceValidation.Seconds())
+		if sinceValidation > ttl {
 			status["message"] = "session validation expired"
 			status["valid"] = false
+			decision = "ttl_expired"
+			h.log.Warnw("session status",
+				"valid", false,
+				"exists", true,
+				"host", host,
+				"decision", decision,
+				"validated_at", sess.ValidatedAt,
+				"validated_age_seconds", int(sinceValidation.Seconds()),
+				"ttl_seconds", int(ttl.Seconds()))
 		} else {
 			status["valid"] = true
 			status["message"] = "session is valid"
-			h.log.Debug("session is valid",
-				"validated_at", sess.ValidatedAt)
+			decision = "ttl_trust"
+			h.log.Infow("session status",
+				"valid", true,
+				"exists", true,
+				"host", host,
+				"decision", decision,
+				"validated_at", sess.ValidatedAt,
+				"validated_age_seconds", int(sinceValidation.Seconds()),
+				"ttl_seconds", int(ttl.Seconds()))
 		}
+	} else {
+		h.log.Infow("session status",
+			"valid", false,
+			"exists", true,
+			"host", host,
+			"decision", decision)
 	}
 
-	if sess.IsExpired(maxAge) && sess.ValidatedAt == nil {
-		h.log.Warn("session is stale", "captured_at", sess.CapturedAt)
+	if sess.IsExpired(ttl) && sess.ValidatedAt == nil {
+		h.log.Warnw("session is stale", "host", host, "captured_at", sess.CapturedAt)
 		status["message"] = "session is stale"
 	}
 
@@ -252,10 +279,14 @@ func (h *Handler) ValidateSession(w http.ResponseWriter, r *http.Request) {
 		timeout = h.cfg.MCP.Timeout
 	}
 
+	host := session.HostnameKey(sess.ConfluenceURL)
 	validateURL := req.ConfluenceURL
+	sess.SetLogger(h.log)
+	h.log.Infow("validate session: start", "host", host, "url", validateURL)
+
 	result, err := sess.ValidateWithConfluence(validateURL, timeout, r.RemoteAddr)
 	if err != nil {
-		h.log.Errorw("validate session: unexpected error", "error", err)
+		h.log.Errorw("validate session: unexpected error", "host", host, "error", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{
 			"error": "validation failed: " + err.Error(),
 		})
@@ -264,12 +295,25 @@ func (h *Handler) ValidateSession(w http.ResponseWriter, r *http.Request) {
 
 	if result.Valid {
 		if err := h.store.Upsert(sess, encKey); err != nil {
-			h.log.Errorw("validate session: failed to persist validated session", "error", err)
+			h.log.Errorw("validate session: failed to persist validated session", "host", host, "error", err)
+		} else {
+			h.log.Infow("validate session: ok",
+				"host", host,
+				"flavor", result.Flavor,
+				"message", result.Message,
+				"validated_at_cleared", false)
 		}
 	} else {
-		h.log.Warnw("validate session: validation failed",
+		hadValidation := sess.ValidatedAt != nil
+		sess.ClearValidation()
+		if err := h.store.Upsert(sess, encKey); err != nil {
+			h.log.Errorw("validate session: failed to persist invalidation", "host", host, "error", err)
+		}
+		h.log.Warnw("validate session: failed",
+			"host", host,
 			"message", result.Message,
-			"remote_addr", r.RemoteAddr)
+			"remote_addr", r.RemoteAddr,
+			"validated_at_cleared", hadValidation)
 	}
 
 	writeJSON(w, http.StatusOK, result)

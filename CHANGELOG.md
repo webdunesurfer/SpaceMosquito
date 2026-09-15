@@ -8,17 +8,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- Extension toolbar icon: **red** / **gray**.
+- Toolbar icon animates (mosquito sucking blood) while any crawl is running.
+- Spaces tab tooltip shows `Stored: N CSF · M HTML`.
+- Extension Page tab shows stored body format (**CSF** / **HTML**).
+- Extension popup remembers last tab (Page / Spaces / Settings).
+- Extension toolbar icon: **green** / **gray**.
 - Extension light/dark themes.
 - New setting: auto-renew Confluence session.
 
 ### Changed
+- Extension brand accents + active icon to muted green (`#4a7a5c`).
 - Extension icon set.
 - Extension popup major redesign.
 
 ### Fixed
-- Extension Page tab: Detect Confluence Cloud `homepageId`.
-- Extension popup backend probe.
+- Spaces list could show crawled > total (e.g. 120/118) after a re-crawl.
+- Session disc could stay green after Confluence auth died.
+- Extension Page tab: Misdetection of the Confluence Cloud `homepageId`.
+- Extension popup backend probe failure.
 
 ## [0.3.4] - 2026-09-04
 

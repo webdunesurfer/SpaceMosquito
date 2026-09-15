@@ -295,6 +295,11 @@ func (s *Scheduler) runFullCrawl(ctx context.Context, jobID, spaceKey, spaceURL 
 	select {
 	case <-done:
 		if crawlErr != nil {
+			if session.IsUnauthorized(crawlErr) {
+				if clearErr := s.store.ClearValidationForURL(encKey, spaceURL); clearErr != nil {
+					s.log.Warnw("failed to clear session validation", "job_id", jobID, "error", clearErr)
+				}
+			}
 			s.log.Errorw("full crawl failed", "job_id", jobID, "error", crawlErr)
 		}
 	case <-time.After(maxDuration):
@@ -388,6 +393,17 @@ func (s *Scheduler) runIncremental(ctx context.Context, jobID, spaceKey, spaceUR
 		// Try API scraping first
 		err := scr.ScrapePageAPI(pg, spaceKey, spaceURL, sess)
 		if err != nil {
+			if session.IsUnauthorized(err) {
+				s.log.Errorw("session_unauthorized",
+					"operation", "cron_incremental",
+					"job_id", jobID,
+					"page_id", page.ConfluenceID,
+					"error", err)
+				if clearErr := s.store.ClearValidationForURL(encKey, spaceURL); clearErr != nil {
+					s.log.Warnw("failed to clear session validation", "job_id", jobID, "error", clearErr)
+				}
+				return
+			}
 			s.log.Warnw("API page scrape failed, falling back to browser",
 				"job_id", jobID, "page_id", page.ConfluenceID, "error", err)
 

@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Crawl icon animation preview</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 24px; background: #e8ebf0; color: #1a2332; }
+    h1 { font-size: 18px; margin-bottom: 6px; }
+    p { color: #5f6b7a; font-size: 13px; margin-bottom: 20px; }
+    .row { display: flex; flex-wrap: wrap; gap: 20px; align-items: flex-start; }
+    .card { background: #fff; border-radius: 10px; padding: 16px; border: 1px solid #d0d5de; }
+    .card h2 { font-size: 12px; margin: 0 0 12px; }
+    .swatch { display: flex; align-items: center; justify-content: center; border-radius: 8px; }
+    .swatch.light { background: #f3f4f6; width: 96px; height: 96px; border: 1px solid #d0d5de; }
+    .swatch.dark { background: #12151a; width: 96px; height: 96px; }
+    .swatch.toolbar { background: #dee1e6; width: 48px; height: 48px; }
+    .swatch img { display: block; image-rendering: pixelated; }
+    .frames { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 16px; }
+    .frames span { font-size: 10px; color: #5f6b7a; text-align: center; }
+    .frames img { display: block; background: #f3f4f6; border-radius: 4px; border: 1px solid #d0d5de; }
+  </style>
+</head>
+<body>
+  <h1>Crawl icon — sucking blood</h1>
+  <p>6 frames · ~6 fps · green <code>#4a7a5c</code> · blood <code>#c45c5c</code> · open in a browser</p>
+  <div class="row">
+    <div class="card">
+      <h2>Loop (48px)</h2>
+      <div class="row">
+        <div class="swatch light"><img id="anim-lg" width="48" height="48" alt=""></div>
+        <div class="swatch dark"><img id="anim-dk" width="48" height="48" alt=""></div>
+        <div class="swatch toolbar"><img id="anim-sm" width="16" height="16" alt=""></div>
+      </div>
+    </div>
+  </div>
+  <div class="frames" id="frames"></div>
+  <script>
+    const files = ['crawl-f0.svg','crawl-f1.svg','crawl-f2.svg','crawl-f3.svg','crawl-f4.svg','crawl-f5.svg'];
+    const frames = document.getElementById('frames');
+    files.forEach((f, i) => {
+      const span = document.createElement('span');
+      span.innerHTML = `<img src="${f}" width="32" height="32" alt=""><br>f${i}`;
+      frames.appendChild(span);
+    });
+    let i = 0;
+    const tick = () => {
+      const src = files[i % files.length];
+      document.getElementById('anim-lg').src = src;
+      document.getElementById('anim-dk').src = src;
+      document.getElementById('anim-sm').src = src;
+      i++;
+    };
+    tick();
+    setInterval(tick, 160); // ~6.25 fps
+  </script>
+</body>
+</html>

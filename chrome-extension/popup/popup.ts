@@ -78,6 +78,32 @@ function formatPageVersionMeta(liveVersion?: number | null, storedVersion?: numb
   return '—';
 }
 
+const BODY_FORMAT_LABELS: Record<string, { label: string; title: string }> = {
+  storage: {
+    label: 'CSF',
+    title: 'Confluence Storage Format from REST API (body.storage)',
+  },
+  rendered: {
+    label: 'HTML',
+    title: 'HTML from browser scrape (fallback parser)',
+  },
+};
+
+function setPageEngine(bodyFormat?: string | null): void {
+  const el = document.getElementById('page-engine');
+  if (!el) return;
+  const meta = bodyFormat ? BODY_FORMAT_LABELS[bodyFormat] : undefined;
+  if (meta) {
+    el.textContent = meta.label;
+    el.title = meta.title;
+    el.classList.remove('hidden');
+  } else {
+    el.textContent = '';
+    el.removeAttribute('title');
+    el.classList.add('hidden');
+  }
+}
+
 function setControlEnabled(el: HTMLButtonElement | HTMLSelectElement | null, enabled: boolean): void {
   if (!el) return;
   el.disabled = !enabled;
@@ -164,7 +190,7 @@ async function init() {
   const autoRenew = document.getElementById('auto-renew') as HTMLInputElement | null;
   if (autoRenew) autoRenew.checked = !!settings.auto_renew;
 
-  setupTabs();
+  await setupTabs();
   startBackendPolling();
 
   // Session before page meta (compare needs valid session)
@@ -177,6 +203,35 @@ async function init() {
   ]);
 }
 
+const POPUP_TABS = new Set(['page', 'spaces', 'settings']);
+
+function activatePopupTab(tab: string) {
+  if (!POPUP_TABS.has(tab)) tab = 'page';
+  document.querySelectorAll('.tab-btn').forEach((t) => {
+    t.classList.toggle('active', (t as HTMLElement).dataset.tab === tab);
+  });
+  document.querySelectorAll('.tab-content').forEach((c) => {
+    c.classList.toggle('active', c.id === `tab-${tab}`);
+  });
+}
+
+async function setupTabs() {
+  try {
+    const data: any = await chrome.storage.local.get('popup_last_tab');
+    if (typeof data.popup_last_tab === 'string' && POPUP_TABS.has(data.popup_last_tab)) {
+      activatePopupTab(data.popup_last_tab);
+    }
+  } catch { /* keep HTML default (Page) */ }
+
+  document.querySelectorAll('.tab-btn').forEach((btn: HTMLElement) => {
+    btn.addEventListener('click', () => {
+      const tab = btn.dataset.tab || 'page';
+      activatePopupTab(tab);
+      void chrome.storage.local.set({ popup_last_tab: tab });
+    });
+  });
+}
+
 async function getSettings(): Promise<ExtensionSettings & { backend_url: string; auto_renew: boolean }> {
   const data: any = await chrome.storage.local.get(['backend_url', 'auto_renew']);
   return {
@@ -184,17 +239,6 @@ async function getSettings(): Promise<ExtensionSettings & { backend_url: string;
     crawl_depth: 'all',
     auto_renew: !!data.auto_renew,
   };
-}
-
-function setupTabs() {
-  document.querySelectorAll('.tab-btn').forEach((btn: HTMLElement) => {
-    btn.addEventListener('click', () => {
-      document.querySelectorAll('.tab-btn').forEach(t => t.classList.remove('active'));
-      btn.classList.add('active');
-      document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-      document.getElementById(`tab-${btn.dataset.tab}`)?.classList.add('active');
-    });
-  });
 }
 
 function setSessionDisc(state: 'valid' | 'invalid' | 'checking', title?: string) {
@@ -307,6 +351,7 @@ async function loadPageContext() {
       hostEl.textContent = '—';
       titleEl.textContent = 'Not on a Confluence page';
       metaEl.textContent = '—';
+      setPageEngine(null);
       applyGating();
       return;
     }
@@ -323,6 +368,7 @@ async function loadPageContext() {
 
     if (!info.pageId) {
       metaEl.textContent = '—';
+      setPageEngine(null);
       applyGating();
       return;
     }
@@ -333,13 +379,16 @@ async function loadPageContext() {
         try {
           const stored = await api.getPage(info.pageId, info.spaceKey || undefined);
           metaEl.textContent = formatPageVersionMeta(null, stored.version);
+          setPageEngine(stored.body_format);
           if (stored.title) titleEl.textContent = stored.title;
         } catch {
           metaEl.textContent = '—';
+          setPageEngine(null);
           if (isPageTitlePlaceholder(titleEl.textContent)) titleEl.textContent = tabTitle;
         }
       } else {
         metaEl.textContent = '—';
+        setPageEngine(null);
         if (isPageTitlePlaceholder(titleEl.textContent)) titleEl.textContent = tabTitle;
       }
       applyGating();
@@ -349,6 +398,7 @@ async function loadPageContext() {
     try {
       const cmp = await api.comparePage(info.pageId, info.spaceKey || undefined);
       metaEl.textContent = formatPageVersionMeta(cmp.live?.version, cmp.stored?.version);
+      setPageEngine(cmp.stored?.body_format);
       if (cmp.live?.title) titleEl.textContent = cmp.live.title;
       else if (cmp.stored?.title) titleEl.textContent = cmp.stored.title;
       else if (isPageTitlePlaceholder(titleEl.textContent)) titleEl.textContent = tabTitle;
@@ -356,9 +406,11 @@ async function loadPageContext() {
       try {
         const stored = await api.getPage(info.pageId, info.spaceKey || undefined);
         metaEl.textContent = formatPageVersionMeta(null, stored.version);
+        setPageEngine(stored.body_format);
         if (stored.title) titleEl.textContent = stored.title;
       } catch {
         metaEl.textContent = '—';
+        setPageEngine(null);
         if (isPageTitlePlaceholder(titleEl.textContent)) titleEl.textContent = tabTitle;
       }
     }
@@ -366,6 +418,7 @@ async function loadPageContext() {
     hostEl.textContent = '—';
     titleEl.textContent = 'Could not read tab';
     metaEl.textContent = '—';
+    setPageEngine(null);
   }
   applyGating();
 }
@@ -579,6 +632,14 @@ function formatCounts(space: CrawlSpace): string {
   return '— / —';
 }
 
+function formatBodyFormatTooltip(space: CrawlSpace): string {
+  const crawled = space.pages_crawled ?? 0;
+  if (crawled <= 0) return '';
+  const csf = space.pages_storage ?? 0;
+  const html = space.pages_rendered ?? 0;
+  return `Stored: ${csf} CSF · ${html} HTML`;
+}
+
 function scheduleCronReload(): void {
   if (cronReloadTimer) clearTimeout(cronReloadTimer);
   cronReloadTimer = window.setTimeout(async () => {
@@ -758,6 +819,7 @@ async function loadSpaces() {
       const dateTitle = space.last_crawled ? new Date(space.last_crawled).toLocaleString() : 'Never crawled';
       const running = runningBySpace.get(space.space_key);
 
+      const countsTitle = formatBodyFormatTooltip(space);
       const row = document.createElement('div');
       row.className = 'space-row' + (isCurrent ? ' current' : '');
       row.dataset.key = space.space_key;
@@ -765,7 +827,7 @@ async function loadSpaces() {
       row.innerHTML = `
         <div class="space-row-main">
           <span class="space-row-name" title="${space.space_url || ''}">${space.space_key}</span>
-          <span class="space-row-counts">${formatCounts(space)}</span>
+          <span class="space-row-counts"${countsTitle ? ` title="${countsTitle}"` : ''}>${formatCounts(space)}</span>
           <span class="space-row-date" title="${dateTitle}">${dateLabel}</span>
           <button type="button" class="btn-icon btn-play${running ? ' btn-stop' : ''}" title="${running ? 'Stop crawl' : 'Crawl'}" data-url="${space.space_url}">${running ? '⏹' : '▶'}</button>
           <button type="button" class="btn-icon btn-cron${cronEnabled.has(space.space_key) ? ' cron-on' : ''}" title="${cronEnabled.has(space.space_key) ? 'Cron enabled' : 'Cron disabled'}">⏱</button>

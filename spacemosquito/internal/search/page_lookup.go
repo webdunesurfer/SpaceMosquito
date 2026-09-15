@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/vkh/spacemosquito/internal/contentmd"
 	"github.com/vkh/spacemosquito/internal/store"
 )
 
@@ -16,5 +17,14 @@ func GetPageDetail(ctx context.Context, db store.Store, confluenceID int, spaceK
 	if err != nil {
 		return PageDetail{}, err
 	}
-	return ToPageDetail(page, resolvedKey, exposeInternalIDs), nil
+	detail := ToPageDetail(page, resolvedKey, exposeInternalIDs)
+	switch page.BodyFormat {
+	case "storage", "rendered":
+		detail.BodyFormat = page.BodyFormat
+	default:
+		if page.FileDir != "" {
+			detail.BodyFormat = contentmd.DetectBodyFormat(page.FileDir)
+		}
+	}
+	return detail, nil
 }

@@ -24,6 +24,38 @@ Detail lives in `dev/tasks/<task-id>.md` when needed (no `task-` filename prefix
 
 ---
 
+## extension-crawl-icon-animation
+- status: done
+- blocked_by: extension-green-brand
+- goal: Looping “mosquito sucking blood” toolbar icon while any crawl is running; overrides green/gray on all tabs; restore when crawl ends or backend down.
+- done_when: Crawl → animated icon everywhere; idle/fail/down → green/gray; FF+Chrome; CHANGELOG.
+- notes: Done — 6-frame loop @ ~6fps; poll `/api/crawl` every 2s. [`tasks/extension-crawl-icon-animation.md`](tasks/extension-crawl-icon-animation.md).
+
+## extension-spaces-body-format-tooltip
+- status: done
+- goal: Tooltip on Spaces X/Y counts showing Stored: N CSF · M HTML.
+- done_when: Tooltip on counts; API counts; FF+Chrome; CHANGELOG.
+- notes: Done — `pages.body_format` + list `pages_storage`/`pages_rendered`; startup backfill. [`tasks/extension-spaces-body-format-tooltip.md`](tasks/extension-spaces-body-format-tooltip.md).
+
+## extension-popup-last-tab
+- status: done
+- goal: Remember last popup tab (Page / Spaces / Settings) across popup reopen.
+- done_when: Last tab restored on open; FF+Chrome; CHANGELOG.
+- notes: `storage.local` key `popup_last_tab` (may survive browser restart; fine).
+
+## session-stale-indicator
+- status: done
+- goal: Fix session disc staying green after Confluence auth dies; invalidate on 401; richer session logs; crawl fail-fast on auth.
+- done_when: ValidatedAt cleared on auth fail; TTL 60m; crawl fails with session-expired; logs added; tmplogs deleted; CHANGELOG.
+- notes: Done — A–D + logging. Detail [`tasks/session-stale-indicator.md`](tasks/session-stale-indicator.md).
+
+## extension-green-brand
+- status: done
+- blocked_by: extension-themes, extension-toolbar-detect-icon
+- goal: Retheme extension brand accents + active icon to green; keep red for errors/progress/stop and semantic status.
+- done_when: Green brand tokens + green active icon; exceptions honored; FF+Chrome; CHANGELOG.
+- notes: Done — brand `#4a7a5c`; inactive gray; progress/danger unchanged. [`tasks/extension-green-brand.md`](tasks/extension-green-brand.md).
+
 ## extension-toolbar-detect-icon
 - status: done
 - blocked_by: extension-themes

@@ -202,6 +202,7 @@ export class ApiClient {
     version: number;
     content: string;
     updated_at: string;
+    body_format?: string;
   }> {
     const q = spaceKey ? `?space_key=${encodeURIComponent(spaceKey)}` : '';
     return this.request(`/api/pages/${confluenceId}${q}`);
@@ -211,7 +212,7 @@ export class ApiClient {
     confluence_id: number;
     space_key: string;
     live: { version: number; when?: string; title?: string };
-    stored: { version: number; updated_at: string; title?: string } | null;
+    stored: { version: number; updated_at: string; title?: string; body_format?: string } | null;
   }> {
     const q = spaceKey ? `?space_key=${encodeURIComponent(spaceKey)}` : '';
     return this.request(`/api/pages/${confluenceId}/compare${q}`);

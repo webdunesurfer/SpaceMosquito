@@ -1,0 +1,1 @@
+-- SQLite cannot DROP COLUMN portably on older versions; leave column on downgrade.

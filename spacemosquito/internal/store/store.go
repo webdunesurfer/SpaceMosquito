@@ -17,6 +17,9 @@ type Store interface {
 	// Does not touch last_crawled (call UpdateSpaceLastCrawled when a crawl finishes).
 	UpdateSpacePagesTotal(ctx context.Context, spaceKey string, pagesTotal int) error
 	CountPagesBySpaceID(ctx context.Context, spaceID uuid.UUID) (int, error)
+	// CountPagesByBodyFormat returns CSF (storage) vs HTML (rendered/unknown) counts for a space.
+	CountPagesByBodyFormat(ctx context.Context, spaceID uuid.UUID) (BodyFormatCounts, error)
+	UpdatePageBodyFormat(ctx context.Context, pageID uuid.UUID, bodyFormat string) error
 	DeleteSpace(ctx context.Context, spaceKey string) error
 
 	UpsertPage(ctx context.Context, page *Page) error

@@ -61,7 +61,7 @@ func FetchContentVersion(sess *session.Session, spaceURL string, confluenceID in
 		return nil, fmt.Errorf("page %d not found", confluenceID)
 	}
 	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
-		return nil, fmt.Errorf("session unauthorized (%d)", resp.StatusCode)
+		return nil, session.UnauthorizedHTTP(resp.StatusCode)
 	}
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("API request failed with status %d", resp.StatusCode)

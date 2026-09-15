@@ -190,6 +190,26 @@ func (d *DB) CountPagesBySpaceID(ctx context.Context, spaceID uuid.UUID) (int, e
 	return count, err
 }
 
+func (d *DB) CountPagesByBodyFormat(ctx context.Context, spaceID uuid.UUID) (store.BodyFormatCounts, error) {
+	var c store.BodyFormatCounts
+	err := d.sql.QueryRowContext(ctx,
+		`SELECT
+			COALESCE(SUM(CASE WHEN body_format = 'storage' THEN 1 ELSE 0 END), 0),
+			COALESCE(SUM(CASE WHEN body_format = 'storage' THEN 0 ELSE 1 END), 0)
+		 FROM pages WHERE space_id = ?`,
+		spaceID.String(),
+	).Scan(&c.Storage, &c.Rendered)
+	return c, err
+}
+
+func (d *DB) UpdatePageBodyFormat(ctx context.Context, pageID uuid.UUID, bodyFormat string) error {
+	_, err := d.sql.ExecContext(ctx,
+		`UPDATE pages SET body_format = ? WHERE id = ?`,
+		bodyFormat, pageID.String(),
+	)
+	return err
+}
+
 func (d *DB) DeleteSpace(ctx context.Context, spaceKey string) error {
 	res, err := d.sql.ExecContext(ctx, "DELETE FROM spaces WHERE key = ?", spaceKey)
 	if err != nil {
@@ -208,8 +228,8 @@ func (d *DB) UpsertPage(ctx context.Context, page *store.Page) error {
 	}
 	now := time.Now().UTC().Format(time.RFC3339)
 	_, err := d.sql.ExecContext(ctx,
-		`INSERT INTO pages (id, space_id, confluence_id, version, title, parent_confluence_id, content, html_path, raw_html_path, metadata_path, file_dir, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`INSERT INTO pages (id, space_id, confluence_id, version, title, parent_confluence_id, content, html_path, raw_html_path, metadata_path, file_dir, body_format, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT (space_id, confluence_id) DO UPDATE SET
 		   version=excluded.version,
 		   title=excluded.title,
@@ -219,9 +239,10 @@ func (d *DB) UpsertPage(ctx context.Context, page *store.Page) error {
 		   raw_html_path=excluded.raw_html_path,
 		   metadata_path=excluded.metadata_path,
 		   file_dir=excluded.file_dir,
+		   body_format=excluded.body_format,
 		   updated_at=excluded.updated_at`,
 		page.ID.String(), page.SpaceID.String(), page.ConfluenceID, page.Version, page.Title, page.ParentConfluenceID,
-		page.Content, page.HTMLPath, page.RawHTMLPath, page.MetadataPath, page.FileDir, now, now,
+		page.Content, page.HTMLPath, page.RawHTMLPath, page.MetadataPath, page.FileDir, page.BodyFormat, now, now,
 	)
 	return err
 }
@@ -232,14 +253,14 @@ func (d *DB) GetPage(ctx context.Context, spaceKey string, pageID int) (*store.P
 	var createdAt, updatedAt string
 	err := d.sql.QueryRowContext(ctx,
 		`SELECT p.id, p.space_id, p.confluence_id, p.version, p.title, p.parent_confluence_id,
-		        p.content, p.html_path, p.raw_html_path, p.metadata_path, p.file_dir,
+		        p.content, p.html_path, p.raw_html_path, p.metadata_path, p.file_dir, COALESCE(p.body_format, ''),
 		        p.created_at, p.updated_at
 		 FROM pages p
 		 JOIN spaces s ON s.id = p.space_id
 		 WHERE s.key = ? AND p.confluence_id = ?`,
 		spaceKey, pageID,
 	).Scan(&idStr, &spaceIDStr, &p.ConfluenceID, &p.Version, &p.Title, &p.ParentConfluenceID,
-		&p.Content, &p.HTMLPath, &p.RawHTMLPath, &p.MetadataPath, &p.FileDir,
+		&p.Content, &p.HTMLPath, &p.RawHTMLPath, &p.MetadataPath, &p.FileDir, &p.BodyFormat,
 		&createdAt, &updatedAt)
 	if err != nil {
 		return nil, err
@@ -280,7 +301,7 @@ func (d *DB) GetPageByConfluenceID(ctx context.Context, confluenceID int, spaceK
 
 	rows, err := d.sql.QueryContext(ctx,
 		`SELECT p.id, p.space_id, p.confluence_id, p.version, p.title, p.parent_confluence_id,
-		        p.content, p.html_path, p.raw_html_path, p.metadata_path, p.file_dir,
+		        p.content, p.html_path, p.raw_html_path, p.metadata_path, p.file_dir, COALESCE(p.body_format, ''),
 		        p.created_at, p.updated_at, s.key
 		 FROM pages p
 		 JOIN spaces s ON s.id = p.space_id
@@ -336,7 +357,7 @@ func (d *DB) ListPages(ctx context.Context, spaceKey string, limit int, afterCon
 		limit = 100
 	}
 	query := `SELECT p.id, p.space_id, p.confluence_id, p.version, p.title, p.parent_confluence_id,
-		        p.content, p.html_path, p.raw_html_path, p.metadata_path, p.file_dir,
+		        p.content, p.html_path, p.raw_html_path, p.metadata_path, p.file_dir, COALESCE(p.body_format, ''),
 		        p.created_at, p.updated_at
 		 FROM pages p
 		 JOIN spaces s ON s.id = p.space_id
@@ -369,7 +390,7 @@ func (d *DB) ListPages(ctx context.Context, spaceKey string, limit int, afterCon
 func (d *DB) ListAllPages(ctx context.Context) ([]store.Page, error) {
 	rows, err := d.sql.QueryContext(ctx,
 		`SELECT p.id, p.space_id, p.confluence_id, p.version, p.title, p.parent_confluence_id,
-		        p.content, p.html_path, p.raw_html_path, p.metadata_path, p.file_dir,
+		        p.content, p.html_path, p.raw_html_path, p.metadata_path, p.file_dir, COALESCE(p.body_format, ''),
 		        p.created_at, p.updated_at
 		 FROM pages p
 		 ORDER BY p.space_id, p.confluence_id`)
@@ -597,7 +618,7 @@ func scanPage(rows rowScanner) (store.Page, error) {
 	var idStr, spaceIDStr string
 	var createdAt, updatedAt string
 	err := rows.Scan(&idStr, &spaceIDStr, &p.ConfluenceID, &p.Version, &p.Title, &p.ParentConfluenceID,
-		&p.Content, &p.HTMLPath, &p.RawHTMLPath, &p.MetadataPath, &p.FileDir,
+		&p.Content, &p.HTMLPath, &p.RawHTMLPath, &p.MetadataPath, &p.FileDir, &p.BodyFormat,
 		&createdAt, &updatedAt)
 	if err != nil {
 		return p, err
@@ -626,7 +647,7 @@ func scanPageWithSpaceKey(rows rowScanner) (store.Page, string, error) {
 	var idStr, spaceIDStr, spaceKey string
 	var createdAt, updatedAt string
 	err := rows.Scan(&idStr, &spaceIDStr, &p.ConfluenceID, &p.Version, &p.Title, &p.ParentConfluenceID,
-		&p.Content, &p.HTMLPath, &p.RawHTMLPath, &p.MetadataPath, &p.FileDir,
+		&p.Content, &p.HTMLPath, &p.RawHTMLPath, &p.MetadataPath, &p.FileDir, &p.BodyFormat,
 		&createdAt, &updatedAt, &spaceKey)
 	if err != nil {
 		return p, "", err

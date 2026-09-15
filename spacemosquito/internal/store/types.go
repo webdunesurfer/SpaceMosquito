@@ -28,8 +28,16 @@ type Page struct {
 	RawHTMLPath        string    `db:"raw_html_path"`
 	MetadataPath       string    `db:"metadata_path"`
 	FileDir            string    `db:"file_dir"`
-	CreatedAt          time.Time `db:"created_at"`
-	UpdatedAt          time.Time `db:"updated_at"`
+	// BodyFormat is "storage" (CSF/API) or "rendered" (browser HTML). Empty until backfill/save.
+	BodyFormat string    `db:"body_format"`
+	CreatedAt  time.Time `db:"created_at"`
+	UpdatedAt  time.Time `db:"updated_at"`
+}
+
+// BodyFormatCounts is the CSF vs HTML split for pages in a space.
+type BodyFormatCounts struct {
+	Storage  int // body_format = storage (CSF)
+	Rendered int // everything else (HTML / unknown)
 }
 
 // PageSummary is a lightweight page row for list APIs (no content or paths).

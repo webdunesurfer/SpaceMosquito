@@ -56,15 +56,21 @@ func (h *spacesHandler) list(w http.ResponseWriter, r *http.Request) {
 			h.log.Warnw("count pages failed", "space_key", s.Key, "error", err)
 			pageCount = 0
 		}
+		formats, err := h.db.CountPagesByBodyFormat(ctx, s.ID)
+		if err != nil {
+			h.log.Warnw("count body formats failed", "space_key", s.Key, "error", err)
+		}
 
 		result = append(result, map[string]interface{}{
-			"space_key":     s.Key,
-			"space_name":    s.Name,
-			"space_url":     s.URL,
-			"pages_crawled": pageCount,
-			"pages_total":   s.PagesTotal,
-			"last_crawled":  lastCrawledStr,
-			"created_at":    s.CreatedAt.Format(time.RFC3339),
+			"space_key":       s.Key,
+			"space_name":      s.Name,
+			"space_url":       s.URL,
+			"pages_crawled":   pageCount,
+			"pages_total":     s.PagesTotal,
+			"pages_storage":   formats.Storage,
+			"pages_rendered":  formats.Rendered,
+			"last_crawled":    lastCrawledStr,
+			"created_at":      s.CreatedAt.Format(time.RFC3339),
 		})
 	}
 
@@ -143,6 +149,7 @@ func (h *spaceByIDHandler) getStatus(w http.ResponseWriter, r *http.Request, spa
 	}
 
 	pages, _ := h.db.ListPages(ctx, spaceKey, 0, nil)
+	formats, _ := h.db.CountPagesByBodyFormat(ctx, space.ID)
 
 	var lastCrawledStr string
 	if space.LastCrawled != nil {
@@ -150,12 +157,14 @@ func (h *spaceByIDHandler) getStatus(w http.ResponseWriter, r *http.Request, spa
 	}
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"space_key":     space.Key,
-		"space_name":    space.Name,
-		"space_url":     space.URL,
-		"pages_crawled": len(pages),
-		"pages_total":   space.PagesTotal,
-		"last_crawled":  lastCrawledStr,
+		"space_key":      space.Key,
+		"space_name":     space.Name,
+		"space_url":      space.URL,
+		"pages_crawled":  len(pages),
+		"pages_total":    space.PagesTotal,
+		"pages_storage":  formats.Storage,
+		"pages_rendered": formats.Rendered,
+		"last_crawled":   lastCrawledStr,
 	})
 }
 

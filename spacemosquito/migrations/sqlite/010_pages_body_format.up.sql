@@ -1,0 +1,1 @@
+ALTER TABLE pages ADD COLUMN body_format TEXT NOT NULL DEFAULT '';

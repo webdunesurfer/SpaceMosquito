@@ -106,6 +106,9 @@ func (s *Scraper) fetchPageListAPI(rootURL, spaceKey string, headers map[string]
 		}
 		defer resp.Body.Close()
 
+		if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+			return nil, session.UnauthorizedHTTP(resp.StatusCode)
+		}
 		if resp.StatusCode != http.StatusOK {
 			return nil, fmt.Errorf("API request failed with status %d", resp.StatusCode)
 		}

@@ -28,8 +28,99 @@ const ACTION_ICON_INACTIVE = {
   32: 'assets/icon-inactive-32.png',
 };
 
+const CRAWL_ICON_FRAMES = [0, 1, 2, 3, 4, 5].map((i) => ({
+  16: `assets/icon-crawl-f${i}-16.png`,
+  32: `assets/icon-crawl-f${i}-32.png`,
+}));
+const CRAWL_ICON_FRAME_MS = 160;
+
+let crawlIconActive = false;
+let crawlFrameIndex = 0;
+let crawlAnimTimer: ReturnType<typeof setInterval> | null = null;
+
+function crawlFramePath(): { 16: string; 32: string } {
+  return CRAWL_ICON_FRAMES[crawlFrameIndex % CRAWL_ICON_FRAMES.length];
+}
+
+async function paintCrawlIconFrame(): Promise<void> {
+  const path = crawlFramePath();
+  crawlFrameIndex = (crawlFrameIndex + 1) % CRAWL_ICON_FRAMES.length;
+  try {
+    await chrome.action.setIcon({ path });
+  } catch {
+    /* ignore */
+  }
+  try {
+    const tabs: any[] = await chrome.tabs.query({});
+    await Promise.all(
+      tabs.map(async (t) => {
+        if (t.id == null || t.id < 0) return;
+        try {
+          await chrome.action.setIcon({ tabId: t.id, path });
+        } catch {
+          /* ignore */
+        }
+      })
+    );
+  } catch {
+    /* ignore */
+  }
+}
+
+function startCrawlIconAnimation(): void {
+  if (crawlAnimTimer != null) return;
+  crawlIconActive = true;
+  crawlFrameIndex = 0;
+  void paintCrawlIconFrame();
+  crawlAnimTimer = setInterval(() => {
+    void paintCrawlIconFrame();
+  }, CRAWL_ICON_FRAME_MS);
+}
+
+async function stopCrawlIconAnimation(): Promise<void> {
+  if (crawlAnimTimer != null) {
+    clearInterval(crawlAnimTimer);
+    crawlAnimTimer = null;
+  }
+  const wasActive = crawlIconActive;
+  crawlIconActive = false;
+  if (!wasActive) return;
+  try {
+    const tabs: any[] = await chrome.tabs.query({});
+    for (const t of tabs) {
+      if (t.id != null) await updateActionIconForTab(t.id, t.url);
+    }
+  } catch {
+    await refreshActionIconForActiveTab();
+  }
+}
+
+/** Any running/pending crawl → animate; backend down or idle → green/gray. */
+async function syncCrawlIconFromBackend(): Promise<void> {
+  try {
+    const settings = await getSettings();
+    const api = new ApiClient(settings.backendUrl);
+    const snapshot = await api.listCrawls();
+    const active = (snapshot.jobs || []).some(
+      (j) => j.status === 'running' || j.status === 'pending'
+    );
+    if (active) startCrawlIconAnimation();
+    else await stopCrawlIconAnimation();
+  } catch {
+    await stopCrawlIconAnimation();
+  }
+}
+
 async function updateActionIconForTab(tabId: number, url?: string): Promise<void> {
   if (tabId < 0) return;
+  if (crawlIconActive) {
+    try {
+      await chrome.action.setIcon({ tabId, path: crawlFramePath() });
+    } catch (err) {
+      console.error('[spacemosquito] setIcon failed:', err);
+    }
+    return;
+  }
   let tabUrl = url || '';
   if (!tabUrl) {
     try {
@@ -114,6 +205,7 @@ async function handleStartCrawl(spaceUrl: string) {
         startedAt: Date.now(),
       },
     });
+    startCrawlIconAnimation();
 
     return { success: true, jobId: result.job_id };
   } catch (error) {
@@ -146,8 +238,17 @@ async function pollSessionStatus() {
       const tabs: any[] = await chrome.tabs.query({ active: true, currentWindow: true });
       tabUrl = tabs[0]?.url || '';
     } catch { /* ignore */ }
+    const prev: any = await chrome.storage.local.get('session_status');
     const status = await api.getSessionStatus(isConfluenceUrl(tabUrl) ? tabUrl : undefined);
     await chrome.storage.local.set({ session_status: status });
+    const wasValid = !!prev?.session_status?.valid;
+    if (wasValid !== !!status.valid) {
+      console.info('[spacemosquito] session status changed', {
+        from: wasValid,
+        to: !!status.valid,
+        message: status.message,
+      });
+    }
     return status;
   } catch {
     return null;
@@ -370,6 +471,11 @@ chrome.runtime.onMessage.addListener((msg: any, sender: any, sendResponse: (resp
             await chrome.storage.local.set({
               session_status: { ...validated, exists: true },
             });
+            console.info('[spacemosquito] capture-and-validate', {
+              valid: !!validated.valid,
+              message: validated.message,
+              cookieCount: captured.cookieCount,
+            });
             resolve({
               success: true,
               valid: !!validated.valid,
@@ -460,6 +566,11 @@ setInterval(async () => {
   await maybeAutoRenew();
 }, 30 * 1000);
 
+// Crawl toolbar icon: any backend job (incl. cron), not only active_crawl storage
+setInterval(() => {
+  void syncCrawlIconFromBackend();
+}, 2 * 1000);
+
 // Initialize on install
 chrome.runtime.onInstalled.addListener(async () => {
   const data: any = await chrome.storage.local.get('backend_url');
@@ -467,6 +578,7 @@ chrome.runtime.onInstalled.addListener(async () => {
     await chrome.storage.local.set({ backend_url: DEFAULT_BACKEND_URL });
   }
   await refreshActionIconForActiveTab();
+  void syncCrawlIconFromBackend();
 });
 
 chrome.tabs.onActivated.addListener(async (activeInfo) => {
@@ -480,3 +592,4 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
 });
 
 void refreshActionIconForActiveTab();
+void syncCrawlIconFromBackend();

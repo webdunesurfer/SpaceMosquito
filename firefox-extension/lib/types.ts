@@ -51,6 +51,8 @@ export interface CrawlSpace {
   space_url: string;
   pages_crawled: number;
   pages_total?: number;
+  pages_storage?: number;
+  pages_rendered?: number;
   last_crawled?: string;
   created_at?: string;
 }

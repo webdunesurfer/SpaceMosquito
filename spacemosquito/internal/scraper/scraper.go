@@ -286,6 +286,13 @@ func (s *Scraper) CrawlSpace(spaceURL string, sess *session.Session) error {
 
 	pageInfo, err := s.discoverSpace(spaceURL, sess)
 	if err != nil {
+		if session.IsUnauthorized(err) {
+			s.log.Errorw("session_unauthorized",
+				"operation", "discovery",
+				"host", session.HostnameKey(spaceURL),
+				"error", err)
+			return fmt.Errorf("session expired — recapture: %w", err)
+		}
 		return fmt.Errorf("discover space: %w", err)
 	}
 
@@ -347,6 +354,14 @@ func (s *Scraper) CrawlSpace(spaceURL string, sess *session.Session) error {
 		// Try API scraping first
 		err := s.ScrapePageAPI(pg, pageInfo.SpaceKey, pageInfo.SpaceURL, sess)
 		if err != nil {
+			if session.IsUnauthorized(err) {
+				s.log.Errorw("session_unauthorized",
+					"operation", "crawl_page",
+					"page_id", pg.ConfluenceID,
+					"host", session.HostnameKey(spaceURL),
+					"error", err)
+				return fmt.Errorf("session expired — recapture: %w", err)
+			}
 			if s.log.Enabled() {
 				s.log.Warnw("API page content extraction failed, FALLING BACK to browser",
 					"page_id", pg.ConfluenceID, "title", pg.Title, "error", err)
@@ -420,6 +435,8 @@ func (s *Scraper) CrawlSpace(spaceURL string, sess *session.Session) error {
 			"error", err)
 	}
 
+	reconcileSpacePagesTotal(s.ctx, s.db, pageInfo.SpaceKey, len(pageInfo.Pages), s.log)
+
 	return nil
 }
 
@@ -456,6 +473,9 @@ func (s *Scraper) ScrapePageAPI(pg *Page, spaceKey, spaceURL string, sess *sessi
 
 	if resp.StatusCode == http.StatusNotFound {
 		return fmt.Errorf("page %d not found", pg.ConfluenceID)
+	}
+	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+		return session.UnauthorizedHTTP(resp.StatusCode)
 	}
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("API request failed with status %d", resp.StatusCode)
@@ -655,6 +675,7 @@ func (s *Scraper) savePageMetadata(pg *Page, spaceKey, spaceURL string, cloud bo
 		RawHTMLPath:        dir + "/raw.html",
 		MetadataPath:       dir + "/metadata.json",
 		FileDir:            dir,
+		BodyFormat:         bodyFormat,
 	}
 
 	if err := s.db.UpsertPage(s.ctx, dbPage); err != nil {

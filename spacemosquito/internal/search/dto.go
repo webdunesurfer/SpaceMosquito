@@ -26,7 +26,9 @@ type PageDetail struct {
 	Version      int       `json:"version"`
 	Content      string    `json:"content"`
 	UpdatedAt    time.Time `json:"updated_at"`
-	InternalID   string    `json:"internal_id,omitempty"`
+	// BodyFormat is the crawl source format: "storage" (API) or "rendered" (browser HTML).
+	BodyFormat string `json:"body_format,omitempty"`
+	InternalID string `json:"internal_id,omitempty"`
 }
 
 // ToSearchHits maps DB rows to API-facing search hits.
