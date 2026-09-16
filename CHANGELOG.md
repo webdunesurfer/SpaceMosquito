@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-09-16
+
 ### Added
 - Toolbar icon animates (mosquito sucking blood) while any crawl is running.
 - Spaces tab tooltip shows `Stored: N CSF · M HTML`.

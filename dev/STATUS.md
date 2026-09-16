@@ -4,7 +4,7 @@ Last updated: 2026-09-16
 
 ## Current focus
 
-**cme-markdown-gap-analysis** — ready; analysis-only (no port).
+Release **0.4.0** prepared — tag and publish when ready.
 
 ## Active task
 
@@ -16,5 +16,6 @@ _None._
 
 ## Next action
 
-1. Run CME gap analysis ([`tasks/cme-markdown-gap-analysis.md`](tasks/cme-markdown-gap-analysis.md)).
-2. Cut a release when ready ([`RELEASE.md`](RELEASE.md)).
+1. Tag and push: `git tag v0.4.0 && git push origin v0.4.0` (see [`RELEASE.md`](RELEASE.md)).
+2. Confirm GitHub Release assets (binaries, Firefox XPI, Chrome zip, SHA256SUMS).
+3. Resume **cme-markdown-gap-analysis** when ready.
