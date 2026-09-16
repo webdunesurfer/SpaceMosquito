@@ -34,7 +34,7 @@ is over; store/API speak **only** multi-session blob + `GetForURL` / `Upsert`.
 ## Non-goals
 
 - Changing encryption or filename (`session.enc` path can stay)
-- Redesigning extension session UI (see [`extension-redesign`](extension-redesign.md))
+- Redesigning extension session UI (shipped — see CHANGELOG `[Unreleased]`)
 
 ## Implementation
 

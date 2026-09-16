@@ -1,10 +1,10 @@
 # Status
 
-Last updated: 2026-09-14
+Last updated: 2026-09-16
 
 ## Current focus
 
-**extension-toolbar-detect-icon** done (red/gray toolbar by Confluence URL). Themes + redesign also done; task docs kept until cleanup.
+**cme-markdown-gap-analysis** — ready; analysis-only (no port).
 
 ## Active task
 
@@ -16,6 +16,5 @@ _None._
 
 ## Next action
 
-1. Smoke toolbar icon: Confluence tab red, other tabs gray (FF + Chrome).
+1. Run CME gap analysis ([`tasks/cme-markdown-gap-analysis.md`](tasks/cme-markdown-gap-analysis.md)).
 2. Cut a release when ready ([`RELEASE.md`](RELEASE.md)).
-3. Cleanup finished task docs per [`CLEANUP.md`](CLEANUP.md) (deferred), or pick CME gap analysis.
