@@ -1,32 +1,23 @@
 package mcp
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/vkh/spacemosquito/internal/config"
 	"github.com/vkh/spacemosquito/internal/store"
 	"github.com/vkh/spacemosquito/pkg/logging"
 )
 
-func testSession(t *testing.T) *ClientSession {
-	t.Helper()
-	return &ClientSession{
-		ID:       "test-session",
-		SendChan: make(chan []byte, 4),
-		Done:     make(chan struct{}),
-	}
-}
-
 func testServer() *Server {
 	return &Server{
-		sessions:   make(map[string]*ClientSession),
-		log:        logging.Sugar{},
-		sessionTTL: time.Hour,
-		cfg:        &config.Config{},
+		log: logging.Sugar{},
+		cfg: &config.Config{},
 	}
 }
 
@@ -38,99 +29,132 @@ func (f fakePageStore) GetPageByConfluenceID(ctx context.Context, confluenceID i
 	return f.getPageByConfluenceID(ctx, confluenceID, spaceKey)
 }
 
-func readResponse(t *testing.T, ch <-chan []byte) MCPResponse {
+func postMCP(t *testing.T, srv *Server, body string, headers map[string]string) *httptest.ResponseRecorder {
 	t.Helper()
-	select {
-	case data := <-ch:
-		var resp MCPResponse
-		if err := json.Unmarshal(data, &resp); err != nil {
-			t.Fatalf("unmarshal response: %v", err)
-		}
-		return resp
-	case <-time.After(time.Second):
-		t.Fatal("timeout waiting for MCP response")
-		return MCPResponse{}
+	req := httptest.NewRequest(http.MethodPost, "/mcp", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json, text/event-stream")
+	for k, v := range headers {
+		req.Header.Set(k, v)
 	}
+	rr := httptest.NewRecorder()
+	srv.HandleRequest(rr, req)
+	return rr
 }
 
-func TestProcessMessage_initialize(t *testing.T) {
-	srv := testServer()
-	sess := testSession(t)
+func decodeRPC(t *testing.T, rr *httptest.ResponseRecorder) MCPResponse {
+	t.Helper()
+	var resp MCPResponse
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v body=%s", err, rr.Body.String())
+	}
+	return resp
+}
 
-	srv.processMessage(sess, []byte(`{"jsonrpc":"2.0","method":"initialize","id":1}`))
-	resp := readResponse(t, sess.SendChan)
+func TestHandleRequest_initialize(t *testing.T) {
+	rr := postMCP(t, testServer(), `{"jsonrpc":"2.0","method":"initialize","id":1}`, nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d", rr.Code)
+	}
+	resp := decodeRPC(t, rr)
 	if resp.Error != nil {
 		t.Fatalf("error: %+v", resp.Error)
 	}
-	if resp.JSONRPC != "2.0" {
-		t.Errorf("jsonrpc = %q", resp.JSONRPC)
+	result, ok := resp.Result.(map[string]interface{})
+	if !ok {
+		t.Fatalf("result type %T", resp.Result)
+	}
+	if result["protocolVersion"] != ProtocolVersion {
+		t.Errorf("protocolVersion = %v", result["protocolVersion"])
 	}
 }
 
-func TestProcessMessage_toolsList(t *testing.T) {
-	srv := testServer()
-	sess := testSession(t)
-
-	srv.processMessage(sess, []byte(`{"jsonrpc":"2.0","method":"tools/list","id":2}`))
-	resp := readResponse(t, sess.SendChan)
+func TestHandleRequest_toolsList(t *testing.T) {
+	rr := postMCP(t, testServer(), `{"jsonrpc":"2.0","method":"tools/list","id":2}`, nil)
+	resp := decodeRPC(t, rr)
 	if resp.Error != nil {
 		t.Fatalf("error: %+v", resp.Error)
 	}
 }
 
-func TestProcessMessage_ping(t *testing.T) {
-	srv := testServer()
-	sess := testSession(t)
-
-	srv.processMessage(sess, []byte(`{"jsonrpc":"2.0","method":"ping","id":3}`))
-	resp := readResponse(t, sess.SendChan)
+func TestHandleRequest_ping(t *testing.T) {
+	rr := postMCP(t, testServer(), `{"jsonrpc":"2.0","method":"ping","id":3}`, nil)
+	resp := decodeRPC(t, rr)
 	if resp.Error != nil {
 		t.Fatalf("error: %+v", resp.Error)
 	}
 }
 
-func TestProcessMessage_unknownMethod(t *testing.T) {
-	srv := testServer()
-	sess := testSession(t)
-
-	srv.processMessage(sess, []byte(`{"jsonrpc":"2.0","method":"nope","id":4}`))
-	resp := readResponse(t, sess.SendChan)
+func TestHandleRequest_unknownMethod(t *testing.T) {
+	rr := postMCP(t, testServer(), `{"jsonrpc":"2.0","method":"nope","id":4}`, nil)
+	resp := decodeRPC(t, rr)
 	if resp.Error == nil || resp.Error.Code != -32601 {
 		t.Fatalf("expected -32601, got %+v", resp.Error)
 	}
 }
 
-func TestProcessMessage_invalidJSON(t *testing.T) {
-	srv := testServer()
-	sess := testSession(t)
-
-	srv.processMessage(sess, []byte(`{invalid`))
-	resp := readResponse(t, sess.SendChan)
+func TestHandleRequest_invalidJSON(t *testing.T) {
+	rr := postMCP(t, testServer(), `{invalid`, nil)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d", rr.Code)
+	}
+	resp := decodeRPC(t, rr)
 	if resp.Error == nil || resp.Error.Code != -32700 {
 		t.Fatalf("expected -32700, got %+v", resp.Error)
 	}
 }
 
-func TestProcessMessage_notificationsInitialized(t *testing.T) {
-	srv := testServer()
-	sess := testSession(t)
+func TestHandleRequest_notificationNoBody(t *testing.T) {
+	rr := postMCP(t, testServer(), `{"jsonrpc":"2.0","method":"notifications/initialized"}`, nil)
+	if rr.Code != http.StatusAccepted {
+		t.Fatalf("status = %d, want 202", rr.Code)
+	}
+	if rr.Body.Len() != 0 {
+		t.Fatalf("body = %q", rr.Body.String())
+	}
+}
 
-	srv.processMessage(sess, []byte(`{"jsonrpc":"2.0","method":"notifications/initialized"}`))
-	select {
-	case <-sess.SendChan:
-		t.Fatal("notifications/initialized should not produce a response")
-	case <-time.After(50 * time.Millisecond):
+func TestHandleRequest_getMethodNotAllowed(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/mcp", nil)
+	rr := httptest.NewRecorder()
+	testServer().HandleRequest(rr, req)
+	if rr.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("status = %d", rr.Code)
+	}
+}
+
+func TestHandleRequest_badAccept(t *testing.T) {
+	rr := postMCP(t, testServer(), `{"jsonrpc":"2.0","method":"ping","id":1}`, map[string]string{
+		"Accept": "application/json",
+	})
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d", rr.Code)
+	}
+}
+
+func TestHandleRequest_forbiddenOrigin(t *testing.T) {
+	rr := postMCP(t, testServer(), `{"jsonrpc":"2.0","method":"ping","id":1}`, map[string]string{
+		"Origin": "https://evil.example",
+	})
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("status = %d", rr.Code)
+	}
+}
+
+func TestHandleRequest_localhostOrigin(t *testing.T) {
+	rr := postMCP(t, testServer(), `{"jsonrpc":"2.0","method":"ping","id":1}`, map[string]string{
+		"Origin": "http://127.0.0.1:3000",
+	})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rr.Code, rr.Body.String())
 	}
 }
 
 func TestHandleToolsCall_validation(t *testing.T) {
 	srv := testServer()
-	sess := testSession(t)
 
 	t.Run("missing tool name", func(t *testing.T) {
-		params := json.RawMessage(`{"arguments":{}}`)
-		srv.handleToolsCall(sess, params, 10)
-		resp := readResponse(t, sess.SendChan)
+		resp := srv.handleToolsCall(json.RawMessage(`{"arguments":{}}`), 10)
 		if resp.Error == nil || resp.Error.Code != -32602 {
 			t.Fatalf("expected -32602, got %+v", resp.Error)
 		}
@@ -141,8 +165,7 @@ func TestHandleToolsCall_validation(t *testing.T) {
 			"name":      "confluence_search",
 			"arguments": map[string]interface{}{"query": ""},
 		})
-		srv.handleToolsCall(sess, body, 11)
-		resp := readResponse(t, sess.SendChan)
+		resp := srv.handleToolsCall(body, 11)
 		if resp.Error != nil {
 			t.Fatalf("unexpected rpc error: %+v", resp.Error)
 		}
@@ -157,8 +180,7 @@ func TestHandleToolsCall_validation(t *testing.T) {
 			"name":      "confluence_get_page",
 			"arguments": map[string]interface{}{"space_key": "PROJ"},
 		})
-		srv.handleToolsCall(sess, body, 12)
-		resp := readResponse(t, sess.SendChan)
+		resp := srv.handleToolsCall(body, 12)
 		result := resp.Result.(map[string]interface{})
 		if result["isError"] != true {
 			t.Fatalf("expected tool error, got %+v", resp.Result)
@@ -181,7 +203,6 @@ func TestHandleToolsCall_validation(t *testing.T) {
 				}, "PROJ", nil
 			},
 		}
-		sess := testSession(t)
 
 		body, _ := json.Marshal(map[string]interface{}{
 			"name": "confluence_get_page",
@@ -190,8 +211,7 @@ func TestHandleToolsCall_validation(t *testing.T) {
 				"confluence_id": float64(42),
 			},
 		})
-		srv.handleToolsCall(sess, body, 15)
-		resp := readResponse(t, sess.SendChan)
+		resp := srv.handleToolsCall(body, 15)
 		if resp.Error != nil {
 			t.Fatalf("unexpected rpc error: %+v", resp.Error)
 		}
@@ -199,7 +219,7 @@ func TestHandleToolsCall_validation(t *testing.T) {
 		if result["isError"] == true {
 			t.Fatalf("expected success, got %+v", result)
 		}
-		text := result["content"].([]interface{})[0].(map[string]interface{})["text"].(string)
+		text := result["content"].([]map[string]interface{})[0]["text"].(string)
 		if !strings.Contains(text, `"confluence_id": 42`) {
 			t.Errorf("expected confluence_id in response, got %s", text)
 		}
@@ -210,8 +230,7 @@ func TestHandleToolsCall_validation(t *testing.T) {
 			"name":      "confluence_list_space",
 			"arguments": map[string]interface{}{},
 		})
-		srv.handleToolsCall(sess, body, 13)
-		resp := readResponse(t, sess.SendChan)
+		resp := srv.handleToolsCall(body, 13)
 		result := resp.Result.(map[string]interface{})
 		if result["isError"] != true {
 			t.Fatalf("expected tool error, got %+v", resp.Result)
@@ -223,11 +242,22 @@ func TestHandleToolsCall_validation(t *testing.T) {
 			"name":      "unknown_tool",
 			"arguments": map[string]interface{}{},
 		})
-		srv.handleToolsCall(sess, body, 14)
-		resp := readResponse(t, sess.SendChan)
+		resp := srv.handleToolsCall(body, 14)
 		result := resp.Result.(map[string]interface{})
 		if result["isError"] != true {
 			t.Fatalf("expected tool error, got %+v", resp.Result)
 		}
 	})
+}
+
+func TestAcceptOK(t *testing.T) {
+	if !acceptOK("application/json, text/event-stream") {
+		t.Fatal("expected ok")
+	}
+	if !acceptOK("*/*") {
+		t.Fatal("expected */* ok")
+	}
+	if acceptOK("application/json") {
+		t.Fatal("json alone should fail")
+	}
 }

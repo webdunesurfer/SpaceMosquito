@@ -25,7 +25,7 @@ package "Host Machine" {
 
   [spacemosquito binary :8081] as app
   app --> [HTTP API]
-  app --> [MCP SSE]
+  app --> [MCP Streamable HTTP]
   app --> [Cron Scheduler]
   app --> [Scraper\n(API + browser fallback)]
   app --> [Storage]
@@ -83,7 +83,7 @@ Thin aliases kept for compatibility; prefer `cmd/spacemosquito`.
 | `datastore` | Open/migrate SQLite only |
 | `store` | Store interface + models |
 | `store/sqlite` | SQLite + FTS5 implementation |
-| `mcp` | MCP SSE — JSON-RPC tools for search, pages, spaces |
+| `mcp` | MCP Streamable HTTP — JSON-RPC tools for search, pages, spaces |
 | `scraper` | Confluence REST API (primary) + go-rod browser (fallback) |
 | `session` | Cookie capture/management, Cloud vs Server flavor detection |
 | `storage` | File system — HTML, Markdown, assets, metadata per space/page |

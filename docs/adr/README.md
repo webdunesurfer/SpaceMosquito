@@ -25,7 +25,7 @@ Prefer a **task doc** (`dev/tasks/…`) for short-lived design while building a 
 | 002 | Hybrid authentication approach | Accepted |
 | 004 | Headless browser for scraper | Accepted |
 | 005 | Session storage — encrypted file | Accepted |
-| 007 | MCP transport — SSE + HTTP | Accepted |
+| 007 | MCP transport — SSE + HTTP | Superseded by 017 |
 | 008 | Configuration format — YAML | Accepted |
 | 009 | Database migrations — golang-migrate | Accepted |
 | 010 | HTML extraction — Trafilatura-style | Accepted |
@@ -33,3 +33,4 @@ Prefer a **task doc** (`dev/tasks/…`) for short-lived design while building a 
 | 013 | Go Rod over ChromeDP | Accepted |
 | 015 | Saved page format with Markdown | Accepted |
 | 016 | SQLite-only distribution | Accepted |
+| 017 | MCP transport — Streamable HTTP | Accepted |

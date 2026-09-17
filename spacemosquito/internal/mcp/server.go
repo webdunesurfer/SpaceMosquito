@@ -6,10 +6,10 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"sync"
+	"net/url"
+	"strings"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/vkh/spacemosquito/internal/config"
 	"github.com/vkh/spacemosquito/internal/search"
 	"github.com/vkh/spacemosquito/internal/session"
@@ -17,23 +17,15 @@ import (
 	"github.com/vkh/spacemosquito/pkg/logging"
 )
 
-type Server struct {
-	db         store.Store
-	pages      pageStore
-	store      *session.Store
-	cfg        *config.Config
-	log        logging.Sugar
-	sessions   map[string]*ClientSession
-	mu         sync.RWMutex
-	sessionTTL time.Duration
-}
+// ProtocolVersion is the Streamable HTTP revision we advertise (wire: 2026-07-28 shape).
+const ProtocolVersion = "2025-03-26"
 
-type ClientSession struct {
-	ID        string
-	CreatedAt time.Time
-	LastUsed  time.Time
-	SendChan  chan []byte
-	Done      chan struct{}
+type Server struct {
+	db    store.Store
+	pages pageStore
+	store *session.Store
+	cfg   *config.Config
+	log   logging.Sugar
 }
 
 type MCPRequest struct {
@@ -65,156 +57,80 @@ type Tool struct {
 var ServerInstance *Server
 
 func New(database store.Store, store *session.Store, cfg *config.Config, log logging.Sugar) *Server {
-	sessionTTL := time.Duration(cfg.MCP.Timeout) * time.Second
-	if sessionTTL == 0 {
-		sessionTTL = 3600 * time.Second
-	}
-
 	server := &Server{
-		db:         database,
-		store:      store,
-		cfg:        cfg,
-		log:        log,
-		sessions:   make(map[string]*ClientSession),
-		sessionTTL: sessionTTL,
+		db:    database,
+		store: store,
+		cfg:   cfg,
+		log:   log,
 	}
-
 	ServerInstance = server
-	go server.cleanupSessions()
-
 	return server
 }
 
-func (s *Server) cleanupSessions() {
-	ticker := time.NewTicker(5 * time.Minute)
-	defer ticker.Stop()
-
-	for range ticker.C {
-		s.mu.Lock()
-		now := time.Now()
-		for id, session := range s.sessions {
-			if now.Sub(session.LastUsed) > s.sessionTTL {
-				close(session.Done)
-				delete(s.sessions, id)
-				if s.log.Enabled() {
-					s.log.Infow("session cleaned up", "session_id", id)
-				}
-			}
-		}
-		s.mu.Unlock()
-	}
-}
-
+// HandleRequest serves Streamable HTTP on POST /mcp (JSON-RPC in, JSON out).
 func (s *Server) HandleRequest(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
+	if !originAllowed(r.Header.Get("Origin")) {
+		writeJSONRPCError(w, http.StatusForbidden, nil, -32000, "forbidden origin", "")
+		return
+	}
+
+	if r.Method == http.MethodGet {
+		w.Header().Set("Allow", "POST")
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", "POST")
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 		return
 	}
 
-	// 1. Establish SSE Connection (Standard MCP)
-	sessionID := uuid.New().String()
-	session := &ClientSession{
-		ID:        sessionID,
-		CreatedAt: time.Now(),
-		LastUsed:  time.Now(),
-		SendChan:  make(chan []byte, 50),
-		Done:      make(chan struct{}),
-	}
-
-	s.mu.Lock()
-	s.sessions[sessionID] = session
-	s.mu.Unlock()
-
-	if s.log.Enabled() {
-		s.log.Infow("MCP SSE connection established", "session_id", sessionID)
-	}
-
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-
-	flusher, ok := w.(http.Flusher)
-	if !ok {
-		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
+	if !acceptOK(r.Header.Get("Accept")) {
+		writeJSONRPCError(w, http.StatusBadRequest, nil, -32600, "Accept must include application/json and text/event-stream", "")
 		return
 	}
 
-	// 2. Emit the endpoint event so the client knows where to POST messages
-	endpointURL := fmt.Sprintf("/mcp/session/%s", sessionID)
-
-	fmt.Fprintf(w, "event: endpoint\ndata: %s\n\n", endpointURL)
-	flusher.Flush()
-
-	// 3. Keep connection alive and forward messages
-	ticker := time.NewTicker(15 * time.Second)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-session.Done:
-			return
-		case <-r.Context().Done():
-			s.mu.Lock()
-			delete(s.sessions, sessionID)
-			s.mu.Unlock()
-			return
-		case msg := <-session.SendChan:
-			fmt.Fprintf(w, "event: message\ndata: %s\n\n", string(msg))
-			flusher.Flush()
-		case <-ticker.C:
-			fmt.Fprintf(w, ": heartbeat\n\n")
-			flusher.Flush()
-		}
-	}
-}
-
-func (s *Server) HandleSessionRequest(w http.ResponseWriter, r *http.Request, sessionID string) {
-	if r.Method != http.MethodPost {
-		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "POST required"})
+	if ver := r.Header.Get("MCP-Protocol-Version"); ver != "" && !protocolVersionOK(ver) {
+		writeJSONRPCError(w, http.StatusBadRequest, nil, -32600, "unsupported MCP-Protocol-Version", ver)
 		return
 	}
 
-	s.mu.RLock()
-	session, exists := s.sessions[sessionID]
-	s.mu.RUnlock()
-
-	if !exists {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "session not found"})
-		return
-	}
-
-	session.LastUsed = time.Now()
-
-	// MCP Spec: HTTP POST must return 202 Accepted immediately
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "failed to read body"})
+		writeJSONRPCError(w, http.StatusBadRequest, nil, -32700, "failed to read body", "")
 		return
 	}
 	defer r.Body.Close()
 
-	w.WriteHeader(http.StatusAccepted)
-
-	// Process asynchronously and send response via SSE channel
-	go s.processMessage(session, body)
-}
-
-func (s *Server) processMessage(session *ClientSession, body []byte) {
 	var req MCPRequest
 	if err := json.Unmarshal(body, &req); err != nil {
-		s.sendError(session, req.ID, -32700, "parse error", "invalid JSON")
+		writeJSONRPCError(w, http.StatusBadRequest, nil, -32700, "parse error", "invalid JSON")
 		return
 	}
 
 	if s.log.Enabled() {
-		s.log.Infow("MCP request received", "session_id", session.ID, "method", req.Method)
+		s.log.Infow("MCP request received", "method", req.Method)
 	}
 
+	// Notifications (no id): 202 Accepted, empty body.
+	if req.ID == nil {
+		w.WriteHeader(http.StatusAccepted)
+		return
+	}
+
+	resp := s.dispatch(&req)
+	if resp == nil {
+		w.WriteHeader(http.StatusAccepted)
+		return
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (s *Server) dispatch(req *MCPRequest) *MCPResponse {
 	switch req.Method {
 	case "initialize":
-		s.sendResponse(session, req.ID, map[string]interface{}{
-			"protocolVersion": "2024-11-05",
+		return okResult(req.ID, map[string]interface{}{
+			"protocolVersion": ProtocolVersion,
 			"capabilities": map[string]interface{}{
 				"tools": map[string]interface{}{},
 			},
@@ -224,20 +140,20 @@ func (s *Server) processMessage(session *ClientSession, body []byte) {
 			},
 		})
 	case "notifications/initialized":
-		// Just an ack from client, no response needed
+		return nil
 	case "tools/list":
-		s.handleToolsList(session, req.ID)
+		return okResult(req.ID, map[string]interface{}{"tools": toolDefinitions()})
 	case "tools/call":
-		s.handleToolsCall(session, req.Params, req.ID)
+		return s.handleToolsCall(req.Params, req.ID)
 	case "ping":
-		s.sendResponse(session, req.ID, map[string]string{"status": "ok"})
+		return okResult(req.ID, map[string]string{"status": "ok"})
 	default:
-		s.sendError(session, req.ID, -32601, "method not found", req.Method)
+		return rpcError(req.ID, -32601, "method not found", req.Method)
 	}
 }
 
-func (s *Server) handleToolsList(session *ClientSession, id interface{}) {
-	tools := []Tool{
+func toolDefinitions() []Tool {
+	return []Tool{
 		{
 			Name:        "confluence_search",
 			Description: "Search Confluence pages using BM25/FTS lexical search. Results include confluence_id for use with confluence_get_page.",
@@ -287,23 +203,17 @@ func (s *Server) handleToolsList(session *ClientSession, id interface{}) {
 			}`),
 		},
 	}
-
-	s.sendResponse(session, id, map[string]interface{}{
-		"tools": tools,
-	})
 }
 
-func (s *Server) handleToolsCall(session *ClientSession, params json.RawMessage, id interface{}) {
+func (s *Server) handleToolsCall(params json.RawMessage, id interface{}) *MCPResponse {
 	var callParams map[string]interface{}
 	if err := json.Unmarshal(params, &callParams); err != nil {
-		s.sendError(session, id, -32602, "invalid params", err.Error())
-		return
+		return rpcError(id, -32602, "invalid params", err.Error())
 	}
 
 	toolName, ok := callParams["name"].(string)
 	if !ok {
-		s.sendError(session, id, -32602, "invalid params", "tool name is required")
-		return
+		return rpcError(id, -32602, "invalid params", "tool name is required")
 	}
 
 	args, _ := callParams["arguments"].(map[string]interface{})
@@ -313,7 +223,6 @@ func (s *Server) handleToolsCall(session *ClientSession, params json.RawMessage,
 
 	var result interface{}
 	var err error
-
 	start := time.Now()
 
 	switch toolName {
@@ -329,28 +238,24 @@ func (s *Server) handleToolsCall(session *ClientSession, params json.RawMessage,
 		err = fmt.Errorf("unknown tool: %s", toolName)
 	}
 
-	duration := time.Since(start)
 	if s.log.Enabled() {
 		s.log.Infow("tool executed",
-			"session_id", session.ID,
 			"tool", toolName,
-			"duration_ms", duration.Milliseconds(),
+			"duration_ms", time.Since(start).Milliseconds(),
 			"success", err == nil)
 	}
 
 	if err != nil {
-		s.sendResponse(session, id, map[string]interface{}{
+		return okResult(id, map[string]interface{}{
 			"content": []map[string]interface{}{
 				{"type": "text", "text": fmt.Sprintf("Error: %v", err)},
 			},
 			"isError": true,
 		})
-		return
 	}
 
-	// Format result specifically for MCP standard
 	resultStr, _ := json.MarshalIndent(result, "", "  ")
-	s.sendResponse(session, id, map[string]interface{}{
+	return okResult(id, map[string]interface{}{
 		"content": []map[string]interface{}{
 			{"type": "text", "text": string(resultStr)},
 		},
@@ -404,32 +309,56 @@ func (s *Server) toolListSpace(args map[string]interface{}) (interface{}, error)
 	return search.BuildListSpaceResultFromSummaries(parsed.SpaceKey, summaries, parsed.Limit, expose), nil
 }
 
-func (s *Server) sendResponse(session *ClientSession, id interface{}, result interface{}) {
-	response := &MCPResponse{
-		JSONRPC: "2.0",
-		Result:  result,
-		ID:      id,
-	}
-	data, _ := json.Marshal(response)
-	session.SendChan <- data
+func okResult(id interface{}, result interface{}) *MCPResponse {
+	return &MCPResponse{JSONRPC: "2.0", Result: result, ID: id}
 }
 
-func (s *Server) sendError(session *ClientSession, id interface{}, code int, message, data string) {
-	response := &MCPResponse{
+func rpcError(id interface{}, code int, message, data string) *MCPResponse {
+	return &MCPResponse{
 		JSONRPC: "2.0",
-		Error: &MCPError{
-			Code:    code,
-			Message: message,
-			Data:    data,
-		},
-		ID: id,
+		Error:   &MCPError{Code: code, Message: message, Data: data},
+		ID:      id,
 	}
-	dataJSON, _ := json.Marshal(response)
-	session.SendChan <- dataJSON
 }
 
 func writeJSON(w http.ResponseWriter, status int, data interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(data)
+	_ = json.NewEncoder(w).Encode(data)
+}
+
+func writeJSONRPCError(w http.ResponseWriter, httpStatus int, id interface{}, code int, message, data string) {
+	writeJSON(w, httpStatus, rpcError(id, code, message, data))
+}
+
+// acceptOK requires application/json and text/event-stream (or */*) per Streamable HTTP.
+func acceptOK(accept string) bool {
+	a := strings.ToLower(accept)
+	if strings.Contains(a, "*/*") {
+		return true
+	}
+	return strings.Contains(a, "application/json") && strings.Contains(a, "text/event-stream")
+}
+
+func protocolVersionOK(ver string) bool {
+	switch ver {
+	case "2025-03-26", "2025-06-18", "2025-11-25", "2026-07-28":
+		return true
+	default:
+		return false
+	}
+}
+
+// originAllowed implements DNS-rebinding protection: missing Origin is OK;
+// when present, only loopback origins are accepted.
+func originAllowed(origin string) bool {
+	if origin == "" || origin == "null" {
+		return true
+	}
+	u, err := url.Parse(origin)
+	if err != nil || u.Hostname() == "" {
+		return false
+	}
+	host := strings.ToLower(u.Hostname())
+	return host == "localhost" || host == "127.0.0.1" || host == "::1"
 }

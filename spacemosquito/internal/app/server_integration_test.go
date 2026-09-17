@@ -5,7 +5,6 @@ package app_test
 import (
 	"context"
 	"encoding/json"
-	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -432,24 +431,15 @@ func TestREST_GetPage_ambiguous(t *testing.T) {
 	}
 }
 
-func TestMCP_InvalidSession(t *testing.T) {
+func TestMCP_GETMethodNotAllowed(t *testing.T) {
 	ts, _ := bootSeededServer(t)
 
-	req, err := http.NewRequest(http.MethodPost, ts.URL+"/mcp/session/bogus", strings.NewReader(`{"jsonrpc":"2.0","method":"tools/list","id":1}`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := http.Get(ts.URL + "/mcp")
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusNotFound {
-		t.Fatalf("status = %d, want 404", resp.StatusCode)
-	}
-	body, _ := io.ReadAll(resp.Body)
-	if !strings.Contains(string(body), "session not found") {
-		t.Fatalf("body = %s", body)
+	if resp.StatusCode != http.StatusMethodNotAllowed {
+		t.Fatalf("status = %d, want 405", resp.StatusCode)
 	}
 }

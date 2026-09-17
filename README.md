@@ -58,7 +58,7 @@ Or trigger a crawl via the extension or `POST /api/crawl`.
 
 ## MCP (agents)
 
-SpaceMosquito serves MCP over HTTP+SSE at `http://127.0.0.1:8081/mcp` (same process as `serve`). Agents can search and read the local catalog — see **[Configure MCP](docs/guides/configure-mcp.md)**.
+SpaceMosquito serves MCP over Streamable HTTP at `http://127.0.0.1:8081/mcp` (same process as `serve`). Agents can search and read the local catalog — see **[Configure MCP](docs/guides/configure-mcp.md)**.
 
 ## Search
 

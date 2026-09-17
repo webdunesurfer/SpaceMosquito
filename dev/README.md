@@ -52,7 +52,7 @@ go test -race ./...
 
 ## Integration tests (REST + MCP, in-process)
 
-Requires the `integration` build tag. Boots a real SQLite DB with embedded migrations, seeds fixtures, and exercises HTTP + MCP SSE.
+Requires the `integration` build tag. Boots a real SQLite DB with embedded migrations, seeds fixtures, and exercises HTTP + MCP Streamable HTTP.
 
 ```sh
 cd spacemosquito
@@ -84,7 +84,14 @@ Regenerate existing catalogs after upgrade:
 
 ## Testing with curl
 
-When testing urls that have streaming mode e.g. `http://localhost:8081/mcp` , use `timeout` command to avoid hanging in endless waiting.
+MCP is `POST /mcp` with a JSON body (not a long-lived stream). Example:
+
+```sh
+curl -s -X POST http://localhost:8081/mcp \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: application/json, text/event-stream' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}'
+```
 
 Get a page by Confluence ID (REST):
 

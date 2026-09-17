@@ -12,7 +12,7 @@ Why this work exists. What is wrong, missing, or painful today.
 
 One clear outcome. Observable for humans and agents.
 
-## Decisions
+## Open questions
 
 Do not implement if any row is `open`. Flip to `locked` when the user accepts. 
 

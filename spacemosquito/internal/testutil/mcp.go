@@ -1,19 +1,15 @@
 package testutil
 
 import (
-	"bufio"
 	"bytes"
-	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
-	"strings"
 	"testing"
-	"time"
 )
 
-// MCPResponse mirrors the JSON-RPC envelope returned over SSE.
+// MCPResponse mirrors the JSON-RPC envelope returned over Streamable HTTP.
 type MCPResponse struct {
 	JSONRPC string          `json:"jsonrpc"`
 	Result  json.RawMessage `json:"result,omitempty"`
@@ -27,92 +23,21 @@ type MCPError struct {
 	Data    string `json:"data,omitempty"`
 }
 
-// MCPClient drives the HTTP+SSE MCP transport used by production.
+// MCPClient drives the Streamable HTTP MCP transport (POST /mcp → JSON).
 type MCPClient struct {
-	baseURL     string
-	sessionPath string
-	messages    chan []byte
-	cancel      context.CancelFunc
+	baseURL string
 }
 
-// ConnectMCP opens GET /mcp and waits for the endpoint event.
+// ConnectMCP returns a client for the Streamable HTTP endpoint (no session setup).
 func ConnectMCP(t *testing.T, baseURL string) *MCPClient {
 	t.Helper()
-
-	ctx, cancel := context.WithCancel(context.Background())
-	messages := make(chan []byte, 16)
-	endpointReady := make(chan string, 1)
-	errCh := make(chan error, 1)
-
-	go func() {
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL+"/mcp", nil)
-		if err != nil {
-			errCh <- err
-			return
-		}
-		resp, err := http.DefaultClient.Do(req)
-		if err != nil {
-			errCh <- err
-			return
-		}
-		defer resp.Body.Close()
-
-		var currentEvent string
-		scanner := bufio.NewScanner(resp.Body)
-		for scanner.Scan() {
-			line := scanner.Text()
-			if strings.HasPrefix(line, "event: ") {
-				currentEvent = strings.TrimPrefix(line, "event: ")
-				continue
-			}
-			if strings.HasPrefix(line, "data: ") {
-				data := strings.TrimPrefix(line, "data: ")
-				switch currentEvent {
-				case "endpoint":
-					select {
-					case endpointReady <- data:
-					default:
-					}
-				case "message":
-					messages <- []byte(data)
-				}
-				continue
-			}
-			if line == "" {
-				currentEvent = ""
-			}
-		}
-		if err := scanner.Err(); err != nil {
-			errCh <- err
-		}
-	}()
-
-	select {
-	case path := <-endpointReady:
-		return &MCPClient{
-			baseURL:     baseURL,
-			sessionPath: path,
-			messages:    messages,
-			cancel:      cancel,
-		}
-	case err := <-errCh:
-		cancel()
-		t.Fatalf("MCP connect: %v", err)
-	case <-time.After(5 * time.Second):
-		cancel()
-		t.Fatal("timeout waiting for MCP endpoint event")
-	}
-	return nil
+	return &MCPClient{baseURL: baseURL}
 }
 
-// Close stops the background SSE reader.
-func (c *MCPClient) Close() {
-	if c.cancel != nil {
-		c.cancel()
-	}
-}
+// Close is a no-op for Streamable HTTP (kept for call-site compatibility).
+func (c *MCPClient) Close() {}
 
-// Call posts a JSON-RPC request and waits for the SSE message response.
+// Call posts a JSON-RPC request to /mcp and returns the JSON response body.
 func (c *MCPClient) Call(t *testing.T, method string, params any, id int) MCPResponse {
 	t.Helper()
 
@@ -126,34 +51,32 @@ func (c *MCPClient) Call(t *testing.T, method string, params any, id int) MCPRes
 		t.Fatalf("marshal MCP request: %v", err)
 	}
 
-	url := c.baseURL + c.sessionPath
+	url := c.baseURL + "/mcp"
 	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
 		t.Fatalf("NewRequest: %v", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json, text/event-stream")
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("POST %s: %v", url, err)
 	}
-	io.Copy(io.Discard, resp.Body)
-	resp.Body.Close()
-	if resp.StatusCode != http.StatusAccepted {
-		t.Fatalf("MCP POST status = %d, want 202", resp.StatusCode)
+	defer resp.Body.Close()
+	raw, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read body: %v", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("MCP POST status = %d, body = %s", resp.StatusCode, raw)
 	}
 
-	select {
-	case data := <-c.messages:
-		var out MCPResponse
-		if err := json.Unmarshal(data, &out); err != nil {
-			t.Fatalf("unmarshal MCP response: %v", err)
-		}
-		return out
-	case <-time.After(5 * time.Second):
-		t.Fatalf("timeout waiting for MCP response to %s", method)
+	var out MCPResponse
+	if err := json.Unmarshal(raw, &out); err != nil {
+		t.Fatalf("unmarshal MCP response: %v\nbody: %s", err, raw)
 	}
-	return MCPResponse{}
+	return out
 }
 
 // ToolCall invokes tools/call and unmarshals the tool result JSON from content[0].text.

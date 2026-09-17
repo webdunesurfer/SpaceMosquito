@@ -63,7 +63,7 @@ type BGEConfig struct {
 type MCPConfig struct {
 	Port              int    `yaml:"port"`
 	Host              string `yaml:"host"`
-	Timeout           int    `yaml:"session_timeout"`
+	Timeout           int    `yaml:"session_timeout"` // legacy; unused by Streamable HTTP MCP
 	ExposeInternalIDs bool   `yaml:"expose_internal_ids"`
 }
 

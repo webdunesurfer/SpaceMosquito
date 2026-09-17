@@ -122,16 +122,6 @@ func setupComponents(cfg *config.Config, log *zap.Logger) (*serverComponents, er
 	mux.HandleFunc("/mcp", func(w http.ResponseWriter, r *http.Request) {
 		mcpServer.HandleRequest(w, r)
 	})
-	mux.HandleFunc("/mcp/session/", func(w http.ResponseWriter, r *http.Request) {
-		sessionID := r.URL.Path[len("/mcp/session/"):]
-		if sessionID == "" {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusBadRequest)
-			w.Write([]byte(`{"error":"session ID required"}`))
-			return
-		}
-		mcpServer.HandleSessionRequest(w, r, sessionID)
-	})
 	mux.HandleFunc("POST /api/crawl", crawlHandler.Create)
 	mux.HandleFunc("GET /api/crawl/status", crawlHandler.Status)
 	mux.HandleFunc("GET /api/crawl", crawlHandler.List)

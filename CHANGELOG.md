@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Breaking:** MCP transport is Streamable HTTP only (`POST /mcp` JSON). Deprecated HTTP+SSE (`GET /mcp` + `/mcp/session/<id>`) removed. Reconfigure agents with http / streamable-http (not SSE). See [Configure MCP](docs/guides/configure-mcp.md).
+
 ## [0.4.0] - 2026-09-16
 
 ### Added

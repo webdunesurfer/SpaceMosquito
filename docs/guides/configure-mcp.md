@@ -1,13 +1,17 @@
 # Guide: Configure MCP
 
-SpaceMosquito exposes an **MCP** (Model Context Protocol) server over **HTTP + SSE**
-so agents can search and read crawled Confluence content.
+SpaceMosquito exposes an **MCP** (Model Context Protocol) server over
+**Streamable HTTP** so agents can search and read crawled Confluence content.
 
 Default URL: `http://127.0.0.1:8081/mcp`
 
 MCP tools read the **local catalog** (SQLite). Capture a session and crawl (or
 import) spaces before expecting useful results. MCP does **not** start crawls;
 use the CLI, browser extensions, or REST API for that.
+
+> **Breaking:** HTTP+SSE (`GET /mcp` → `/mcp/session/<id>`) is no longer
+> supported. Use Streamable HTTP (`POST /mcp` with JSON responses). See
+> [ADR-017](../adr/017-mcp-transport-streamable-http.md).
 
 ## Prerequisites
 
@@ -37,7 +41,7 @@ Add a remote MCP server — either:
 **CLI:**
 
 ```sh
-claude mcp add --transport sse spacemosquito http://127.0.0.1:8081/mcp
+claude mcp add --transport http spacemosquito http://127.0.0.1:8081/mcp
 ```
 
 **Project** `.mcp.json` or user config (`~/.claude.json`):
@@ -46,36 +50,38 @@ claude mcp add --transport sse spacemosquito http://127.0.0.1:8081/mcp
 {
   "mcpServers": {
     "spacemosquito": {
-      "type": "sse",
+      "type": "http",
       "url": "http://127.0.0.1:8081/mcp"
     }
   }
 }
 ```
 
+(`type: "streamable-http"` is accepted as an alias for `http`.)
+
 Docs: [code.claude.com/docs/en/mcp](https://code.claude.com/docs/en/mcp).
 
 ## Gemini CLI
 
 Configure under `mcpServers` in `~/.gemini/settings.json` (user) or
-`.gemini/settings.json` (project). Use **`url` + `type: "sse"`** for this
-server (not streamable-HTTP `httpUrl` alone).
+`.gemini/settings.json` (project). Prefer **Streamable HTTP** (`httpUrl` /
+http transport), not SSE.
 
-**CLI:**
+**CLI** (flag names vary by Gemini CLI version — prefer http / streamable-http
+over `sse`):
 
 ```sh
-gemini mcp add --transport sse spacemosquito http://127.0.0.1:8081/mcp
+gemini mcp add --transport http spacemosquito http://127.0.0.1:8081/mcp
 # optional: -s user  → write to ~/.gemini/settings.json
 ```
 
-**settings.json:**
+**settings.json** (example — confirm field names in current Gemini docs):
 
 ```json
 {
   "mcpServers": {
     "spacemosquito": {
-      "type": "sse",
-      "url": "http://127.0.0.1:8081/mcp"
+      "httpUrl": "http://127.0.0.1:8081/mcp"
     }
   }
 }
@@ -85,14 +91,14 @@ Docs: [MCP servers with the Gemini CLI](https://google-gemini.github.io/gemini-c
 
 ## Other clients
 
-Any client that supports **remote MCP over SSE** can use:
+Any client that supports **remote MCP over Streamable HTTP** can use:
 
 ```text
 http://127.0.0.1:8081/mcp
 ```
 
-Field names vary (`url`, `serverUrl`, `type: "sse"`, etc.). No API key is
-required for the default local bind.
+Field names vary (`url`, `httpUrl`, `type: "http"` / `"streamable-http"`). No
+API key is required for the default local bind. Do **not** use `--transport sse`.
 
 ## Tools
 
@@ -103,54 +109,42 @@ required for the default local bind.
 | `confluence_list_space`  | Page summaries in a space (cursor pagination). Args: `space_key`, optional `limit`, `after_confluence_id`, `include_content`. |
 | `confluence_get_page`    | Full page by `confluence_id`; optional `space_key` if IDs collide across spaces.                                              |
 
-
 Typical flow: search → take `confluence_id` → `confluence_get_page`.
 
 Page `content` is **Markdown** (same as CLI / REST).
 
 ## Smoke test without an IDE
 
-Keep SSE open in one terminal and note the session path from the `endpoint` event:
-
 ```sh
-timeout 5 curl -sN http://127.0.0.1:8081/mcp
-```
-
-Example output:
-
-```text
-event: endpoint
-data: /mcp/session/<uuid>
-```
-
-Then POST JSON-RPC (replace `<uuid>`):
-
-```sh
-curl -s -X POST "http://127.0.0.1:8081/mcp/session/<uuid>" \
+curl -s -X POST "http://127.0.0.1:8081/mcp" \
   -H 'Content-Type: application/json' \
-  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}'
+  -H 'Accept: application/json, text/event-stream' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"curl","version":"0"}}}'
 ```
 
-The HTTP response is `202 Accepted`; the tool list arrives on the SSE stream.
-Use `timeout` on the GET so curl does not hang forever (see [DEVELOPMENT.md](../DEVELOPMENT.md)).
+```sh
+curl -s -X POST "http://127.0.0.1:8081/mcp" \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: application/json, text/event-stream' \
+  -d '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}'
+```
+
+Responses are JSON-RPC objects in the HTTP body (`Content-Type: application/json`).
+`GET /mcp` returns **405**.
 
 ## Troubleshooting
 
-
 | Symptom                 | Check                                                                                    |
 | ----------------------- | ---------------------------------------------------------------------------------------- |
-| Client cannot connect   | `spacemosquito serve` running? URL host/port match `mcp.host` / `mcp.port`?              |
+| Client cannot connect   | `spacemosquito serve` running? URL host/port match `mcp.host` / `mcp.port`? Use **http** / Streamable HTTP, not SSE. |
+| 405 on GET /mcp         | Expected — clients must **POST** JSON-RPC to `/mcp`.                                     |
+| 403 forbidden origin    | Browser sent a non-loopback `Origin`; bind locally or call without that Origin.          |
 | Tools empty / no spaces | Crawl or import at least one space; `spacemosquito stats`                                |
 | Search returns nothing  | Reindex after upgrade: `spacemosquito reindex` (and `--content` if Markdown looks wrong) |
-| SSE drops after idle    | Raise `mcp.session_timeout` or reconnect (clients usually reopen `/mcp`)                 |
-| Want LAN access         | Set `mcp.host: "0.0.0.0"` and use the machine’s IP in the client URL — no auth           |
-
-
-
+| Want LAN access         | Set `mcp.host: "0.0.0.0"` and use the machine’s IP in the client URL — **no auth**; Origin checks still reject non-loopback browser Origins |
 
 ## Related
 
 - [README](../../README.md) — install, crawl, search
 - [ARCHITECTURE.md](../ARCHITECTURE.md) — MCP package overview
-- [ADR-007](../../adr/007-mcp-transport-sse-http.md) — transport decision
-
+- [ADR-017](../adr/017-mcp-transport-streamable-http.md) — Streamable HTTP transport
